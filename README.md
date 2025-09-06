@@ -1,6 +1,6 @@
 # Neural Pricer
 
-A machine learning project for neural pricing models (with comparison to the MCS)
+A lightweight project to build neural network alternative for structured notes pricing.
 
 ## Setup
 
@@ -28,6 +28,23 @@ A machine learning project for neural pricing models (with comparison to the MCS
 - `requirements.txt` - Python dependencies
 - `.gitignore` - Git ignore rules
 
-## Usage
+## Simplified Phoenix (single underlying)
+
+Implements a Phoenix with monthly coupons, memory, European KI, and an autocall from month 6.
+Dynamics: Black–Scholes under risk-neutral measure.
+
+### Components
+
+- `src/gbm.py`: GBM path simulator with antithetics
+
+## Running Unittests in PowerShell
+
+To run the unittests from the project root in PowerShell, use:
+
+```powershell
+$env:PYTHONPATH="."; pytest unittests/
+```
+
+This ensures the current directory is on your Python path so imports like `from src.gbm import ...` work correctly.
 
 Activate the virtual environment before running any scripts or notebooks.

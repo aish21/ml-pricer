@@ -10,6 +10,7 @@ This module provides a numerically stable, vectorized GBM simulator that:
 - returns simulated price paths for the time grid
 """
 
+import math
 import logging
 import numpy as np
 from typing import Tuple, Optional
@@ -25,10 +26,9 @@ def simulate_gbm_paths(
     time_to_maturity: float,
     num_time_steps: int,
     num_paths: int,
-    rng: Optional[np.random.Generator] = None,
     seed: Optional[int] = None,
     antithetic: bool = True,
-    dtype: type[np.floating] | np.dtype = np.float64,
+    batch_size: Optional[int] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Simulate GBM asset price paths under the risk neutral measure
@@ -53,14 +53,12 @@ def simulate_gbm_paths(
             Number of time steps to discretize [0, T] - The simulator will return num_time_steps + 1 times including t=0 and t=T
         num_paths: int
             Number of Monte Carlo paths to generate (pre-antithetic). If `antithetic=True`, the effective number of simulated paths returned is num_paths * 2
-        rng : numpy.random.Generator, optional
-            A NumPy random generator to draw standard normals from
         seed : int, optional
             If rng is None, seed is used to construct a local np.random.Generator(seed)
         antithetic : bool, default True
             If True, returns antithetic pairs [-Z] appended to the base draws
-        dtype : np.dtype, default np.float64
-            Numeric dtype for simulation arrays
+        batch_size : int or None, optional
+            If set, simulation is done in batches of this size to reduce memory usage.
 
     Returns
         paths: np.ndarray
@@ -73,63 +71,59 @@ def simulate_gbm_paths(
     """
 
     # Input validation
-    if spot <= 0.0:
-        raise ValueError("Initial spot must be strictly positive.")
-    if time_to_maturity <= 0.0:
-        raise ValueError("Time to maturity must be strictly positive.")
-    if num_time_steps < 1:
-        raise ValueError("Number of time steps must be at least 1.")
-    if num_paths < 1:
-        raise ValueError("Number of paths must be at least 1.")
-    if volatility < 0.0:
-        raise ValueError("Volatility must be non-negative.")
+    if spot <= 0:
+        raise ValueError("spot must be positive.")
+    if volatility < 0:
+        raise ValueError("volatility must be non-negative.")
+    if time_to_maturity <= 0:
+        raise ValueError("time_to_maturity must be positive.")
+    if num_time_steps <= 0:
+        raise ValueError("num_time_steps must be positive.")
+    if num_paths <= 0:
+        raise ValueError("num_paths must be positive.")
+    if batch_size is not None and batch_size <= 0:
+        raise ValueError("batch_size must be positive or None.")
 
-    if rng is None:
-        rng = np.random.default_rng(seed)
-        logger.debug("No RNG provided, using local generator with seed %s", seed)
-    else:
-        logger.debug("Using provided RNG")
-
+    rng = np.random.default_rng(seed)
     num_steps = int(num_time_steps)
     T = float(time_to_maturity)
     dt = T / num_steps
     mu_dt = (risk_free_rate - dividend_yield - 0.5 * (volatility**2)) * dt
-    sig_sqrt_dt = volatility * np.sqrt(dt, dtype=dtype)
+    sig_sqrt_dt = volatility * math.sqrt(dt)
 
-    # Draw base standard normals (shape: num_paths x n_steps)
-    Z_base = rng.standard_normal(size=(num_paths, num_steps), dtype=dtype)
+    # Effective number of paths after applying antithetic
+    n_effective = num_paths * (2 if antithetic else 1)
 
-    if antithetic:
-        Z = np.vstack([Z_base, -Z_base])
-        logger.debug("Using antithetic variates, total paths: %d", Z.shape[0])
-    else:
-        Z = Z_base
-        logger.debug("Not using antithetic variates, total paths: %d", Z.shape[0])
-
-    # Vectorized log-increment accumulation - increments: shape (n_simulated_paths, n_steps)
-    increments = mu_dt + sig_sqrt_dt * Z
-    cum_log_increments = np.concatenate(
-        [
-            np.zeros((increments.shape[0], 1), dtype=dtype),
-            np.cumsum(increments, axis=1),
-        ],
-        axis=1,
-    )
-
-    log_S0 = np.log(spot)
-    log_paths = log_S0 + cum_log_increments
-    paths = np.exp(log_paths, dtype=dtype)
+    # Pre-allocate full output
+    paths = np.empty((n_effective, num_steps + 1), dtype=np.float64)
+    paths[:, 0] = spot
 
     # Time grid
-    time_grid = np.linspace(0.0, T, num_steps + 1, dtype=dtype)
+    time_grid = np.linspace(0.0, T, num_steps + 1, dtype=np.float64)
 
-    logger.debug(
-        "simulate_gbm_paths: spot=%.4f, steps=%d, num_paths=%d, dt=%.6f",
-        spot,
-        num_steps,
-        Z.shape[0],
-        dt,
-    )
+    # Batch size setup
+    if batch_size is None:
+        batch_size = num_paths
+
+    out_idx = 0
+    for batch_start in range(0, num_paths, batch_size):
+        batch_n = min(batch_size, num_paths - batch_start)
+        Z = rng.standard_normal(size=(batch_n, num_steps), dtype=np.float64)
+
+        if antithetic:
+            Z = np.concatenate([Z, -Z], axis=0)
+
+        log_S = np.full((Z.shape[0],), math.log(spot), dtype=np.float64)
+        paths_batch = np.empty((Z.shape[0], num_steps + 1), dtype=np.float64)
+        paths_batch[:, 0] = spot
+
+        for t in range(num_steps):
+            log_S += mu_dt + sig_sqrt_dt * Z[:, t]
+            paths_batch[:, t + 1] = np.exp(log_S)
+
+        # Copy into the full array
+        paths[out_idx : out_idx + Z.shape[0], :] = paths_batch
+        out_idx += Z.shape[0]
 
     return paths, time_grid
 
