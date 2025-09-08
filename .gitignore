@@ -56,3 +56,6 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+
+# Ignore copilot config files
+.github/instructions/*.instructions.md
