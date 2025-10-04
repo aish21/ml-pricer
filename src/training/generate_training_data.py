@@ -6,7 +6,6 @@ def simulate_gbm_paths(s0, r, sigma, T, n_steps, n_paths, seed=None):
     """
     Simulate GBM paths using Euler discretization.
     """
-
     if seed is not None:
         np.random.seed(seed)
 
@@ -20,27 +19,26 @@ def simulate_gbm_paths(s0, r, sigma, T, n_steps, n_paths, seed=None):
     for t in range(1, n_steps + 1):
         log_paths[:, t] = log_paths[:, t - 1] + increments[:, t - 1]
 
-    return np.exp(log_paths)  # shape: (n_paths, n_steps+1)
+    return np.exp(log_paths)  # Convert back to price paths
 
 
 def generate_training_data(
     s0=100,
-    # Expanded parameter ranges for more variety (adjust as needed)
     r_list=[0.0, 0.01, 0.02, 0.03, 0.05],
     sigma_list=[0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4],
     T_list=[0.1, 0.25, 0.5, 0.75, 1.0, 2.0],
     K_list=[60, 70, 80, 90, 100, 110, 120, 130, 140],
-    n_steps=50,  # Fewer steps
-    n_paths=1000,  # Fewer paths per combo
-    option_types=("call", "put", "digital", "asian"),  # All option types
-    max_total_samples=50000,  # Cap total samples for RAM control
-    prefix_len=10,  # Shorter prefix
+    option_types=("call", "put", "digital", "asian"),
+    n_steps=50,
+    n_paths=2000,  # more paths per parameter combo
+    max_total_samples=200000,  # larger total dataset cap
+    prefix_len=10,
     out_file="data/raw/training_data.npz",
     seed=42,
-    # Removed EDA subset saving
 ):
     """
-    Generate (prefix + contract params -> payoff) dataset for NN training.
+    Generate dataset: (prefix + stats + params -> discounted payoff).
+    NO scaling is applied. Just raw features + targets.
     """
     if seed is not None:
         np.random.seed(seed)
@@ -55,9 +53,10 @@ def generate_training_data(
                     for option_type in option_types:
                         if sample_count >= max_total_samples:
                             break
+
                         paths = simulate_gbm_paths(s0, r, sigma, T, n_steps, n_paths)
 
-                        # Option payoff logic
+                        # Option payoff
                         if option_type == "call":
                             payoffs = np.maximum(paths[:, -1] - K, 0.0)
                             opt_flag = 1.0
@@ -75,14 +74,10 @@ def generate_training_data(
 
                         discounted = np.exp(-r * T) * payoffs
 
-                        # Features: prefix of path + params
+                        # Prefix features
                         prefix = paths[:, :prefix_len]
-                        # Add Gaussian noise to prefix for robustness
-                        prefix += np.random.normal(
-                            0, 0.01 * np.abs(prefix), prefix.shape
-                        )
 
-                        # Additional features: min, max, mean, std of prefix, realized volatility
+                        # Stats on prefix
                         prefix_min = np.min(prefix, axis=1, keepdims=True)
                         prefix_max = np.max(prefix, axis=1, keepdims=True)
                         prefix_mean = np.mean(prefix, axis=1, keepdims=True)
@@ -96,6 +91,7 @@ def generate_training_data(
                         params = np.array([K, T, r, sigma, opt_flag])[None, :].repeat(
                             n_paths, axis=0
                         )
+
                         features = np.hstack(
                             [
                                 prefix,
@@ -108,7 +104,7 @@ def generate_training_data(
                             ]
                         )
 
-                        # Truncate if exceeding max_total_samples
+                        # Check sample cap
                         remaining = max_total_samples - sample_count
                         if features.shape[0] > remaining:
                             features = features[:remaining]
@@ -121,48 +117,24 @@ def generate_training_data(
     X_all = np.vstack(X_all)
     y_all = np.concatenate(y_all)
 
-    # Print estimated memory usage before saving
-    est_mem_mb = (X_all.nbytes + y_all.nbytes) / 1e6
-    print(f"Estimated total memory for arrays: {est_mem_mb:.2f} MB")
-
-    # Shuffle data for randomness
+    # Shuffle
     idx = np.random.permutation(X_all.shape[0])
     X_all = X_all[idx]
     y_all = y_all[idx]
 
-    # Print RAM usage and array sizes for diagnostics
-    try:
-        import psutil
-
-        print(f"RAM used: {psutil.virtual_memory().used / 1e9:.2f} GB")
-    except ImportError:
-        print("psutil not installed; skipping RAM usage print.")
-    print(f"X size: {X_all.nbytes / 1e6:.2f} MB, y size: {y_all.nbytes / 1e6:.2f} MB")
-
-    # Print target statistics for scaling diagnostics
-    print(
-        f"y stats: mean={y_all.mean():.4f}, std={y_all.std():.4f}, min={y_all.min():.4f}, max={y_all.max():.4f}"
-    )
-
-    # Normalize features (except categorical opt_flag)
-    from sklearn.preprocessing import StandardScaler
-
-    scaler = StandardScaler()
-    X_all_scaled = scaler.fit_transform(X_all[:, :-1])
-    X_all_final = np.hstack([X_all_scaled, X_all[:, -1].reshape(-1, 1)])
-
+    # Save raw data
     os.makedirs(os.path.dirname(out_file), exist_ok=True)
-    # Save without compression to avoid MemoryError
-    np.savez(out_file, X=X_all_final, y=y_all)
+    np.savez(out_file, X=X_all, y=y_all)
 
-    print(f"Saved improved dataset to {out_file}")
-    print(f"X shape: {X_all_final.shape}, y shape: {y_all.shape}")
+    print(f"Saved raw dataset to {out_file}")
+    print(f"X shape: {X_all.shape}, y shape: {y_all.shape}")
     print(
         f"Feature vector = prefix({prefix_len}) + [min, max, mean, std, realized_vol] + [K, T, r, sigma, option_flag]"
     )
-
-    # NOTE: To ensure scaling consistency between training and inference, always use the same scaler object (save it with joblib/pickle if needed).
-    return X_all_final, y_all
+    print(
+        f"y stats: mean={y_all.mean():.4f}, std={y_all.std():.4f}, min={y_all.min():.4f}, max={y_all.max():.4f}"
+    )
+    return X_all, y_all
 
 
 if __name__ == "__main__":

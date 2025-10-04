@@ -59,3 +59,7 @@ Thumbs.db
 
 # Ignore copilot config files
 .github/instructions/*.instructions.md
+
+# Ignore large binary files
+*.npz
+*.keras
