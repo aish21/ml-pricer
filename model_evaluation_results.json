@@ -1,0 +1,56 @@
+{
+  "mlp_large": [],
+  "mlp_large_advanced_tuned": [
+    {
+      "r": 0.03,
+      "sigma": 0.2,
+      "T": 1.0,
+      "K": 100,
+      "option_type": "call",
+      "nn_mc": 36.97844696044922,
+      "mc": 9.143443816140621,
+      "abs_error": 27.835003144308597,
+      "pct_error": 304.4258126809111
+    }
+  ],
+  "mlp_large_deep_residual_tuned": [],
+  "mlp_large_residual_tuned": [
+    {
+      "r": 0.03,
+      "sigma": 0.2,
+      "T": 1.0,
+      "K": 100,
+      "option_type": "call",
+      "nn_mc": 2473.56689453125,
+      "mc": 9.831397335137614,
+      "abs_error": 2463.735497196112,
+      "pct_error": 25059.87107642035
+    }
+  ],
+  "mlp_large_tuned": [
+    {
+      "r": 0.03,
+      "sigma": 0.2,
+      "T": 1.0,
+      "K": 100,
+      "option_type": "call",
+      "nn_mc": 2793.154296875,
+      "mc": 9.546847224976458,
+      "abs_error": 2783.6074496500237,
+      "pct_error": 29157.34780344605
+    }
+  ],
+  "mlp_quick": [
+    {
+      "r": 0.03,
+      "sigma": 0.2,
+      "T": 1.0,
+      "K": 100,
+      "option_type": "call",
+      "nn_mc": 2746.10009765625,
+      "mc": 9.536694386915796,
+      "abs_error": 2736.5634032693342,
+      "pct_error": 28695.09383695737
+    }
+  ]
+}
