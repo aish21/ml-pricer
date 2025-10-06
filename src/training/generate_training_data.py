@@ -24,21 +24,20 @@ def simulate_gbm_paths(s0, r, sigma, T, n_steps, n_paths, seed=None):
 
 def generate_training_data(
     s0=100,
-    r_list=[0.0, 0.01, 0.02, 0.03, 0.05],
-    sigma_list=[0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4],
-    T_list=[0.1, 0.25, 0.5, 0.75, 1.0, 2.0],
-    K_list=[60, 70, 80, 90, 100, 110, 120, 130, 140],
+    r_range=(0.0, 0.05),
+    sigma_range=(0.05, 0.5),
+    T_range=(0.05, 2.0),
+    K_range=(60, 140),
     option_types=("call", "put", "digital", "asian"),
     n_steps=50,
-    n_paths=2000,  # more paths per parameter combo
-    max_total_samples=200000,  # larger total dataset cap
+    n_paths=10000,
+    max_total_samples=500000,
     prefix_len=10,
-    out_file="data/raw/training_data.npz",
+    out_file="data/raw/training_data_trees.npz",
     seed=42,
 ):
     """
     Generate dataset: (prefix + stats + params -> discounted payoff).
-    NO scaling is applied. Just raw features + targets.
     """
     if seed is not None:
         np.random.seed(seed)
@@ -46,73 +45,71 @@ def generate_training_data(
     X_all, y_all = [], []
     sample_count = 0
 
-    for r in r_list:
-        for sigma in sigma_list:
-            for T in T_list:
-                for K in K_list:
-                    for option_type in option_types:
-                        if sample_count >= max_total_samples:
-                            break
+    while sample_count < max_total_samples:
+        # Sample random parameters instead of fixed grid
+        r = np.random.uniform(*r_range)
+        sigma = np.random.uniform(*sigma_range)
+        T = np.random.uniform(*T_range)
+        K = np.random.uniform(*K_range)
+        option_type = np.random.choice(option_types)
 
-                        paths = simulate_gbm_paths(s0, r, sigma, T, n_steps, n_paths)
+        paths = simulate_gbm_paths(s0, r, sigma, T, n_steps, n_paths)
 
-                        # Option payoff
-                        if option_type == "call":
-                            payoffs = np.maximum(paths[:, -1] - K, 0.0)
-                            opt_flag = 1.0
-                        elif option_type == "put":
-                            payoffs = np.maximum(K - paths[:, -1], 0.0)
-                            opt_flag = 0.0
-                        elif option_type == "digital":
-                            payoffs = (paths[:, -1] > K).astype(float)
-                            opt_flag = 2.0
-                        elif option_type == "asian":
-                            payoffs = np.maximum(np.mean(paths, axis=1) - K, 0.0)
-                            opt_flag = 3.0
-                        else:
-                            continue
+        # Option payoff
+        if option_type == "call":
+            payoffs = np.maximum(paths[:, -1] - K, 0.0)
+            opt_flag = 1.0
+        elif option_type == "put":
+            payoffs = np.maximum(K - paths[:, -1], 0.0)
+            opt_flag = 0.0
+        elif option_type == "digital":
+            payoffs = (paths[:, -1] > K).astype(float)
+            opt_flag = 2.0
+        elif option_type == "asian":
+            payoffs = np.maximum(np.mean(paths, axis=1) - K, 0.0)
+            opt_flag = 3.0
+        else:
+            continue
 
-                        discounted = np.exp(-r * T) * payoffs
+        discounted = np.exp(-r * T) * payoffs
 
-                        # Prefix features
-                        prefix = paths[:, :prefix_len]
+        # Prefix features
+        prefix = paths[:, :prefix_len]
 
-                        # Stats on prefix
-                        prefix_min = np.min(prefix, axis=1, keepdims=True)
-                        prefix_max = np.max(prefix, axis=1, keepdims=True)
-                        prefix_mean = np.mean(prefix, axis=1, keepdims=True)
-                        prefix_std = np.std(prefix, axis=1, keepdims=True)
-                        realized_vol = np.std(
-                            np.diff(np.log(prefix + 1e-8), axis=1),
-                            axis=1,
-                            keepdims=True,
-                        )
+        # Stats on prefix
+        prefix_min = np.min(prefix, axis=1, keepdims=True)
+        prefix_max = np.max(prefix, axis=1, keepdims=True)
+        prefix_mean = np.mean(prefix, axis=1, keepdims=True)
+        prefix_std = np.std(prefix, axis=1, keepdims=True)
+        realized_vol = np.std(
+            np.diff(np.log(prefix + 1e-8), axis=1),
+            axis=1,
+            keepdims=True,
+        )
 
-                        params = np.array([K, T, r, sigma, opt_flag])[None, :].repeat(
-                            n_paths, axis=0
-                        )
+        params = np.array([K, T, r, sigma, opt_flag])[None, :].repeat(n_paths, axis=0)
 
-                        features = np.hstack(
-                            [
-                                prefix,
-                                prefix_min,
-                                prefix_max,
-                                prefix_mean,
-                                prefix_std,
-                                realized_vol,
-                                params,
-                            ]
-                        )
+        features = np.hstack(
+            [
+                prefix,
+                prefix_min,
+                prefix_max,
+                prefix_mean,
+                prefix_std,
+                realized_vol,
+                params,
+            ]
+        )
 
-                        # Check sample cap
-                        remaining = max_total_samples - sample_count
-                        if features.shape[0] > remaining:
-                            features = features[:remaining]
-                            discounted = discounted[:remaining]
+        # Check sample cap
+        remaining = max_total_samples - sample_count
+        if features.shape[0] > remaining:
+            features = features[:remaining]
+            discounted = discounted[:remaining]
 
-                        X_all.append(features)
-                        y_all.append(discounted)
-                        sample_count += features.shape[0]
+        X_all.append(features)
+        y_all.append(discounted)
+        sample_count += features.shape[0]
 
     X_all = np.vstack(X_all)
     y_all = np.concatenate(y_all)

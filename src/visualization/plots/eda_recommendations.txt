@@ -1,0 +1,13 @@
+EDA findings:
+Total samples: 500000
+Class distribution (option types):
+ asian: 140000
+ call: 130000
+ put: 130000
+ digital: 100000
+Suggested preprocessing for trees:
+ - Keep raw features; tree models do not require scaling.
+ - Encode option_flag as categorical integer or one-hot depending on model (GBM supports categorical directly).
+ - Consider clipping NN predictions to be >=0 or training with non-negative targets if using regression models.
+ - Digitals have many near-0 labels; consider oversampling digitals or using separate models for discrete payoffs.
+ - Feature importance from LightGBM shows which prefix/time features matter; use those for feature selection. (see lgbm_feature_importance.png)
