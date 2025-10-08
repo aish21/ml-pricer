@@ -134,5 +134,70 @@ def generate_training_data(
     return X_all, y_all
 
 
+def generate_expected_training_data(
+    s0=100,
+    r_list=[0.0, 0.01, 0.02, 0.03, 0.05],
+    sigma_list=[0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4],
+    T_list=[0.1, 0.25, 0.5, 0.75, 1.0, 2.0],
+    K_list=[60, 70, 80, 90, 100, 110, 120, 130, 140],
+    option_types=("call", "put", "digital", "asian"),
+    n_steps=50,
+    n_paths=5000,
+    out_file="data/raw/training_data_expected.npz",
+    seed=123,
+):
+    """
+    New version: compute *expected discounted payoff per parameter combo*.
+    Much smoother labels, better for tree models.
+    """
+    if seed is not None:
+        np.random.seed(seed)
+
+    rows = []
+
+    for r in r_list:
+        for sigma in sigma_list:
+            for T in T_list:
+                for K in K_list:
+                    for option_type in option_types:
+                        paths = simulate_gbm_paths(s0, r, sigma, T, n_steps, n_paths)
+
+                        if option_type == "call":
+                            payoffs = np.maximum(paths[:, -1] - K, 0.0)
+                            opt_flag = 1.0
+                        elif option_type == "put":
+                            payoffs = np.maximum(K - paths[:, -1], 0.0)
+                            opt_flag = 0.0
+                        elif option_type == "digital":
+                            payoffs = (paths[:, -1] > K).astype(float)
+                            opt_flag = 2.0
+                        elif option_type == "asian":
+                            payoffs = np.maximum(np.mean(paths, axis=1) - K, 0.0)
+                            opt_flag = 3.0
+                        else:
+                            continue
+
+                        discounted = np.exp(-r * T) * payoffs
+                        expected_payoff = np.mean(discounted)
+
+                        # Feature vector = [K, T, r, sigma, option_flag]
+                        features = [K, T, r, sigma, opt_flag]
+                        rows.append((features, expected_payoff))
+
+    X_all = np.array([row[0] for row in rows])
+    y_all = np.array([row[1] for row in rows])
+
+    os.makedirs(os.path.dirname(out_file), exist_ok=True)
+    np.savez(out_file, X=X_all, y=y_all)
+
+    print(f"Saved expected dataset to {out_file}")
+    print(f"X shape: {X_all.shape}, y shape: {y_all.shape}")
+    print(
+        f"y stats: mean={y_all.mean():.4f}, std={y_all.std():.4f}, min={y_all.min():.4f}, max={y_all.max():.4f}"
+    )
+    return X_all, y_all
+
+
 if __name__ == "__main__":
-    generate_training_data()
+    # generate_training_data()
+    generate_expected_training_data()
