@@ -1,10 +1,7 @@
-# =====================================================
-# Hybrid Pricing Pipeline: MC vs Tree-Based Surrogates
-# =====================================================
-
 import os
 import time
 import numpy as np
+from src.training.generate_training_data import simulate_gbm_paths
 
 import lightgbm as lgb
 import xgboost as xgb
@@ -13,32 +10,17 @@ from catboost import CatBoostRegressor
 # ----------------------------
 # Config
 # ----------------------------
-MODEL_DIR = "../models"
+BASE_DIR = os.path.dirname(os.path.dirname(__file__))  # src/
+MODEL_DIR = os.path.join(BASE_DIR, "models")
+
 N_STEPS = 100
 N_PATHS = 100_000
 S0 = 100.0
 
+# IMPORTANT: must match training script setting
+USE_LOG_TARGET = True
+
 option_map = {"put": 0.0, "call": 1.0, "digital": 2.0, "asian": 3.0}
-
-
-def simulate_gbm_paths(s0, r, sigma, T, n_steps, n_paths, seed=None):
-    """
-    Simulate GBM paths using Euler discretization.
-    """
-    if seed is not None:
-        np.random.seed(seed)
-
-    dt = T / n_steps
-    Z = np.random.randn(n_paths, n_steps)
-    increments = (r - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * Z
-
-    log_paths = np.zeros((n_paths, n_steps + 1))
-    log_paths[:, 0] = np.log(s0)
-
-    for t in range(1, n_steps + 1):
-        log_paths[:, t] = log_paths[:, t - 1] + increments[:, t - 1]
-
-    return np.exp(log_paths)  # Convert back to price paths
 
 
 # ----------------------------
@@ -49,19 +31,21 @@ def load_models(option_type):
 
     # LightGBM
     lgb_path = os.path.join(MODEL_DIR, f"lightgbm_{option_type}.txt")
-    print(f"Loading LightGBM model from {lgb_path}")
     if os.path.exists(lgb_path):
+        print(f"Loading LightGBM model from {lgb_path}")
         models["LightGBM"] = lgb.Booster(model_file=lgb_path)
 
     # XGBoost
     xgb_path = os.path.join(MODEL_DIR, f"xgboost_{option_type}.json")
     if os.path.exists(xgb_path):
+        print(f"Loading XGBoost model from {xgb_path}")
         models["XGBoost"] = xgb.XGBRegressor()
         models["XGBoost"].load_model(xgb_path)
 
     # CatBoost
     cat_path = os.path.join(MODEL_DIR, f"catboost_{option_type}.cbm")
     if os.path.exists(cat_path):
+        print(f"Loading CatBoost model from {cat_path}")
         models["CatBoost"] = CatBoostRegressor()
         models["CatBoost"].load_model(cat_path)
 
@@ -87,18 +71,18 @@ def mc_pricer(s0, K, T, r, sigma, option_type, n_steps=N_STEPS, n_paths=N_PATHS)
 
 
 # ----------------------------
-# Surrogate pricer
+# Surrogate pricer (with log->exp1m inversion)
 # ----------------------------
 def surrogate_pricer(model, algo, K, T, r, sigma, option_type):
-    x = np.array([[K, T, r, sigma, option_map[option_type]]])
-    if algo == "LightGBM":
-        return model.predict(x)[0]
-    elif algo == "XGBoost":
-        return model.predict(x)[0]
-    elif algo == "CatBoost":
-        return model.predict(x)[0]
-    else:
-        raise ValueError(f"Unsupported algo: {algo}")
+    # Only pass the 4 features used in training
+    x = np.array([[K, T, r, sigma]])
+    pred = model.predict(x)[0]
+
+    # Invert log-transform if applied in training
+    if USE_LOG_TARGET:
+        pred = np.expm1(pred)
+
+    return pred
 
 
 # ----------------------------
