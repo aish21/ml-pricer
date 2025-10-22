@@ -1,0 +1,280 @@
+[
+  {
+    "params": {
+      "S0": 100.0,
+      "K_autocall_frac": 1.05,
+      "coupon_barrier_frac": 1.0,
+      "knock_in_frac": 0.7,
+      "coupon_rate": 2.0,
+      "r": 0.03,
+      "sigma": 0.2,
+      "T": 1.0,
+      "obs_count": 6
+    },
+    "per_npaths": {
+      "500": {
+        "LightGBM": {
+          "algo": "LightGBM",
+          "input_dim": 8,
+          "model_price": 0.9607464486414072,
+          "model_time_estimate": null,
+          "pathwise_ok": false,
+          "note": "model appears parameter-only; pathwise hybrid not applicable."
+        },
+        "XGBoost": {
+          "algo": "XGBoost",
+          "input_dim": 8,
+          "model_price": 0.9704313113790266,
+          "model_time_estimate": null,
+          "pathwise_ok": false,
+          "note": "model appears parameter-only; pathwise hybrid not applicable."
+        },
+        "CatBoost": {
+          "algo": "CatBoost",
+          "input_dim": 8,
+          "model_price": 0.9658666885198648,
+          "model_time_estimate": null,
+          "pathwise_ok": false,
+          "note": "model appears parameter-only; pathwise hybrid not applicable."
+        },
+        "MC": {
+          "price": 99.47580743305397,
+          "time": 0.024027585983276367,
+          "var": 62.108775234908464
+        }
+      },
+      "2000": {
+        "LightGBM": {
+          "algo": "LightGBM",
+          "input_dim": 8,
+          "model_price": 0.9607464486414072,
+          "model_time_estimate": null,
+          "pathwise_ok": false,
+          "note": "model appears parameter-only; pathwise hybrid not applicable."
+        },
+        "XGBoost": {
+          "algo": "XGBoost",
+          "input_dim": 8,
+          "model_price": 0.9704313113790266,
+          "model_time_estimate": null,
+          "pathwise_ok": false,
+          "note": "model appears parameter-only; pathwise hybrid not applicable."
+        },
+        "CatBoost": {
+          "algo": "CatBoost",
+          "input_dim": 8,
+          "model_price": 0.9658666885198648,
+          "model_time_estimate": null,
+          "pathwise_ok": false,
+          "note": "model appears parameter-only; pathwise hybrid not applicable."
+        },
+        "MC": {
+          "price": 99.64816177099452,
+          "time": 0.06858539581298828,
+          "var": 63.45211319754369
+        }
+      },
+      "8000": {
+        "LightGBM": {
+          "algo": "LightGBM",
+          "input_dim": 8,
+          "model_price": 0.9607464486414072,
+          "model_time_estimate": null,
+          "pathwise_ok": false,
+          "note": "model appears parameter-only; pathwise hybrid not applicable."
+        },
+        "XGBoost": {
+          "algo": "XGBoost",
+          "input_dim": 8,
+          "model_price": 0.9704313113790266,
+          "model_time_estimate": null,
+          "pathwise_ok": false,
+          "note": "model appears parameter-only; pathwise hybrid not applicable."
+        },
+        "CatBoost": {
+          "algo": "CatBoost",
+          "input_dim": 8,
+          "model_price": 0.9658666885198648,
+          "model_time_estimate": null,
+          "pathwise_ok": false,
+          "note": "model appears parameter-only; pathwise hybrid not applicable."
+        },
+        "MC": {
+          "price": 99.63096784627903,
+          "time": 0.21862554550170898,
+          "var": 66.32728010048734
+        }
+      },
+      "32000": {
+        "LightGBM": {
+          "algo": "LightGBM",
+          "input_dim": 8,
+          "model_price": 0.9607464486414072,
+          "model_time_estimate": null,
+          "pathwise_ok": false,
+          "note": "model appears parameter-only; pathwise hybrid not applicable."
+        },
+        "XGBoost": {
+          "algo": "XGBoost",
+          "input_dim": 8,
+          "model_price": 0.9704313113790266,
+          "model_time_estimate": null,
+          "pathwise_ok": false,
+          "note": "model appears parameter-only; pathwise hybrid not applicable."
+        },
+        "CatBoost": {
+          "algo": "CatBoost",
+          "input_dim": 8,
+          "model_price": 0.9658666885198648,
+          "model_time_estimate": null,
+          "pathwise_ok": false,
+          "note": "model appears parameter-only; pathwise hybrid not applicable."
+        },
+        "MC": {
+          "price": 99.59006343822696,
+          "time": 0.7791192531585693,
+          "var": 66.41092816338707
+        }
+      }
+    }
+  },
+  {
+    "params": {
+      "S0": 100.0,
+      "K_autocall_frac": 1.0,
+      "coupon_barrier_frac": 0.95,
+      "knock_in_frac": 0.6,
+      "coupon_rate": 1.5,
+      "r": 0.01,
+      "sigma": 0.25,
+      "T": 2.0,
+      "obs_count": 8
+    },
+    "per_npaths": {
+      "500": {
+        "LightGBM": {
+          "algo": "LightGBM",
+          "input_dim": 8,
+          "model_price": 0.965107605597151,
+          "model_time_estimate": null,
+          "pathwise_ok": false,
+          "note": "model appears parameter-only; pathwise hybrid not applicable."
+        },
+        "XGBoost": {
+          "algo": "XGBoost",
+          "input_dim": 8,
+          "model_price": 0.9705424192394778,
+          "model_time_estimate": null,
+          "pathwise_ok": false,
+          "note": "model appears parameter-only; pathwise hybrid not applicable."
+        },
+        "CatBoost": {
+          "algo": "CatBoost",
+          "input_dim": 8,
+          "model_price": 0.9712057999111137,
+          "model_time_estimate": null,
+          "pathwise_ok": false,
+          "note": "model appears parameter-only; pathwise hybrid not applicable."
+        },
+        "MC": {
+          "price": 99.24430407490837,
+          "time": 0.015519142150878906,
+          "var": 120.54905080758355
+        }
+      },
+      "2000": {
+        "LightGBM": {
+          "algo": "LightGBM",
+          "input_dim": 8,
+          "model_price": 0.965107605597151,
+          "model_time_estimate": null,
+          "pathwise_ok": false,
+          "note": "model appears parameter-only; pathwise hybrid not applicable."
+        },
+        "XGBoost": {
+          "algo": "XGBoost",
+          "input_dim": 8,
+          "model_price": 0.9705424192394778,
+          "model_time_estimate": null,
+          "pathwise_ok": false,
+          "note": "model appears parameter-only; pathwise hybrid not applicable."
+        },
+        "CatBoost": {
+          "algo": "CatBoost",
+          "input_dim": 8,
+          "model_price": 0.9712057999111137,
+          "model_time_estimate": null,
+          "pathwise_ok": false,
+          "note": "model appears parameter-only; pathwise hybrid not applicable."
+        },
+        "MC": {
+          "price": 99.0771172352584,
+          "time": 0.059102773666381836,
+          "var": 124.65078185753983
+        }
+      },
+      "8000": {
+        "LightGBM": {
+          "algo": "LightGBM",
+          "input_dim": 8,
+          "model_price": 0.965107605597151,
+          "model_time_estimate": null,
+          "pathwise_ok": false,
+          "note": "model appears parameter-only; pathwise hybrid not applicable."
+        },
+        "XGBoost": {
+          "algo": "XGBoost",
+          "input_dim": 8,
+          "model_price": 0.9705424192394778,
+          "model_time_estimate": null,
+          "pathwise_ok": false,
+          "note": "model appears parameter-only; pathwise hybrid not applicable."
+        },
+        "CatBoost": {
+          "algo": "CatBoost",
+          "input_dim": 8,
+          "model_price": 0.9712057999111137,
+          "model_time_estimate": null,
+          "pathwise_ok": false,
+          "note": "model appears parameter-only; pathwise hybrid not applicable."
+        },
+        "MC": {
+          "price": 99.17345074238212,
+          "time": 0.2724032402038574,
+          "var": 121.08650940471728
+        }
+      },
+      "32000": {
+        "LightGBM": {
+          "algo": "LightGBM",
+          "input_dim": 8,
+          "model_price": 0.965107605597151,
+          "model_time_estimate": null,
+          "pathwise_ok": false,
+          "note": "model appears parameter-only; pathwise hybrid not applicable."
+        },
+        "XGBoost": {
+          "algo": "XGBoost",
+          "input_dim": 8,
+          "model_price": 0.9705424192394778,
+          "model_time_estimate": null,
+          "pathwise_ok": false,
+          "note": "model appears parameter-only; pathwise hybrid not applicable."
+        },
+        "CatBoost": {
+          "algo": "CatBoost",
+          "input_dim": 8,
+          "model_price": 0.9712057999111137,
+          "model_time_estimate": null,
+          "pathwise_ok": false,
+          "note": "model appears parameter-only; pathwise hybrid not applicable."
+        },
+        "MC": {
+          "price": 99.05711147516011,
+          "time": 0.9363429546356201,
+          "var": 124.73832496493988
+        }
+      }
+    }
+  }
+]
