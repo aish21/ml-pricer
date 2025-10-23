@@ -1,0 +1,209 @@
+{
+  "generated_at": 1761229086.6042428,
+  "results": [
+    {
+      "params": {
+        "S0": 100.0,
+        "K_autocall_frac": 1.05,
+        "coupon_barrier_frac": 1.0,
+        "knock_in_frac": 0.7,
+        "coupon_rate": 0.02,
+        "r": 0.03,
+        "sigma": 0.2,
+        "T": 1.0,
+        "obs_count": 6
+      },
+      "per_npaths": {
+        "500": {
+          "MC": {
+            "price": 0.9703058898205486,
+            "time": 0.008007049560546875,
+            "var": 0.005259358617832185,
+            "n_mc": 500
+          },
+          "LightGBM": {
+            "model_price": 0.6946178333509806,
+            "model_time": 0.0005087852478027344,
+            "abs_error_model_vs_mc": 0.27568805646956795,
+            "rel_error_model_vs_mc": 0.28412489232705224,
+            "note": "ok"
+          },
+          "XGBoost": {
+            "model_price": 0.6942039728164673,
+            "model_time": 0.0010039806365966797,
+            "abs_error_model_vs_mc": 0.27610191700408127,
+            "rel_error_model_vs_mc": 0.28455141816684676,
+            "note": "ok"
+          },
+          "CatBoost": {
+            "model_price": 0.6945877482447538,
+            "model_time": 0.0010030269622802734,
+            "abs_error_model_vs_mc": 0.2757181415757948,
+            "rel_error_model_vs_mc": 0.284155898122794,
+            "note": "ok"
+          }
+        },
+        "2000": {
+          "MC": {
+            "price": 0.9712632023090496,
+            "time": 0.03503775596618652,
+            "var": 0.005273175947732659,
+            "n_mc": 2000
+          },
+          "LightGBM": {
+            "model_price": 0.6946178333509806,
+            "model_time": 0.0,
+            "abs_error_model_vs_mc": 0.276645368958069,
+            "rel_error_model_vs_mc": 0.28483048498118874,
+            "note": "ok"
+          },
+          "XGBoost": {
+            "model_price": 0.6942039728164673,
+            "model_time": 0.0009989738464355469,
+            "abs_error_model_vs_mc": 0.2770592294925823,
+            "rel_error_model_vs_mc": 0.28525659042153634,
+            "note": "ok"
+          },
+          "CatBoost": {
+            "model_price": 0.6945877482447538,
+            "model_time": 0.0005021095275878906,
+            "abs_error_model_vs_mc": 0.27667545406429583,
+            "rel_error_model_vs_mc": 0.2848614602164857,
+            "note": "ok"
+          }
+        },
+        "8000": {
+          "MC": {
+            "price": 0.970559709286407,
+            "time": 0.11894083023071289,
+            "var": 0.0055777571312169835,
+            "n_mc": 8000
+          },
+          "LightGBM": {
+            "model_price": 0.6946178333509806,
+            "model_time": 0.0009984970092773438,
+            "abs_error_model_vs_mc": 0.2759418759354264,
+            "rel_error_model_vs_mc": 0.2843121070194739,
+            "note": "ok"
+          },
+          "XGBoost": {
+            "model_price": 0.6942039728164673,
+            "model_time": 0.0005023479461669922,
+            "abs_error_model_vs_mc": 0.2763557364699397,
+            "rel_error_model_vs_mc": 0.2847385213148062,
+            "note": "ok"
+          },
+          "CatBoost": {
+            "model_price": 0.6945877482447538,
+            "model_time": 0.0010042190551757812,
+            "abs_error_model_vs_mc": 0.2759719610416532,
+            "rel_error_model_vs_mc": 0.2843431047066218,
+            "note": "ok"
+          }
+        }
+      }
+    },
+    {
+      "params": {
+        "S0": 100.0,
+        "K_autocall_frac": 1.0,
+        "coupon_barrier_frac": 0.95,
+        "knock_in_frac": 0.6,
+        "coupon_rate": 0.015,
+        "r": 0.01,
+        "sigma": 0.25,
+        "T": 2.0,
+        "obs_count": 8
+      },
+      "per_npaths": {
+        "500": {
+          "MC": {
+            "price": 0.9530584649216803,
+            "time": 0.007508754730224609,
+            "var": 0.018676327766185805,
+            "n_mc": 500
+          },
+          "LightGBM": {
+            "model_price": 0.687069680675098,
+            "model_time": 0.0,
+            "abs_error_model_vs_mc": 0.26598878424658234,
+            "rel_error_model_vs_mc": 0.27908968236113463,
+            "note": "ok"
+          },
+          "XGBoost": {
+            "model_price": 0.6904125213623047,
+            "model_time": 0.0009999275207519531,
+            "abs_error_model_vs_mc": 0.26264594355937565,
+            "rel_error_model_vs_mc": 0.2755821948246996,
+            "note": "ok"
+          },
+          "CatBoost": {
+            "model_price": 0.6853491739385441,
+            "model_time": 0.0005040168762207031,
+            "abs_error_model_vs_mc": 0.2677092909831362,
+            "rel_error_model_vs_mc": 0.28089493020256195,
+            "note": "ok"
+          }
+        },
+        "2000": {
+          "MC": {
+            "price": 0.9527799837340521,
+            "time": 0.03421616554260254,
+            "var": 0.018952407732887772,
+            "n_mc": 2000
+          },
+          "LightGBM": {
+            "model_price": 0.687069680675098,
+            "model_time": 0.0009987354278564453,
+            "abs_error_model_vs_mc": 0.26571030305895416,
+            "rel_error_model_vs_mc": 0.278878972685389,
+            "note": "ok"
+          },
+          "XGBoost": {
+            "model_price": 0.6904125213623047,
+            "model_time": 0.0,
+            "abs_error_model_vs_mc": 0.26236746237174746,
+            "rel_error_model_vs_mc": 0.27537045997072673,
+            "note": "ok"
+          },
+          "CatBoost": {
+            "model_price": 0.6853491739385441,
+            "model_time": 0.001001119613647461,
+            "abs_error_model_vs_mc": 0.26743080979550804,
+            "rel_error_model_vs_mc": 0.280684748169684,
+            "note": "ok"
+          }
+        },
+        "8000": {
+          "MC": {
+            "price": 0.9538293333249628,
+            "time": 0.12166452407836914,
+            "var": 0.01898173489490408,
+            "n_mc": 8000
+          },
+          "LightGBM": {
+            "model_price": 0.687069680675098,
+            "model_time": 0.0,
+            "abs_error_model_vs_mc": 0.2667596526498648,
+            "rel_error_model_vs_mc": 0.27967230963632117,
+            "note": "ok"
+          },
+          "XGBoost": {
+            "model_price": 0.6904125213623047,
+            "model_time": 0.0010004043579101562,
+            "abs_error_model_vs_mc": 0.2634168119626581,
+            "rel_error_model_vs_mc": 0.2761676567907709,
+            "note": "ok"
+          },
+          "CatBoost": {
+            "model_price": 0.6853491739385441,
+            "model_time": 0.0,
+            "abs_error_model_vs_mc": 0.26848015938641867,
+            "rel_error_model_vs_mc": 0.28147609850760313,
+            "note": "ok"
+          }
+        }
+      }
+    }
+  ]
+}
