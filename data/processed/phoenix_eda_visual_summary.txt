@@ -1,23 +1,23 @@
 Phoenix EDA Summary
 =====================
 
-Dataset size: 1000
-Mean price: 1.0019
-Std dev: 0.0284
+Dataset size: 10000
+Mean price: 0.7053
+Std dev: 0.0332
 
 Correlation with target:
 price               1.000000
-coupon_rate         0.272073
-autocall_barrier    0.029825
-coupon_barrier     -0.034907
-T                  -0.120211
-knock_in_barrier   -0.127889
-r                  -0.237204
-sigma              -0.852144
-S0                       NaN
+coupon_rate         0.573021
+autocall_barrier    0.106879
+S0                 -0.005410
+r                  -0.115837
+coupon_barrier     -0.241317
+knock_in_barrier   -0.253549
+T                  -0.361980
+sigma              -0.531497
 
 Top 3 influential parameters (correlation):
 price               1.000000
-coupon_rate         0.272073
-autocall_barrier    0.029825
-coupon_barrier     -0.034907
+coupon_rate         0.573021
+autocall_barrier    0.106879
+S0                 -0.005410

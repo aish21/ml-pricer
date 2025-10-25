@@ -1,0 +1,127 @@
+{
+  "meta": {},
+  "metrics": {
+    "LightGBM": {
+      "rmse": 0.0038997412689809,
+      "mae": 0.0029843241358637274,
+      "r2": 0.985884696144763,
+      "train_time": 0.5039536952972412
+    },
+    "XGBoost": {
+      "rmse": 0.003862960787980741,
+      "mae": 0.0029549030034897424,
+      "r2": 0.9861496980307655,
+      "train_time": 0.6818466186523438
+    },
+    "CatBoost": {
+      "rmse": 0.0031581352825089805,
+      "mae": 0.0023822298656452894,
+      "r2": 0.9907427902978162,
+      "train_time": 1.516937017440796
+    }
+  },
+  "feature_importances": {
+    "LightGBM": [
+      {
+        "feature": "coupon_rate",
+        "importance": 10.39489125289662
+      },
+      {
+        "feature": "sigma",
+        "importance": 8.839999368816592
+      },
+      {
+        "feature": "T",
+        "importance": 4.7913950425319705
+      },
+      {
+        "feature": "coupon_barrier_frac",
+        "importance": 2.7917250305920867
+      },
+      {
+        "feature": "knock_in_frac",
+        "importance": 2.4911438770004466
+      },
+      {
+        "feature": "autocall_barrier_frac",
+        "importance": 1.11215730533727
+      },
+      {
+        "feature": "r",
+        "importance": 0.6126898986315226
+      },
+      {
+        "feature": "S0",
+        "importance": 0.027969360193317527
+      }
+    ],
+    "XGBoost": [
+      {
+        "feature": "coupon_rate",
+        "importance": 0.338738352060318
+      },
+      {
+        "feature": "sigma",
+        "importance": 0.2548592686653137
+      },
+      {
+        "feature": "T",
+        "importance": 0.15473607182502747
+      },
+      {
+        "feature": "coupon_barrier_frac",
+        "importance": 0.09732948243618011
+      },
+      {
+        "feature": "knock_in_frac",
+        "importance": 0.08752375096082687
+      },
+      {
+        "feature": "autocall_barrier_frac",
+        "importance": 0.04175487905740738
+      },
+      {
+        "feature": "r",
+        "importance": 0.023174799978733063
+      },
+      {
+        "feature": "S0",
+        "importance": 0.00188334914855659
+      }
+    ],
+    "CatBoost": [
+      {
+        "feature": "sigma",
+        "importance": 30.110808022185022
+      },
+      {
+        "feature": "coupon_rate",
+        "importance": 27.48877939315846
+      },
+      {
+        "feature": "T",
+        "importance": 17.30482891648028
+      },
+      {
+        "feature": "coupon_barrier_frac",
+        "importance": 10.06286363837699
+      },
+      {
+        "feature": "knock_in_frac",
+        "importance": 9.034523630657533
+      },
+      {
+        "feature": "autocall_barrier_frac",
+        "importance": 3.9694524064375307
+      },
+      {
+        "feature": "r",
+        "importance": 1.9729758058478053
+      },
+      {
+        "feature": "S0",
+        "importance": 0.055768186856379486
+      }
+    ]
+  }
+}

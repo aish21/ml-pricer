@@ -1,0 +1,20 @@
+{
+  "generated_at": 1761368437.1789336,
+  "param_samples_requested": 10000,
+  "collected_samples": 10000,
+  "n_paths_per_param": 500,
+  "n_steps": 252,
+  "obs_count": 6,
+  "feature_order": [
+    "S0",
+    "r",
+    "sigma",
+    "T",
+    "autocall_barrier_frac",
+    "coupon_barrier_frac",
+    "coupon_rate",
+    "knock_in_frac"
+  ],
+  "use_log_target": true,
+  "notes": "Phoenix generator: payoff uses exact discounting at call time; coupons paid at call; principal loss if knocked-in."
+}
