@@ -1,0 +1,19 @@
+{
+  "generated_at": 1761570165.351522,
+  "param_samples_requested": 50000,
+  "collected_samples": 50000,
+  "n_paths_per_param": 2000,
+  "n_steps": 252,
+  "feature_order": [
+    "S0",
+    "r",
+    "sigma",
+    "T",
+    "autocall_barrier_frac",
+    "coupon_barrier_frac",
+    "coupon_rate",
+    "knock_in_frac"
+  ],
+  "use_log_target": true,
+  "notes": "Phoenix generator: exact discounting at call time; coupons paid at call/maturity; principal loss if knocked-in."
+}

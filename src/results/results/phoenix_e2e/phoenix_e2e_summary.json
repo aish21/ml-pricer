@@ -1,0 +1,250 @@
+{
+  "generated_at": 1761570474.56531,
+  "config": {
+    "n_samples": 50000,
+    "n_paths_per_sample": 2000,
+    "n_steps": 252,
+    "optuna_trials": 30,
+    "bench_n_paths": [
+      500,
+      2000,
+      8000
+    ]
+  },
+  "train_info": {
+    "metrics": {
+      "rmse": 0.007699324788144414,
+      "mae": 0.005364441011528384,
+      "r2": 0.9770983344117071,
+      "train_time": 6.492631912231445
+    },
+    "optuna_best": {
+      "best_value": 0.009689902044551103,
+      "best_params": {
+        "n_estimators": 2692,
+        "learning_rate": 0.007394302237093155,
+        "num_leaves": 77,
+        "min_child_samples": 92,
+        "subsample": 0.5852200895774684,
+        "colsample_bytree": 0.8788700708593499
+      }
+    },
+    "feature_importance": [
+      {
+        "feature": "sigma",
+        "importance": 1177.1372230649824
+      },
+      {
+        "feature": "T",
+        "importance": 408.21183817866404
+      },
+      {
+        "feature": "autocall_barrier_frac",
+        "importance": 252.21970063670642
+      },
+      {
+        "feature": "knock_in_frac",
+        "importance": 231.86143324591967
+      },
+      {
+        "feature": "coupon_rate",
+        "importance": 106.81020924738391
+      },
+      {
+        "feature": "r",
+        "importance": 38.712424890795546
+      },
+      {
+        "feature": "coupon_barrier_frac",
+        "importance": 2.2928873671978636
+      },
+      {
+        "feature": "S0",
+        "importance": 2.142354331331262
+      }
+    ],
+    "model_path": "C:\\Users\\aisha\\OneDrive\\Desktop\\GitHub\\neural-pricer\\src\\simulation\\models\\lightgbm_phoenix_e2e.txt"
+  },
+  "results": [
+    {
+      "params": {
+        "S0": 100.0,
+        "r": 0.03,
+        "sigma": 0.2,
+        "T": 1.0,
+        "autocall_barrier_frac": 1.05,
+        "coupon_barrier_frac": 1.0,
+        "coupon_rate": 0.02,
+        "knock_in_frac": 0.7,
+        "obs_count": 6
+      },
+      "per_npaths": {
+        "500": {
+          "MC": {
+            "price": 0.9847950579349892,
+            "var": 0.005949906995289854,
+            "time": 0.005501985549926758,
+            "n_paths": 500
+          },
+          "Model": {
+            "algo": "LightGBM",
+            "model_price": 0.9868887494479381,
+            "model_time_estimate": 0.001529693603515625,
+            "abs_error": 0.002093691512948914,
+            "rel_error": 0.0021260174856473826
+          }
+        },
+        "2000": {
+          "MC": {
+            "price": 0.9802397558505628,
+            "var": 0.006951241841956658,
+            "time": 0.026724815368652344,
+            "n_paths": 2000
+          },
+          "Model": {
+            "algo": "LightGBM",
+            "model_price": 0.9868887494479381,
+            "model_time_estimate": 0.001529693603515625,
+            "abs_error": 0.006648993597375363,
+            "rel_error": 0.006783027884444426
+          }
+        },
+        "8000": {
+          "MC": {
+            "price": 0.9809076586921823,
+            "var": 0.006951029781778826,
+            "time": 0.09385466575622559,
+            "n_paths": 8000
+          },
+          "Model": {
+            "algo": "LightGBM",
+            "model_price": 0.9868887494479381,
+            "model_time_estimate": 0.001529693603515625,
+            "abs_error": 0.0059810907557558135,
+            "rel_error": 0.006097506429637057
+          }
+        }
+      }
+    },
+    {
+      "params": {
+        "S0": 100.0,
+        "r": 0.01,
+        "sigma": 0.25,
+        "T": 2.0,
+        "autocall_barrier_frac": 1.0,
+        "coupon_barrier_frac": 0.95,
+        "coupon_rate": 0.015,
+        "knock_in_frac": 0.6,
+        "obs_count": 8
+      },
+      "per_npaths": {
+        "500": {
+          "MC": {
+            "price": 0.961927242174213,
+            "var": 0.01920061886818509,
+            "time": 0.005434989929199219,
+            "n_paths": 500
+          },
+          "Model": {
+            "algo": "LightGBM",
+            "model_price": 0.9569345593430836,
+            "model_time_estimate": 0.0015850067138671875,
+            "abs_error": 0.004992682831129414,
+            "rel_error": 0.005190291544134476
+          }
+        },
+        "2000": {
+          "MC": {
+            "price": 0.9524932164114476,
+            "var": 0.022312182761846718,
+            "time": 0.027104854583740234,
+            "n_paths": 2000
+          },
+          "Model": {
+            "algo": "LightGBM",
+            "model_price": 0.9569345593430836,
+            "model_time_estimate": 0.0015850067138671875,
+            "abs_error": 0.004441342931636005,
+            "rel_error": 0.004662860433136652
+          }
+        },
+        "8000": {
+          "MC": {
+            "price": 0.9557708523169753,
+            "var": 0.02170889378269972,
+            "time": 0.09435272216796875,
+            "n_paths": 8000
+          },
+          "Model": {
+            "algo": "LightGBM",
+            "model_price": 0.9569345593430836,
+            "model_time_estimate": 0.0015850067138671875,
+            "abs_error": 0.0011637070261082405,
+            "rel_error": 0.0012175586054828803
+          }
+        }
+      }
+    },
+    {
+      "params": {
+        "S0": 110.0,
+        "r": 0.015,
+        "sigma": 0.3,
+        "T": 2.0,
+        "autocall_barrier_frac": 1.0,
+        "coupon_barrier_frac": 0.9,
+        "coupon_rate": 0.025,
+        "knock_in_frac": 0.6,
+        "obs_count": 8
+      },
+      "per_npaths": {
+        "500": {
+          "MC": {
+            "price": 0.9455869078654959,
+            "var": 0.029933646459857747,
+            "time": 0.006003141403198242,
+            "n_paths": 500
+          },
+          "Model": {
+            "algo": "LightGBM",
+            "model_price": 0.9410055778347026,
+            "model_time_estimate": 0.0015034675598144531,
+            "abs_error": 0.004581330030793307,
+            "rel_error": 0.004844959244555206
+          }
+        },
+        "2000": {
+          "MC": {
+            "price": 0.935867649643244,
+            "var": 0.033501490569007246,
+            "time": 0.02605605125427246,
+            "n_paths": 2000
+          },
+          "Model": {
+            "algo": "LightGBM",
+            "model_price": 0.9410055778347026,
+            "model_time_estimate": 0.0015034675598144531,
+            "abs_error": 0.0051379281914586405,
+            "rel_error": 0.005490015808770863
+          }
+        },
+        "8000": {
+          "MC": {
+            "price": 0.938859101054152,
+            "var": 0.032914337512391416,
+            "time": 0.0929718017578125,
+            "n_paths": 8000
+          },
+          "Model": {
+            "algo": "LightGBM",
+            "model_price": 0.9410055778347026,
+            "model_time_estimate": 0.0015034675598144531,
+            "abs_error": 0.002146476780550577,
+            "rel_error": 0.0022862608224604847
+          }
+        }
+      }
+    }
+  ]
+}
