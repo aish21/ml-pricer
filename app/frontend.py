@@ -1,4 +1,3 @@
-# app/frontend.py
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -8,9 +7,6 @@ import json
 import math
 from typing import Any, Dict, Optional
 
-# ----------------------------
-# CONFIG
-# ----------------------------
 API_URL = "http://localhost:8000"
 
 st.set_page_config(
@@ -25,9 +21,6 @@ st.markdown(
 )
 
 
-# ----------------------------
-# Helper utilities
-# ----------------------------
 def find_per_npaths(obj: Any) -> Optional[Dict]:
     """Recursively find the first dict that contains 'per_npaths' or looks like a npaths dict."""
     if obj is None:
@@ -73,9 +66,6 @@ def as_float(x, default=float("nan")):
         return default
 
 
-# ----------------------------
-# PAYOFF TYPE SELECTION + INPUTS (number inputs, not sliders)
-# ----------------------------
 payoff_type = st.sidebar.selectbox(
     "Payoff Type", ["Phoenix", "Accumulator", "Barrier", "Decumulator"]
 )
@@ -87,7 +77,6 @@ st.markdown(f"### Selected payoff: **{payoff_type}**")
 
 col1, col2 = st.columns(2)
 
-# Use numeric inputs (number_input) so users can key values precisely
 if payoff_type == "Phoenix":
     with col1:
         S0 = st.number_input(
@@ -211,9 +200,6 @@ else:  # Barrier
 
 st.markdown("---")
 
-# ----------------------------
-# Run button
-# ----------------------------
 run_clicked = st.button("Run Pricing")
 
 if run_clicked:
@@ -240,7 +226,6 @@ if run_clicked:
         with st.expander("Debug: full backend response (collapsed)"):
             st.json(result)
 
-        # robustly find per_npaths
         per_npaths = find_per_npaths(result)
 
         if per_npaths is None:
@@ -249,7 +234,6 @@ if run_clicked:
             )
             st.stop()
 
-        # pick the npaths of interest
         npaths_key = (
             str(n_paths)
             if str(n_paths) in per_npaths
@@ -325,19 +309,16 @@ if run_clicked:
             },
         }
 
-        # ---- Tabs ----
         tab_dashboard, tab_feature, tab_json = st.tabs(
             ["Dashboard", "Feature Analysis", "Raw JSON"]
         )
 
-        # ---------- Dashboard ----------
         with tab_dashboard:
             a, b, c = st.columns([1, 1, 1])
             a.metric("Model price", f"{model_price:.6f}")
             b.metric("Monte Carlo", f"{mc_price:.6f}")
             c.metric("Speedup (x)", f"{speedup:.2f}")
 
-            # Price comparison bar (use config param to avoid deprecation)
             price_fig = go.Figure()
             price_fig.add_trace(go.Bar(name="Model", x=["Model"], y=[model_price]))
             price_fig.add_trace(
@@ -350,7 +331,6 @@ if run_clicked:
             )
             st.plotly_chart(price_fig, config={"responsive": True})
 
-            # Error bar
             err_df = pd.DataFrame(
                 {
                     "metric": ["Abs Error", "Rel Error (%)"],
@@ -371,7 +351,6 @@ if run_clicked:
             err_fig.update_traces(texttemplate="%{text:.4f}", textposition="outside")
             st.plotly_chart(err_fig, config={"responsive": True})
 
-            # Timing comparison
             time_df = pd.DataFrame(
                 {
                     "component": ["Model Time (s)", "MC Time (s)"],
@@ -389,9 +368,8 @@ if run_clicked:
             timing_fig.update_traces(texttemplate="%{text:.6f}", textposition="outside")
             st.plotly_chart(timing_fig, config={"responsive": True})
 
-        # ---------- Feature analysis ----------
+        # Feature analysis
         with tab_feature:
-            # first try to get feature importance from result
             fi = None
             training_part = (
                 result.get("training")
@@ -402,7 +380,6 @@ if run_clicked:
                 fi = training_part.get("feature_importance") or training_part.get(
                     "feature_importances"
                 )
-            # if not found, query backend training endpoint for this payoff_type
             if fi is None:
                 try:
                     tt = payoff_type.lower()
@@ -444,6 +421,5 @@ if run_clicked:
                     "No feature importance found in response. If you trained the model previously, make sure results.json exists in the model folder. You can also open Raw JSON to debug."
                 )
 
-        # ---------- Raw json ----------
         with tab_json:
             st.json(result)

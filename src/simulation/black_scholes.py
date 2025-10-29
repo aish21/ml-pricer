@@ -2,140 +2,87 @@ import numpy as np
 from scipy.stats import norm
 
 
-def simulate_gbm_paths(
-    S0: float,
-    r: float,
-    sigma: float,
-    T: float,
-    n_steps: int,
-    n_paths: int,
-    seed: int = None,  # type: ignore
-) -> np.ndarray:
+def simulate_gbm_paths(s0, r, sigma, T, num_steps, num_paths, seed=None):
     """
-    Simulate GBM paths under the Black-Scholes model.
+    Simulates a bunch of stock paths using gbm
 
-    Parameters:
-        S0 : float
-            Initial stock price.
-        r : float
-            Risk-free interest rate.
-        sigma : float
-            Volatility.
-        T : float
-            Time to maturity (in years).
-        n_steps : int
-            Number of discrete timesteps.
-        n_paths : int
-            Number of Monte Carlo paths.
-        seed : int, optional
-            Random seed for reproducibility.
-
-    Returns:
-        numpy.ndarray of shape (n_paths, n_steps+1)
-            Simulated stock price paths
+    This is the standard $S(t+dt) = S(t) * exp(...)$ formula, all vectorized.
+    We pre-generate all the random shocks at once for speed.
     """
     if seed is not None:
         np.random.seed(seed)
 
-    dt = T / n_steps
-    paths = np.zeros((n_paths, n_steps + 1))
-    paths[:, 0] = S0
+    dt = T / num_steps
 
-    Z = np.random.normal(size=(n_paths, n_steps))
+    # Set up the array to hold the paths
+    paths = np.zeros((num_paths, num_steps + 1))
+    paths[:, 0] = s0
 
-    for t in range(1, n_steps + 1):
+    # Generate all the random 'shocks' at once
+    z = np.random.normal(size=(num_paths, num_steps))
+
+    # Loop through and apply the GBM formula
+    for t in range(1, num_steps + 1):
         paths[:, t] = paths[:, t - 1] * np.exp(
-            (r - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * Z[:, t - 1]
+            (r - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * z[:, t - 1]
         )
 
     return paths
 
 
 def price_european_option_mc(
-    S0: float,
-    K: float,
-    r: float,
-    sigma: float,
-    T: float,
-    n_steps: int,
-    n_paths: int,
-    option_type: str = "call",
-    seed: int = None,  # type: ignore
-) -> float:
+    s0, k, r, sigma, T, num_steps, num_paths, option_type="call", seed=None
+):
     """
-    Price an European option using Monte Carlo simulation under the Black-Scholes model.
+    Prices a European option using a basic Monte Carlo.
 
-    Parameters:
-        S0 : float
-            Initial stock price.
-        K : float
-            Strike price.
-        r : float
-            Risk-free interest rate.
-        sigma : float
-            Volatility.
-        T : float
-            Time to maturity (in years).
-        n_steps : int
-            Number of discrete timesteps.
-        n_paths : int
-            Number of Monte Carlo paths.
-        option_type : str, optional
-            Type of the option ('call' or 'put'). Default is 'call'.
-        seed : int, optional
-            Random seed for reproducibility.
-
-    Returns:
-        float
-            Estimated option price.
+    It just does three things:
+    1. Simulates a ton of paths using `simulate_gbm_paths`.
+    2. Figures out the payoff for each path (e.g., max(S_T - K, 0)).
+    3. Averages all those payoffs and discounts them back to today.
     """
-    paths = simulate_gbm_paths(S0, r, sigma, T, n_steps, n_paths, seed)
-    S_T = paths[:, -1]  # Stock prices at maturity
+    paths = simulate_gbm_paths(s0, r, sigma, T, num_steps, num_paths, seed)
 
+    # Get the final price from all paths
+    final_prices = paths[:, -1]
+
+    # Calculate payoffs
     if option_type.lower() == "call":
-        payoffs = np.maximum(S_T - K, 0)
+        payoffs = np.maximum(final_prices - k, 0)
     elif option_type.lower() == "put":
-        payoffs = np.maximum(K - S_T, 0)
+        payoffs = np.maximum(k - final_prices, 0)
     else:
-        raise ValueError("option_type must be 'call' or 'put'")
+        raise ValueError("Option type must be 'call' or 'put'")
 
-    option_price = np.exp(-r * T) * np.mean(payoffs)
-    return option_price
+    # Discount the average payoff
+    price = np.exp(-r * T) * np.mean(payoffs)
+    return price
 
 
-def price_european_option_bs(
-    s0: float, K: float, r: float, sigma: float, T: float, option_type: str = "call"
-) -> float:
+def price_european_option_bs(s0, k, r, sigma, T, option_type="call"):
     """
-    Closed-form Black-Scholes formula for European call/put.
+    The classic Black-Scholes formula.
 
-    Parameters
-        s0 : float
-            Initial stock price.
-        K : float
-            Strike price.
-        r : float
-            Risk-free rate.
-        sigma : float
-            Volatility.
-        T : float
-            Time to maturity (in years).
-        option_type : str
-            'call' or 'put'.
-
-    Returns
-        float
-            Black-Scholes price.
+    Calculates d1 and d2 and plugs them into the closed-form
+    solution for a European call or put.
     """
-    if T <= 0:
-        return max(0.0, (s0 - K) if option_type == "call" else (K - s0))
 
-    d1 = (np.log(s0 / K) + (r + 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
+    # Handle the edge case of 0 time left
+    if T <= 1e-8:  # avoid division by zero
+        if option_type.lower() == "call":
+            return np.maximum(s0 - k, 0.0)
+        else:
+            return np.maximum(k - s0, 0.0)
+
+    #
+    d1 = (np.log(s0 / k) + (r + 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
     d2 = d1 - sigma * np.sqrt(T)
 
     if option_type.lower() == "call":
-        return s0 * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
+        price = s0 * norm.cdf(d1) - k * np.exp(-r * T) * norm.cdf(d2)
     elif option_type.lower() == "put":
-        return K * np.exp(-r * T) * norm.cdf(-d2) - s0 * norm.cdf(-d1)
+        price = k * np.exp(-r * T) * norm.cdf(-d2) - s0 * norm.cdf(-d1)
     else:
-        raise ValueError("option_type must be 'call' or 'put'")
+        raise ValueError("Option type must be 'call' or 'put'")
+
+    return price

@@ -28,8 +28,8 @@ for d in (DATA_DIR, MODEL_DIR, RESULTS_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
 # Generation settings
-N_SAMPLES = 50_000  # number of parameter samples to generate (you requested 50k)
-N_PATHS_PER_SAMPLE = 2000  # simulation paths per parameter set (you requested 2000)
+N_SAMPLES = 50_000  # number of parameter samples to generate
+N_PATHS_PER_SAMPLE = 2000
 N_STEPS = 252  # steps per path
 OBS_COUNT_DEFAULT = 6
 
@@ -38,12 +38,11 @@ TEST_SIZE = 0.20
 RANDOM_STATE = 42
 USE_LOG_TARGET = True  # training on log1p(y)
 OPTUNA_TRIALS = 30  # optuna trials (reduce to speed up)
-OPTUNA_TIMEOUT = None  # or seconds integer
+OPTUNA_TIMEOUT = None
 
 # Benchmark settings (MC path counts to test)
 BENCH_N_PATHS = [500, 2000, 8000]
 
-# Quick debug toggle (use small sizes to test pipeline)
 QUICK_DEBUG = False
 if QUICK_DEBUG:
     N_SAMPLES = 500
@@ -51,7 +50,6 @@ if QUICK_DEBUG:
     OPTUNA_TRIALS = 6
     BENCH_N_PATHS = [500, 2000]
 
-# Ranges for parameter sampling (realistic, adjustable)
 PARAM_RANGES = {
     "S0": (80.0, 120.0),  # initial spot
     "r": (0.0, 0.05),  # interest rate
@@ -172,7 +170,6 @@ def sample_parameters(
 ) -> List[Dict[str, Any]]:
     rng = np.random.RandomState(seed)
     samples = []
-    # We'll sample uniformly for each parameter (simple, effective coverage)
     for _ in range(n_samples):
         s = {}
         for k, (lo, hi) in param_ranges.items():
@@ -180,7 +177,6 @@ def sample_parameters(
                 s[k] = int(rng.randint(lo, hi + 1))
             else:
                 s[k] = float(rng.uniform(lo, hi))
-        # Ensure barrier fractions make sense: autocall >= coupon_barrier? not strictly required
         samples.append(s)
     return samples
 
@@ -221,7 +217,6 @@ def generate_training_data(
         coupon_rate = p["coupon_rate"]
         obs_count = p.get("obs_count", OBS_COUNT_DEFAULT)
 
-        # simulate paths (we use different seed per sample to decorrelate)
         paths = simulate_gbm_paths(
             S0,
             r,
@@ -345,7 +340,6 @@ def train_lightgbm_optuna(
     train_time = time.time() - start
     log(f"Trained final LightGBM model in {train_time:.2f}s")
 
-    # predictions on hold-out test split from original full X,y (we'll create one)
     X_hold, X_test, y_hold, y_test = train_test_split(
         X, y, test_size=TEST_SIZE, random_state=random_state + 1
     )
@@ -366,7 +360,6 @@ def train_lightgbm_optuna(
         "train_time": train_time,
     }
 
-    # save trained model (booster)
     try:
         # for LGBMRegressor wrapper, get underlying booster
         booster = final_model.booster_
@@ -555,7 +548,6 @@ def plot_time_vs_npaths(results_all: List[Dict[str, Any]], out_png: Path):
             marker="o",
             label=f"MC {k[:60]}",
         )
-    # single model_time as horizontal lines:
     for k, g in df.groupby("test_case"):
         mt = g["model_time"].iloc[0]
         xs = sorted(g["n_paths"].unique())
@@ -572,7 +564,6 @@ def plot_time_vs_npaths(results_all: List[Dict[str, Any]], out_png: Path):
 
 def main():
     start_all = time.time()
-    # --- 1) Generate training data (unless already exists) ---
     if TRAIN_NPZ.exists():
         log(f"Training data exists at {TRAIN_NPZ}, loading...")
         arr = np.load(TRAIN_NPZ, allow_pickle=True)
@@ -597,7 +588,6 @@ def main():
 
     log(f"Loaded X shape: {X.shape} y shape: {y.shape}")
 
-    # --- 2) Train LightGBM with Optuna ---
     train_info = train_lightgbm_optuna(
         X,
         y,
@@ -607,7 +597,6 @@ def main():
         random_state=RANDOM_STATE,
     )
 
-    # --- 3) Evaluate vs MC for a set of test cases ---
     TEST_CASES = [
         {
             "S0": 100.0,
@@ -652,7 +641,6 @@ def main():
         res = evaluate_case_vs_mc(case, model, scaler, BENCH_N_PATHS, seed=RANDOM_STATE)
         results_all.append(res)
 
-    # --- Save results JSON + model summary ---
     summary = {
         "generated_at": time.time(),
         "config": {
@@ -681,8 +669,6 @@ def main():
         )
     log(f"Saved full summary to {SUMMARY_JSON}")
 
-    # --- parity plot on test holdout: use last test split predictions from train_lightgbm step ---
-    # For a parity we need test set predictions: use a small holdout from original X
     X_train_all, X_test_all, y_train_all, y_test_all = train_test_split(
         X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE + 2
     )

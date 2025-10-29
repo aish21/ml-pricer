@@ -194,7 +194,6 @@ def run_benchmark_suite(test_cases, n_paths_list, models, use_log_target=True, s
                 raw_pred = model_predict(model, feats)[0]
                 model_t = time.time() - start
 
-                # ✅ Correct inverse transform for log1p target
                 model_price = np.expm1(raw_pred) if use_log_target else raw_pred
 
                 abs_err = abs(model_price - mc_p)
