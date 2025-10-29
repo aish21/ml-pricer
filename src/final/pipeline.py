@@ -240,6 +240,34 @@ class PricingPipeline:
                     "obs_frequency": 0.5,
                 },
             ]
+        elif payoff_type == "StepDownPhoenixPayoff":
+            return [
+                {
+                    "S0": 100.0,
+                    "r": 0.03,
+                    "sigma": 0.2,
+                    "T": 1.0,
+                    "autocall_barrier_frac": 1.05,
+                    "coupon_barrier_frac": 1.0,
+                    "coupon_rate": 0.02,
+                    "knock_in_frac": 0.7,
+                    "obs_count": 6,
+                    "stepdown_rate": 0.02,
+                }
+            ]
+        elif payoff_type == "ReverseAccumulatorPayoff":
+            return [
+                {
+                    "S0": 100.0,
+                    "r": 0.03,
+                    "sigma": 0.2,
+                    "T": 1.0,
+                    "upper_barrier_frac": 1.05,
+                    "lower_barrier_frac": 0.95,
+                    "participation_rate": 2.0,
+                    "obs_frequency": 0.25,
+                }
+            ]
         else:
             # Generic default
             return [

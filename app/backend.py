@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import Dict, Any, Optional
 from pathlib import Path
 import traceback
+import json
 
 from src.final.payoffs import (
     PhoenixPayoff,
@@ -12,6 +13,7 @@ from src.final.payoffs import (
 )
 from src.final.model_trainer import ModelTrainer
 from src.final.evaluator import Evaluator
+from fastapi.responses import JSONResponse
 
 app = FastAPI(title="AI Derivative Pricer API", version="1.0")
 
@@ -63,6 +65,35 @@ def price_instrument(req: PricingRequest):
             "message": str(e),
             "trace": traceback.format_exc(),
         }
+
+
+@app.get("/training/{payoff_type}")
+def get_training_info(payoff_type: str):
+    """
+    Return results.json stored with the trained model for the requested payoff_type.
+    Frontend will call this when feature_importance isn't present in /price/ response.
+    """
+    try:
+        payoff_key = payoff_type.lower()
+        results_path = Path(
+            f"C:\\Users\\aisha\\OneDrive\\Desktop\\GitHub\\neural-pricer\\final\\results\\{payoff_key}\\results.json"
+        )
+        if not results_path.exists():
+            return JSONResponse(
+                {"status": "error", "message": f"No results.json at {results_path}"},
+                status_code=404,
+            )
+
+        data = json.loads(results_path.read_text())
+        return {
+            "status": "success",
+            "training": data.get("training", data.get("training_data", data)),
+        }
+    except Exception as e:
+        return JSONResponse(
+            {"status": "error", "message": str(e), "trace": traceback.format_exc()},
+            status_code=500,
+        )
 
 
 @app.get("/")
