@@ -9,20 +9,31 @@ from typing import Any, Dict, Optional
 
 API_URL = "http://localhost:8000"
 
+# Plotly chart configuration
+plotly_config = {
+    "displayModeBar": True,
+    "scrollZoom": False,
+    "editable": False,
+    "responsive": True,
+}
+
 st.set_page_config(
-    page_title="AI Derivative Pricer",
+    page_title="ML Pricer",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-st.title("AI Derivative Pricer")
+st.title("ML Pricer")
 st.markdown(
-    "Compare surrogate model predictions vs Monte Carlo. Use the controls on the left to configure a test case."
+    "Compare ML model predictions vs Monte Carlo baseline. Configure a test case on the left and press **Run Pricing**."
 )
 
 
 def find_per_npaths(obj: Any) -> Optional[Dict]:
-    """Recursively find the first dict that contains 'per_npaths' or looks like a npaths dict."""
+    """
+    Recursively search for a dict that contains 'per_npaths', or appears to be the per_npaths dict
+    (i.e., keys are numeric strings like '500','2000').
+    """
     if obj is None:
         return None
 
@@ -33,10 +44,12 @@ def find_per_npaths(obj: Any) -> Optional[Dict]:
             and obj["per_npaths"]
         ):
             return obj["per_npaths"]
+        # if dict looks like npaths mapping (digit keys)
         if all(isinstance(k, str) and k.isdigit() for k in obj.keys()):
             sample_key = next(iter(obj.keys()))
             if isinstance(obj[sample_key], dict):
                 return obj
+        # dive deeper
         for v in obj.values():
             found = find_per_npaths(v)
             if found:
@@ -47,6 +60,7 @@ def find_per_npaths(obj: Any) -> Optional[Dict]:
             found = find_per_npaths(item)
             if found:
                 return found
+
     return None
 
 
@@ -72,6 +86,7 @@ payoff_type = st.sidebar.selectbox(
 st.sidebar.markdown("### Advanced settings")
 n_paths = st.sidebar.selectbox("Monte Carlo Paths", [500, 2000, 8000], index=1)
 model_name = st.sidebar.selectbox("Model", ["LightGBM (default)"], index=0)
+learn_mode = st.sidebar.checkbox("Payoff Description", value=True)
 
 st.markdown(f"### Selected payoff: **{payoff_type}**")
 
@@ -200,7 +215,7 @@ else:  # Barrier
 
 st.markdown("---")
 
-run_clicked = st.button("Run Pricing")
+run_clicked = st.button("Run Pricing", type="primary")
 
 if run_clicked:
     payload = {
@@ -217,14 +232,29 @@ if run_clicked:
             st.stop()
 
         try:
-            result = res.json()
+            result_raw = res.json()
         except Exception:
             st.error("Backend did not return JSON. See raw response below.")
             st.text(res.text)
             st.stop()
 
+        if (
+            isinstance(result_raw, dict)
+            and result_raw.get("status") == "success"
+            and "result" in result_raw
+        ):
+            result = result_raw["result"]
+            meta_status = result_raw.get("status", "success")
+        else:
+            result = result_raw
+            meta_status = (
+                result_raw.get("status", "ok")
+                if isinstance(result_raw, dict)
+                else "unknown"
+            )
+
         with st.expander("Debug: full backend response (collapsed)"):
-            st.json(result)
+            st.json(result_raw)
 
         per_npaths = find_per_npaths(result)
 
@@ -250,25 +280,27 @@ if run_clicked:
         model_entry = safe_get(entry, "Model", "model", "Model")
 
         if mc_entry is None:
-            st.warning(
-                "MC entry missing in per_npaths — showing raw entry for debugging."
-            )
-            st.json(entry)
-            st.stop()
+            # try variants
+            alt_mc = None
+            for k in entry.keys():
+                if k.lower().startswith("m"):
+                    alt_mc = entry[k]
+                    break
+            mc_entry = alt_mc
 
         if model_entry is None:
             alt_model_keys = [
                 k for k in entry.keys() if k not in ("MC", "Monte Carlo", "mc")
             ]
             model_entry = entry[alt_model_keys[0]] if alt_model_keys else None
-            if model_entry is None:
-                st.warning(
-                    "Model entry missing — showing raw per_npaths entry for debugging."
-                )
-                st.json(entry)
-                st.stop()
 
-        # normalize values
+        if mc_entry is None or model_entry is None:
+            st.warning(
+                "MC or Model entry missing — showing raw per_npaths entry for debugging."
+            )
+            st.json(entry)
+            st.stop()
+
         mc_price = as_float(
             safe_get(mc_entry, "price", "mean", "value"), default=math.nan
         )
@@ -319,17 +351,20 @@ if run_clicked:
             b.metric("Monte Carlo", f"{mc_price:.6f}")
             c.metric("Speedup (x)", f"{speedup:.2f}")
 
-            price_fig = go.Figure()
-            price_fig.add_trace(go.Bar(name="Model", x=["Model"], y=[model_price]))
-            price_fig.add_trace(
-                go.Bar(name="Monte Carlo", x=["Monte Carlo"], y=[mc_price])
+            price_df = pd.DataFrame(
+                {"source": ["Model", "Monte Carlo"], "price": [model_price, mc_price]}
             )
-            price_fig.update_layout(
+
+            price_fig = px.bar(
+                price_df,
+                x="source",
+                y="price",
+                text="price",
                 title=f"Model vs Monte Carlo (n_paths={summary['n_paths']})",
-                barmode="group",
                 template="plotly_white",
             )
-            st.plotly_chart(price_fig, config={"responsive": True})
+            price_fig.update_traces(texttemplate="%{text:.6f}", textposition="outside")
+            st.plotly_chart(price_fig, config=plotly_config)
 
             err_df = pd.DataFrame(
                 {
@@ -349,8 +384,9 @@ if run_clicked:
                 template="plotly_white",
             )
             err_fig.update_traces(texttemplate="%{text:.4f}", textposition="outside")
-            st.plotly_chart(err_fig, config={"responsive": True})
+            st.plotly_chart(err_fig, config=plotly_config)
 
+            # Timing comparison
             time_df = pd.DataFrame(
                 {
                     "component": ["Model Time (s)", "MC Time (s)"],
@@ -366,29 +402,54 @@ if run_clicked:
                 template="plotly_white",
             )
             timing_fig.update_traces(texttemplate="%{text:.6f}", textposition="outside")
-            st.plotly_chart(timing_fig, config={"responsive": True})
+            st.plotly_chart(timing_fig, config=plotly_config)
 
-        # Feature analysis
+            if learn_mode:
+                st.markdown("#### Quick explanation")
+                try:
+                    r = requests.get(
+                        f"{API_URL}/payoff_explanation/{payoff_type.lower()}", timeout=5
+                    )
+                    if r.status_code == 200:
+                        expl = r.json().get("explanation", {})
+                        st.subheader(expl.get("title", ""))
+                        st.write(expl.get("summary", ""))
+                        if expl.get("latex"):
+                            st.latex(expl["latex"])
+                        if expl.get("notes"):
+                            st.markdown("**Notes:**")
+                            for n in expl["notes"]:
+                                st.write("-", n)
+                    else:
+                        st.write(
+                            "No explanation available from backend (status != 200)."
+                        )
+                except Exception:
+                    st.write("Explanation endpoint unavailable.")
+
         with tab_feature:
             fi = None
             training_part = (
                 result.get("training")
                 or result.get("train_info")
                 or result.get("train")
+                or {}
             )
             if training_part:
                 fi = training_part.get("feature_importance") or training_part.get(
                     "feature_importances"
                 )
+
             if fi is None:
                 try:
-                    tt = payoff_type.lower()
-                    r2 = requests.get(f"{API_URL}/training/{tt}", timeout=10)
+                    r2 = requests.get(
+                        f"{API_URL}/training/{payoff_type.lower()}", timeout=5
+                    )
                     if r2.status_code == 200:
-                        train_json = r2.json()
-                        fi = train_json.get("training", {}).get(
+                        training_blob = r2.json().get("training", {})
+                        fi = training_blob.get(
                             "feature_importance"
-                        ) or train_json.get("training", {}).get("feature_importances")
+                        ) or training_blob.get("feature_importances")
                 except Exception:
                     fi = None
 
@@ -399,7 +460,7 @@ if run_clicked:
                     )
                 else:
                     fi_df = pd.DataFrame(fi)
-                if "importance" in fi_df.columns and "feature" in fi_df.columns:
+                if "feature" in fi_df.columns and "importance" in fi_df.columns:
                     fi_df = fi_df.sort_values("importance", ascending=True)
                     fig_fi = px.bar(
                         fi_df,
@@ -410,7 +471,12 @@ if run_clicked:
                         title="Feature importance",
                         template="plotly_white",
                     )
-                    st.plotly_chart(fig_fi, config={"responsive": True})
+                    st.plotly_chart(fig_fi, config=plotly_config)
+                    st.dataframe(
+                        fi_df.sort_values("importance", ascending=False).reset_index(
+                            drop=True
+                        )
+                    )
                 else:
                     st.info(
                         "Feature importance returned in unexpected format. Check Raw JSON."
@@ -418,7 +484,10 @@ if run_clicked:
                     st.write(fi_df.head())
             else:
                 st.info(
-                    "No feature importance found in response. If you trained the model previously, make sure results.json exists in the model folder. You can also open Raw JSON to debug."
+                    "No feature importance found in response. If you trained the model previously, make sure results.json exists in the model folder. The frontend automatically queries /training/<payoff_type> as a fallback."
+                )
+                st.write(
+                    "Expected file (on backend machine): `final/results/<payoff_type>/results.json`"
                 )
 
         with tab_json:
