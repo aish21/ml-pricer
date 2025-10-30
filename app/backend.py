@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import Dict, Any, Optional
 from pathlib import Path
+import os
 import traceback
 import json
 from fastapi.responses import JSONResponse
@@ -52,12 +53,13 @@ def price_instrument(req: PricingRequest):
 
         payoff = payoff_cls()
 
-        model_path = Path(
-            f"C:\\Users\\aisha\\OneDrive\\Desktop\\GitHub\\neural-pricer\\final\\results\\{req.payoff_type.lower()}\\model.joblib"
+        # Allow overriding results location via env var for containerized deployments
+        base_results = os.getenv(
+            "MODEL_RESULTS_DIR",
+            r"C:\Users\aisha\OneDrive\Desktop\GitHub\neural-pricer\final\results",
         )
-        scaler_path = Path(
-            f"C:\\Users\\aisha\\OneDrive\\Desktop\\GitHub\\neural-pricer\\final\\results\\{req.payoff_type.lower()}\\scaler.joblib"
-        )
+        model_path = Path(base_results) / req.payoff_type.lower() / "model.joblib"
+        scaler_path = Path(base_results) / req.payoff_type.lower() / "scaler.joblib"
 
         if not model_path.exists() or not scaler_path.exists():
             return JSONResponse(
@@ -76,8 +78,8 @@ def price_instrument(req: PricingRequest):
             params=req.params,
             model=model,
             scaler=scaler,
-            n_paths_list=[req.n_paths],
-            use_log_target=req.use_log_target,
+            n_paths_list=[int(req.n_paths or 2000)],
+            use_log_target=bool(req.use_log_target),
         )
 
         return {"status": "success", "result": result}
@@ -101,9 +103,11 @@ def get_training_info(payoff_type: str):
     """
     try:
         payoff_key = payoff_type.lower()
-        results_path = Path(
-            f"C:\\Users\\aisha\\OneDrive\\Desktop\\GitHub\\neural-pricer\\final\\results\\{payoff_key}\\results.json"
+        base_results = os.getenv(
+            "MODEL_RESULTS_DIR",
+            r"C:\Users\aisha\OneDrive\Desktop\GitHub\neural-pricer\final\results",
         )
+        results_path = Path(base_results) / payoff_key / "results.json"
         if not results_path.exists():
             return JSONResponse(
                 {"status": "error", "message": f"No results.json at {results_path}"},

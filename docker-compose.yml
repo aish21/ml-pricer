@@ -1,0 +1,30 @@
+version: "3.8"
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: ml-pricer-backend:latest
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    environment:
+      - MODEL_RESULTS_DIR=/srv/app/final/results
+    volumes:
+      # mount only the results directory to allow the container to read trained models
+      - ./final/results:/srv/app/final/results:ro
+      # mount code read-only for quick testing (optional)
+      - ./:/srv/app:ro
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    image: ml-pricer-frontend:latest
+    ports:
+      - "8501:8501"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    volumes:
+      - ./:/srv/app:ro
