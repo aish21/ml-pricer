@@ -1,33 +1,29 @@
 # ml-pricer
 
-A reproducible research / prototype project that trains LightGBM surrogate models to approximate Monte Carlo (MC) pricing of exotic derivative payoffs. The repo contains data generation, model training (with Optuna tuning), evaluation against MC at multiple path counts, and a Streamlit frontend + FastAPI backend for interactive pricing and diagnostics.
-
-This README explains _every_ technical detail you’ll need to run, extend, debug, and deploy the project — including what is actually being priced, how the models are trained, how evaluation works, the exact JSON outputs, and deployment options. No sugar-coating. If something breaks, read the Troubleshooting section.
-
----
+## A prototype project that trains LightGBM surrogate models to approximate Monte Carlo (MC) pricing of different derivative payoffs. The repo contains data generation, model training (with Optuna tuning), evaluation against MC at multiple path counts, and a Streamlit frontend + FastAPI backend for interactive pricing and diagnostics.
 
 ## Table of contents
 
-1. Overview — what this repo does and what we price
-2. Architecture — code layout and responsibilities
+1. Overview — what this repo does and what is being priced
+2. Architecture — code layout
 3. Payoffs explained — what each payoff represents and what the model predicts
-4. Data generation — how simulated paths and targets are made
+4. Data generation — how simulated paths and targets are generated
 5. Model training — LightGBM, Optuna, scalers, metrics, feature importance
 6. Evaluation — MC benchmarking, evaluation outputs and summary calculations
 7. Files to know and where results are saved (`results.json`, models)
 8. Frontend & backend — endpoints, expected requests/responses, Streamlit UI notes
 9. How to run locally (dev) — environment, commands, and verifying outputs
-10. How to increase training samples / n_paths_per_sample — practical tips and resource impact
-11. Deployment options (Render, Docker, Cloud Run) — step-by-step guidance
-12. Troubleshooting & common errors (with fixes)
-13. Performance & scaling notes (compute, memory, parallelism)
-14. Contributing, license, authors
+10. How to increase training samples / n_paths_per_sample
+11. Deployment options
+12. Troubleshooting & common errors
+13. Performance notes
+14. Extras
 
 ---
 
 ## 1. Overview
 
-This project produces surrogate ML models (LightGBM) that estimate the present value of structured-payoff instruments _much_ faster than brute-force Monte Carlo. It uses Monte Carlo to produce target prices for many sampled parameter combinations, trains a model to learn the mapping `(features → price)`, and exposes a small API + frontend to compare model price vs MC price at arbitrary input parameter sets.
+This project produces ML models (LightGBM - final model) that estimate the present value of structured-payoff instruments _(hopefully)_ faster than Monte Carlo. It uses Monte Carlo to produce target prices for many sampled parameter combinations, trains a model to learn the mapping `(features → price)`, and exposes a small API + frontend to compare model price vs MC price at arbitrary input parameter sets.
 
 Use cases:
 
@@ -35,8 +31,7 @@ Use cases:
 - Investigating model error across parameter ranges.
 - Visualizing feature importance and timing speedups.
 
-Short answer to your core question, "what are we actually pricing?":
-**We price the present value (discounted payoff) of structured product payoffs** computed from simulated underlying asset price paths. For each instrument the code computes the discounted payoff per Monte Carlo path then averages across paths to return a Monte Carlo estimate; the LightGBM model learns to approximate that averaged PV from the instrument parameters.
+**The repo prices the present value (discounted payoff) of structured product payoffs** computed from simulated underlying asset price paths. For each instrument the code computes the discounted payoff per Monte Carlo path then averages across paths to return a Monte Carlo estimate; the LightGBM model learns to approximate that averaged PV from the instrument parameters.
 
 ---
 
@@ -48,9 +43,9 @@ Top-level structure (representative):
 neural-pricer/
 ├─ app/
 │  └─ frontend.py          # Streamlit app (UI)
+|  └─ backend.py           # FastAPI backend exposing /price/ and /training/
 ├─ src/
 │  └─ final/
-│      ├─ backend.py       # FastAPI backend exposing /price/ and /training/
 │      ├─ payoffs.py       # BasePayoff and payoff implementations
 │      ├─ inherited_payoffs.py
 │      ├─ data_generator.py
@@ -65,21 +60,21 @@ neural-pricer/
 └─ README.md
 ```
 
-Responsibility summary:
+Summarising all the modules:
 
 - `payoffs.py` — payoff classes implementing `compute_payoff(paths, params, r, T)` and `get_feature_order()`; also contains `param_ranges` used for sampling.
-- `inherited_payoffs.py` — extended payoff classes (e.g., step-down Phoenix).
+- `inherited_payoffs.py` — extended payoff classes
 - `data_generator.py` — simulates log-GBM paths (`simulate_gbm_paths`) and generates training data from sampled parameter tuples.
 - `model_trainer.py` — trains LightGBM regressors with Optuna hyperparameter search; stores model, scaler, metrics, feature importance.
 - `evaluator.py` — calculates MC baseline for given `n_paths` and compares to model predictions; returns structured result dict.
 - `pipeline.py` — orchestrates generation, training, evaluation and saving outputs (model, scaler, `results.json`).
-- `run.py` — example script to run pipelines for different payoffs.
+- `run.py` — script to run pipelines for different payoffs.
 - `app/frontend.py` — Streamlit UI to input parameters and visualize model vs MC.
-- `src/final/backend.py` — FastAPI endpoint `/price/` used by the frontend to run a model vs MC; `/training/{payoff_type}` returns saved training `results.json`.
+- `app/backend.py` — FastAPI endpoint `/price/` used by the frontend to run a model vs MC; `/training/{payoff_type}` returns saved training `results.json`.
 
 ---
 
-## 3. Payoffs explained (what is being priced)
+## 3. Payoffs
 
 All payoffs compute a discounted present value of the payoff per Monte Carlo path and then the mean across paths is taken. The ML model is trained to approximate this mean (the price). Here’s what each payoff does:
 
@@ -370,35 +365,12 @@ If you need cleaner labels (low variance), increase `n_paths_per_sample`. If you
 
 ---
 
-## 11. Deployment options (concise instruction)
+## 11. Deployment
 
-You have multiple deployment options. Quick recommended methods:
+### Docker
 
-### A. Render (two services)
-
-- Create two Render services: FastAPI backend and Streamlit frontend.
-- Backend `start` command:
-
-  ```
-  uvicorn src.final.backend:app --host 0.0.0.0 --port 10000
-  ```
-
-- Frontend `start` command:
-
-  ```
-  streamlit run app/frontend.py --server.port 10000 --server.address 0.0.0.0
-  ```
-
-- Set the frontend `API_URL` env var in Render to your backend URL.
-
-### B. Docker (production)
-
-- Build two images (backend + frontend) and deploy them with your cloud provider (GCP Cloud Run, ECS, Azure Container Apps).
+- Build two images (backend + frontend) and deploy them with Azure
 - Provide persistent storage or embed pre-trained models in the image (not ideal if model artifacts are large — use cloud storage).
-
-### C. Railway / Fly / Heroku (alternate)
-
-- Similar flow: two services.
 
 **Important**: Keep `final/results/<payoff>/model.joblib` and `scaler.joblib` present on the backend service. Either bake into the container or load from mounted storage.
 
@@ -470,14 +442,6 @@ Fix: In `st.plotly_chart(fig, config={...})` pass configuration via `config`. Av
 
 ---
 
-## 14. Contributing, authors, and license
-
-- Contributing: open PRs against the repo. Keep changes small and add unit tests if you modify payoff logic.
-- Author: your repo owner (you).
-- License: add a LICENSE file appropriate to your needs (MIT recommended for permissive open-source prototyping).
-
----
-
 ## Appendix: Example API usage
 
 ### Price an instrument (curl)
@@ -503,7 +467,7 @@ curl -X POST "http://localhost:8000/price/" \
   }'
 ```
 
-### Expected shape in response (abridged)
+### Expected shape in response
 
 ```json
 {
