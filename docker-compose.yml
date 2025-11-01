@@ -22,7 +22,7 @@ services:
     image: ml-pricer-frontend:latest
     container_name: ml-pricer-frontend
     environment:
-      - API_URL=http://backend:8000
+      - API_URL=https://aish-ml-pricer-backend.up.railway.app
     depends_on:
       - backend
     ports:

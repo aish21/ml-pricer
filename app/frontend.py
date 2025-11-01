@@ -10,7 +10,7 @@ from io import StringIO
 from datetime import datetime
 
 # API endpoint (container-friendly default)
-API_URL = os.getenv("API_URL", "http://backend:8000")
+API_URL = os.getenv("API_URL", "https://aish-ml-pricer-backend.up.railway.app")
 
 # Where frontend will store a local copy of history if available (mounted volume recommended)
 LOCAL_HISTORY_PATH = os.getenv(
