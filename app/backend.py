@@ -1,4 +1,3 @@
-# app/backend.py
 from fastapi import FastAPI
 from fastapi import Request
 from pydantic import BaseModel
@@ -242,38 +241,92 @@ def payoff_explanation(payoff_type: str):
         if t == "phoenix":
             payload = {
                 "title": "Phoenix (Autocallable) payoff",
-                "summary": "Phoenix is an autocallable structured product that either pays a coupon if the underlying is above an autocall barrier on observation dates (early redemption), or pays redemption at maturity depending on knock-in breaches.",
-                "latex": r""" \text{Payoff}_i = \begin{cases} (1 + \text{coupon}) e^{-r t_{\text{call}}}, & \exists\ \text{obs s.t. } S_t \ge B_{\text{autocall}}\\ \left(\frac{S_T}{S_0}\right) e^{-r T}, & \text{if knocked-in and not autocall}\\ (1 + \text{coupon}) e^{-r T}, & \text{otherwise} \end{cases} """,
+                "summary": (
+                    "Imagine a simple money product you buy that promises to pay you a small extra amount (a 'coupon') "
+                    "if the stock does okay on certain check days. If the stock is high enough on any check day, the product "
+                    "ends early and pays you the coupon right away (this is called an 'autocall'). If it never ends early, "
+                    "what you get at the final date depends on whether the stock ever fell below a certain safety level ('knock-in'). "
+                    "If it did fall below that safety level at some point and the product didn't end early, your final payment "
+                    "might be based on how the stock did relative to where it started (you could get less than your original money). "
+                    "If it never fell below the safety level and didn't end early, you usually get back your money plus the coupon at the end."
+                ),
+                "latex": r"""
+    	ext{Informal rules (not math):}
+    \begin{itemize}
+      \item If the stock is above the autocall barrier on any observation day, the product stops and pays a coupon (early).
+      \item Else, if the stock ever breached the knock-in level during the life, the final payoff may be proportional to S_T/S_0 (could lose money).
+      \item Else, you receive the coupon (and your capital) at maturity.
+    \end{itemize}
+    """,
                 "notes": [
-                    "Key inputs: S0, r, sigma, T, autocall barrier (×S0), coupon rate, knock-in (×S0), obs_count.",
-                    "Monte Carlo simulates many paths and applies the same rule per path; model predicts mean price.",
+                    "Very plain meanings of common inputs:",
+                    "- S0: the starting stock price when you buy the product (think 'starting point').",
+                    "- r: interest rate used to discount future money back to today (small number like 0.03 for 3%).",
+                    "- sigma: volatility — how jumpy the stock is. Larger sigma means the stock moves around more.",
+                    "- T: time until the product ends (years).",
+                    "- autocall_barrier_frac: the barrier expressed as a multiple of S0; e.g. 1.05 means 105% of S0 (the stock needs to be 5% up).",
+                    "- coupon_rate: the extra percentage paid if the product autocalls or at maturity (if not knocked-in).",
+                    "- knock_in_frac: a lower barrier (as multiple of S0); if the stock goes below this at any time it 'knocks in' and can change the final payout.",
+                    "- obs_count: how many check days there are (more checks = more chances to autocall).",
+                    "Simple example: S0=100, autocall at 105, coupon 2% — if at any check day the stock ≥105 you get ~2% and you're done early.",
                 ],
             }
         elif t == "accumulator":
             payload = {
                 "title": "Accumulator payoff",
-                "summary": "Accumulator accumulates (buys) when the underlying stays inside a band; payoff is average of accumulated discounted prices.",
-                "latex": r"\text{Payoff} \approx \frac{1}{n_{\text{obs}}}\sum_{t\in\text{obs}} \mathbf{1}_{L < S_t < U}\cdot \frac{S_t}{1+\text{participation}}\cdot e^{-rT}",
+                "summary": (
+                    "Think of an accumulator like a simple rule that says: 'If the stock stays in a certain price range on a check day, "
+                    "we pretend we bought the stock then at a small discount and keep doing this over many check days. At the end, "
+                    "the payoff is basically the average of the things we accumulated (discounted back to today)."
+                    "It's easiest to imagine it as a repeated buy-at-a-discount program that only activates when the price is inside the band."
+                ),
+                "latex": r"""
+    	ext{Informal: average of discounted prices on observation days where the price stayed inside the band.}
+    """,
                 "notes": [
-                    "Key inputs: S0, r, sigma, T, upper/lower barrier (×S0), participation rate, obs_frequency."
+                    "- upper_barrier_frac / lower_barrier_frac: define the price band (multiples of S0).",
+                    "- participation_rate: how much you participate in the stock return (a higher number can mean a larger effective exposure).",
+                    "- obs_frequency: how often observations/checks happen (e.g., every 0.25 years).",
+                    "Simple example: if S0=100 and the band is [95,105], then on any check day the price between 95 and 105 causes an accumulation event (we count that price into the average).",
                 ],
             }
         elif t == "barrier":
             payload = {
-                "title": "Down-and-out Barrier option",
-                "summary": "A barrier option becomes worthless if the underlying hits the barrier; otherwise it's a vanilla option payoff (call/put) at maturity.",
-                "latex": r"\text{Payoff} = \begin{cases}0 & \text{if hit barrier}\\ \max(S_T - K, 0) & \text{call}\\ \max(K - S_T, 0) & \text{put}\end{cases}",
+                "title": "Down-and-out barrier option (simple)",
+                "summary": (
+                    "A barrier option is like a normal option (you have the right to buy or sell a stock at a fixed price K at the end), "
+                    "but with a twist: if the stock ever touches a special barrier level during the life of the option, the option "
+                    "can become worthless (it 'knocks out'). So you only get the usual option payoff at the end if the barrier was never hit."
+                ),
+                "latex": r"""
+    	ext{Informal rules:}
+    \begin{itemize}
+      \item If the barrier is hit at any time before expiry, payoff = 0 (the option 'dies').
+      \item Otherwise, at maturity a call pays max(S_T - K, 0) and a put pays max(K - S_T, 0).
+    \end{itemize}
+    """,
                 "notes": [
-                    "Key inputs: S0, K, barrier_frac (×S0), sigma, T, r, option type."
+                    "- K: the strike — the price at which you can buy (call) or sell (put) at maturity.",
+                    "- barrier_frac: barrier level as multiple of S0 (e.g., 0.8 means 80% of the starting price).",
+                    "- option type: 'call' = right to buy, 'put' = right to sell.",
+                    "- If you are new: think of the barrier as a safety check — touch it and the option disappears.",
                 ],
             }
         elif t == "decumulator":
             payload = {
-                "title": "Decumulator payoff",
-                "summary": "Decumulator sells when price goes outside the band — mirror of an accumulator.",
-                "latex": r"\text{Payoff} \approx \frac{1}{n_{\text{obs}}}\sum_{t\in\text{obs}} \mathbf{1}_{S_t\not\in(L,U)}\cdot S_t(1+\text{participation}) e^{-rT}",
+                "title": "Decumulator (opposite of accumulator)",
+                "summary": (
+                    "A decumulator is the flip side of the accumulator. Instead of acting when the price is inside a band, "
+                    "it acts when the price is outside the band. You can think of it as a rule that 'sells' or realizes exposure "
+                    "when the price moves outside a comfortable range. The final payoff aggregates those events (again averaged/discounted)."
+                ),
+                "latex": r"""
+    	ext{Informal: average of discounted events where the price was outside the allowed band.}
+    """,
                 "notes": [
-                    "Key inputs: S0, r, sigma, T, upper/lower barrier (×S0), participation rate, obs_frequency."
+                    "- upper_barrier_frac / lower_barrier_frac: define the band; decumulator triggers when price is outside this range.",
+                    "- participation_rate: scales how strongly each triggered event contributes to payoff.",
+                    "Simple example: if band is [95,105] and price is 110 on an observation day, the decumulator counts that day into the payoff (you 'sell' or realize value).",
                 ],
             }
         else:
