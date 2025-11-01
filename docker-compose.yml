@@ -1,30 +1,30 @@
-version: "3.8"
 services:
   backend:
     build:
       context: .
       dockerfile: Dockerfile.backend
     image: ml-pricer-backend:latest
+    container_name: ml-pricer-backend
+    environment:
+      - MODEL_RESULTS_DIR=/app/final/results
+      - MODEL_HISTORY_FILE=/srv/app/data/pricing_history.csv
+    volumes:
+      - ./final/results:/app/final/results:ro
+      - ./data:/srv/app/data:rw
     ports:
       - "8000:8000"
     restart: unless-stopped
-    environment:
-      - MODEL_RESULTS_DIR=/srv/app/final/results
-    volumes:
-      # mount only the results directory to allow the container to read trained models
-      - ./final/results:/srv/app/final/results:ro
-      # mount code read-only for quick testing (optional)
-      - ./:/srv/app:ro
 
   frontend:
     build:
       context: .
       dockerfile: Dockerfile.frontend
     image: ml-pricer-frontend:latest
-    ports:
-      - "8501:8501"
+    container_name: ml-pricer-frontend
+    environment:
+      - API_URL=http://backend:8000
     depends_on:
       - backend
+    ports:
+      - "8501:8501"
     restart: unless-stopped
-    volumes:
-      - ./:/srv/app:ro
