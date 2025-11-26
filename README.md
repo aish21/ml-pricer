@@ -1,5 +1,7 @@
 # ml-pricer
 
+TRY IT OUT HERE: https://aish-ml-pricer-frontend.up.railway.app
+
 A prototype project that trains LightGBM models to approximate Monte Carlo (MC) pricing of different derivative payoffs. The repo contains data generation, model training (with Optuna tuning), evaluation against MC at multiple path counts, and a Streamlit frontend + FastAPI backend for interactive pricing and diagnostics.
 
 ## Table of contents
