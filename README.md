@@ -1,4 +1,4 @@
-# Neural Pricer
+# ml-pricer
 
 TRY IT OUT HERE: https://aish-ml-pricer-frontend.up.railway.app
 
