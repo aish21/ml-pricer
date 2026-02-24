@@ -1,5 +1,7 @@
 # Neural Pricer
 
+TRY IT OUT HERE: https://aish-ml-pricer-frontend.up.railway.app
+
 A prototype project that trains fast **LightGBM models** to approximate Monte Carlo (MC) pricing of structured derivative payoffs. The repo handles the full ML pipeline: data generation, model training with hyperparameter tuning via Optuna, evaluation against Monte Carlo baselines, and provides both a **Streamlit frontend** and **FastAPI backend** for interactive pricing comparisons and diagnostics.
 
 **The goal:** Get derivative prices that are _nearly as accurate_ as Monte Carlo but **orders of magnitude faster**.
