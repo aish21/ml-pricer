@@ -18,8 +18,12 @@ from src.final.payoffs import (
 )
 from src.final.model_trainer import ModelTrainer
 from src.final.evaluator import Evaluator
+from app.api.v1 import router as api_v1_router
+from app.bb.routes import router as blackberry_router
 
 app = FastAPI(title="ML Pricer API", version="1.0")
+app.include_router(api_v1_router)
+app.include_router(blackberry_router)
 
 PAYOFF_MAP = {
     "phoenix": PhoenixPayoff,
