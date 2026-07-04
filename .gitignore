@@ -36,6 +36,8 @@ wheels/
 
 # Data files (uncomment if you don't want to commit data)
 # data/
+data/*.sqlite3
+data/*.sqlite3-*
 
 # Model checkpoints
 *.ckpt
