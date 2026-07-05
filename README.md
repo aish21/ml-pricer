@@ -46,6 +46,10 @@ BlackBerry Bold 9780
 The same backend also supports the existing Streamlit frontend and legacy JSON
 pricing routes.
 
+An optional sideloaded legacy BlackBerry Java client lives under
+`clients/blackberry-legacy/`. It is a thin launcher shell for the `/bb` web
+terminal, not a native pricing engine.
+
 ## Repository Structure
 
 ```text
@@ -75,6 +79,9 @@ data/
 
 docs/
   blackberry-terminal.md  BlackBerry terminal details and testing guide
+
+clients/
+  blackberry-legacy/      Optional BlackBerry OS 6 launcher spike
 
 unittests/
   pytest coverage for pricing, routes, storage, and terminal helpers
@@ -157,6 +164,28 @@ The BlackBerry UI is intentionally plain:
 - compact monospace layout
 - simple forms and links
 
+## Optional Legacy BlackBerry Client
+
+`clients/blackberry-legacy/` contains a minimal BlackBerry OS 6 Java launcher
+spike named `AshBerry Terminal`.
+
+The launcher is optional. It does not run pricing locally, does not contain
+model artifacts, and does not store secrets. Its job is to open the existing
+server-rendered terminal URL:
+
+```text
+http://<PC_LOCAL_IP>:8000/bb
+```
+
+This keeps the backend as the source of truth while allowing a future
+home-screen icon on the BlackBerry.
+
+The local machine used for this repo did not have the legacy BlackBerry Java
+toolchain on PATH, so the launcher source has not yet been compiled or
+sideloaded from this checkout. See
+[`clients/blackberry-legacy/README.md`](clients/blackberry-legacy/README.md)
+for the expected build and sideload workflow.
+
 ## Testing On A BlackBerry Bold 9780
 
 Run the backend on all local network interfaces:
@@ -226,7 +255,8 @@ Legacy routes kept for compatibility:
 
 - The MVP uses local-only HTTP.
 - There is no authentication or PIN enforcement yet.
-- There is no native BlackBerry/WebWorks app yet.
+- The optional BlackBerry Java launcher is a source-level spike; it has not yet
+  been built or sideloaded from this checkout.
 - Model/scaler artifacts are committed for demo usage.
 - Model caching is in-process only and clears on backend restart.
 - Scenario explanations are simple and rule-based.

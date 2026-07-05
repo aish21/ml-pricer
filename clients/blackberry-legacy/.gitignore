@@ -1,0 +1,13 @@
+# Generated BlackBerry build outputs
+build/
+dist/
+*.cod
+*.jad
+*.jar
+*.rapc
+*.debug
+*.cso
+*.csl
+*.csi
+*.err
+*.log

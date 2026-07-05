@@ -26,6 +26,10 @@ The BlackBerry terminal demo loop currently supports:
 The BlackBerry pages use server-rendered HTML, minimal CSS, no JavaScript, no
 CDN assets, and no template dependency.
 
+An optional sideloaded BlackBerry Java client spike is available under
+`clients/blackberry-legacy/`. It is a launcher for the web terminal, not a
+native pricing application.
+
 The read-only status endpoints from the prior phase remain available:
 
 - `GET /api/v1/products`
@@ -216,6 +220,71 @@ http://<PC_LOCAL_IP>:8000/bb
 Do not expose this MVP publicly. Treat the BlackBerry as an insecure legacy
 client on a trusted local network only.
 
+## Optional Legacy BlackBerry Client
+
+The primary BlackBerry experience remains the `/bb` web terminal. The optional
+legacy client in `clients/blackberry-legacy/` is a tiny BlackBerry OS 6 Java
+launcher intended to open that terminal from a home-screen app icon.
+
+It does not contain:
+
+- pricing formulas
+- model/scaler artifacts
+- scenario logic
+- product-specific pricing rules
+- API keys or secrets
+
+Current launcher behavior:
+
+- shows an `ASHBERRY TERMINAL` screen
+- displays a placeholder backend URL
+- opens the URL in the native BlackBerry browser when ENTER is pressed
+- also exposes an `Open Terminal` menu item
+
+The committed URL is a placeholder:
+
+```text
+http://192.168.1.100:8000/bb
+```
+
+Before building for a real device, replace it locally with the PC LAN URL:
+
+```text
+http://<PC_LOCAL_IP>:8000/bb
+```
+
+Do not commit a machine-specific IP address.
+
+### Legacy Tooling Status
+
+The source-level spike was added without a local BlackBerry build toolchain on
+PATH. These commands were not found on the current machine:
+
+- `java`
+- `javac`
+- `rapc`
+- `javaloader`
+- `bbwp`
+
+Because of that, the `.cod` file was not built and the app was not sideloaded
+from this checkout.
+
+Expected tools to confirm:
+
+- legacy BlackBerry Java SDK/JDE or Eclipse plugin
+- compatible Java JDK for that SDK
+- BlackBerry Desktop Software or USB drivers
+- `javaloader.exe` for command-line sideloading
+
+Expected sideload shape after a successful build:
+
+```powershell
+javaloader.exe load AshBerryTerminal.cod
+```
+
+See `clients/blackberry-legacy/README.md` for the client source layout and
+build notes.
+
 ## Run Storage
 
 The terminal uses SQLite run storage through `app/services/run_store.py`.
@@ -246,7 +315,8 @@ base pricing request/result to shock and reprice later.
 - No authentication or PIN enforcement yet.
 - Model cache is in-process only and clears on backend restart.
 - Scenario explanations are simple and rule-based.
-- No native sideloaded BlackBerry app yet.
+- The sideloaded BlackBerry app is currently a source-level launcher spike and
+  still needs legacy SDK build verification.
 - BlackBerry browser rendering may require more simplification after device
   testing.
 
