@@ -1,17 +1,35 @@
-# AshBerry Terminal Legacy Client
+# AshBerry Terminal Java ME Client
 
-This folder contains a minimal BlackBerry OS 6 Java thin-client spike for the
-ML-Pricer BlackBerry terminal.
+This folder contains the Java ME native thin-client spike for the ML-Pricer
+BlackBerry terminal.
 
-The primary BlackBerry experience remains the server-rendered web terminal at
-`/bb`. This sideloaded app is only a launcher shell: it opens the backend
-terminal URL in the native BlackBerry browser.
+The BlackBerry app renders its own compact terminal UI and talks to FastAPI over
+local HTTP. It does not open the BlackBerry browser for the main flow and does
+not parse the `/bb` HTML pages.
+
+The server-rendered `/bb` browser terminal remains useful as the proven fallback
+and manual testing path.
+
+## Architecture
+
+```text
+BlackBerry Bold 9780 Java ME MIDlet
+  -> HTTP over local Wi-Fi
+  -> FastAPI /api/bb/* plain-text endpoints
+  -> pricing service / model cache / scenario service
+  -> SQLite run store
+  -> compact text response
+  -> Java ME app renders result
+```
 
 ## What It Does
 
-- Shows a small `ASHBERRY TERMINAL` screen.
-- Opens `DEFAULT_TERMINAL_URL` when ENTER is pressed.
-- Also provides an `Open Terminal` menu item.
+- Shows a native `ASHBERRY TERMINAL` menu.
+- Stores a configurable backend base URL in RMS.
+- Calls `GET /api/bb/ping`.
+- Calls `GET /api/bb/model-status`.
+- Renders backend status inside the MIDlet.
+- Shows settings and about screens.
 
 ## What It Does Not Do
 
@@ -20,87 +38,101 @@ terminal URL in the native BlackBerry browser.
 - It does not load model/scaler artifacts.
 - It does not run scenario logic.
 - It does not store API keys or secrets.
+- It does not implement native Phoenix pricing yet.
 
 ## Source
 
 ```text
-src/com/ashberry/terminal/AshBerryTerminal.java
+midlet/
+  src/com/ashberry/terminal/
+    AshBerryTerminalMidlet.java
+    HttpClient.java
+    ResponseParser.java
+    SettingsStore.java
+  manifest/MANIFEST.MF
+  AshBerryTerminal.jad.template
+  build-notes.md
 ```
 
-Before building for a real device, update the placeholder URL:
-
-```java
-static final String DEFAULT_TERMINAL_URL = "http://192.168.1.100:8000/bb";
-```
-
-Use the PC's LAN IP and the backend port, for example:
+The default base URL placeholder is:
 
 ```text
-http://<PC_LOCAL_IP>:8000/bb
+http://192.168.1.100:8000
+```
+
+Use the MIDlet settings screen to change it on device, or change it locally
+before building if needed:
+
+```text
+http://<PC_LOCAL_IP>:8000
 ```
 
 Do not commit machine-specific IP addresses or secrets.
 
+## Backend API
+
+The MIDlet uses compact plain-text endpoints:
+
+```text
+GET /api/bb/ping
+GET /api/bb/model-status
+GET /api/bb/products
+```
+
+Example model-status response:
+
+```text
+OK
+PHOENIX=READY,COLD
+ACCUM=READY,COLD
+BARRIER=READY,COLD
+```
+
+Plain text is intentional: Java ME has limited standard library support, so this
+avoids a JSON dependency and keeps parsing simple.
+
 ## Tooling Status
 
-This spike was added without a local BlackBerry build toolchain available on
-PATH. The following commands were not found locally:
+Installed locally:
 
 - `java`
 - `javac`
-- `rapc`
-- `javaloader`
-- `bbwp`
 
-That means the Java source has not yet been compiled into a `.cod` file and has
-not yet been sideloaded from this checkout.
+Missing locally:
 
-## Expected Legacy Toolchain
+- `preverifier`
+- `emulator`
+- Java ME Wireless Toolkit / Java ME SDK
+- BlackBerry install tooling
 
-For a BlackBerry Bold 9780 / BlackBerry OS 6 device, expect to need:
-
-- BlackBerry Java SDK or BlackBerry JDE / Eclipse plugin from the legacy era.
-- A compatible Java JDK required by that BlackBerry SDK.
-- BlackBerry Desktop Software or USB drivers.
-- `javaloader.exe` for command-line sideloading, if using the CLI path.
-
-The exact SDK download and Java version need to be confirmed on the build
-machine because the legacy toolchain is old and availability varies.
+That means the MIDlet source has not been compiled into a `.jar`, converted to
+`.cod`, or sideloaded from this checkout.
 
 ## Build
 
-The source uses BlackBerry-specific `net.rim.*` APIs and cannot be compiled
-with stock `javac` alone.
+The source uses standard Java ME APIs:
 
-Expected options:
+- `javax.microedition.midlet.MIDlet`
+- `javax.microedition.lcdui.*`
+- `javax.microedition.io.HttpConnection`
+- `javax.microedition.rms.*`
 
-1. Import `src/com/ashberry/terminal/AshBerryTerminal.java` into a BlackBerry
-   Java SDK/JDE project.
-2. Set the application entry point to:
+It intentionally avoids `net.rim.*` APIs for Track A.
 
-```text
-com.ashberry.terminal.AshBerryTerminal
-```
+Expected build flow after installing a Java ME SDK or compatible Wireless
+Toolkit:
 
-3. Build/sign as required by the installed SDK.
+1. Compile against CLDC 1.1 / MIDP 2.0.
+2. Preverify classes.
+3. Package `AshBerryTerminal.jar`.
+4. Generate a real `.jad` from `AshBerryTerminal.jad.template` with the actual
+   JAR size.
+5. Install the `.jad` / `.jar` pair or convert through the chosen BlackBerry
+   deployment toolchain.
 
-If using legacy command-line tools, the eventual build will likely involve
-`rapc`, but the exact command should be captured after the SDK is installed and
-verified.
+Do not commit generated `.jar`, `.jad`, `.cod`, or simulator output.
 
-## Sideload
-
-Once a `.cod` file exists, expected CLI loading shape:
-
-```powershell
-javaloader.exe load AshBerryTerminal.cod
-```
-
-Alternative:
-
-- Use BlackBerry Desktop Software to install the generated app package.
-
-## Runtime Flow
+## Runtime Test Flow
 
 1. Start the backend:
 
@@ -108,19 +140,28 @@ Alternative:
 python -m uvicorn app.backend:app --reload --host 0.0.0.0 --port 8000
 ```
 
-2. Confirm the BlackBerry browser can open:
+2. From a desktop browser, confirm:
 
 ```text
-http://<PC_LOCAL_IP>:8000/bb
+http://127.0.0.1:8000/api/bb/ping
+http://127.0.0.1:8000/api/bb/model-status
 ```
 
-3. Build and sideload this launcher.
-4. Open `AshBerry Terminal` from the BlackBerry home screen.
-5. Press ENTER to open the terminal page.
+3. From the BlackBerry browser, confirm:
+
+```text
+http://<PC_LOCAL_IP>:8000/api/bb/ping
+```
+
+4. Build and install the MIDlet after Java ME tooling is available.
+5. Open `AshBerry Terminal`.
+6. Set the backend base URL.
+7. Open `STATUS` and confirm the model-status text renders.
 
 ## Phase 7B Candidates
 
-- Add a small settings screen for host and port.
-- Persist the configured backend URL locally.
-- Evaluate BrowserField embedding after the basic launcher builds.
-- Add a backend reachability check if it proves useful.
+- Install/verify Java ME build tooling.
+- Produce and install a real `.jar` / `.jad` package.
+- Add a Phoenix-only native pricing form.
+- Add recent-runs view.
+- Add compact response parsing with field labels and error handling polish.

@@ -18,10 +18,12 @@ from src.final.payoffs import (
 )
 from src.final.model_trainer import ModelTrainer
 from src.final.evaluator import Evaluator
+from app.api.bb import router as bb_api_router
 from app.api.v1 import router as api_v1_router
 from app.bb.routes import router as blackberry_router
 
 app = FastAPI(title="ML Pricer API", version="1.0")
+app.include_router(bb_api_router)
 app.include_router(api_v1_router)
 app.include_router(blackberry_router)
 

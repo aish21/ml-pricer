@@ -1,0 +1,7 @@
+Manifest-Version: 1.0
+MIDlet-Name: AshBerry Terminal
+MIDlet-Version: 0.1.0
+MIDlet-Vendor: AshBerry
+MIDlet-1: AshBerry Terminal,,com.ashberry.terminal.AshBerryTerminalMidlet
+MicroEdition-Configuration: CLDC-1.1
+MicroEdition-Profile: MIDP-2.0

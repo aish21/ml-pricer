@@ -46,9 +46,9 @@ BlackBerry Bold 9780
 The same backend also supports the existing Streamlit frontend and legacy JSON
 pricing routes.
 
-An optional sideloaded legacy BlackBerry Java client lives under
-`clients/blackberry-legacy/`. It is a thin launcher shell for the `/bb` web
-terminal, not a native pricing engine.
+An optional sideloaded Java ME client lives under `clients/blackberry-legacy/`.
+It renders a native terminal UI and calls compact `/api/bb/*` backend endpoints,
+but it is still only a thin client. It is not a native pricing engine.
 
 ## Repository Structure
 
@@ -81,7 +81,7 @@ docs/
   blackberry-terminal.md  BlackBerry terminal details and testing guide
 
 clients/
-  blackberry-legacy/      Optional BlackBerry OS 6 launcher spike
+  blackberry-legacy/      Optional Java ME native thin-client spike
 
 unittests/
   pytest coverage for pricing, routes, storage, and terminal helpers
@@ -164,25 +164,26 @@ The BlackBerry UI is intentionally plain:
 - compact monospace layout
 - simple forms and links
 
-## Optional Legacy BlackBerry Client
+## Optional Java ME BlackBerry Client
 
-`clients/blackberry-legacy/` contains a minimal BlackBerry OS 6 Java launcher
-spike named `AshBerry Terminal`.
+`clients/blackberry-legacy/` contains a minimal Java ME MIDlet spike named
+`AshBerry Terminal`.
 
-The launcher is optional. It does not run pricing locally, does not contain
-model artifacts, and does not store secrets. Its job is to open the existing
-server-rendered terminal URL:
+The MIDlet is optional. It does not run pricing locally, does not contain model
+artifacts, and does not store secrets. Its job is to render a native compact UI
+and call plain-text backend endpoints such as:
 
 ```text
-http://<PC_LOCAL_IP>:8000/bb
+http://<PC_LOCAL_IP>:8000/api/bb/ping
+http://<PC_LOCAL_IP>:8000/api/bb/model-status
 ```
 
-This keeps the backend as the source of truth while allowing a future
-home-screen icon on the BlackBerry.
+The existing `/bb` browser terminal remains available as the proven fallback
+and manual testing route.
 
-The local machine used for this repo did not have the legacy BlackBerry Java
-toolchain on PATH, so the launcher source has not yet been compiled or
-sideloaded from this checkout. See
+The local machine has Java/Javac, but does not yet have Java ME preverification
+or emulator tooling, so the MIDlet source has not yet been compiled or
+installed from this checkout. See
 [`clients/blackberry-legacy/README.md`](clients/blackberry-legacy/README.md)
 for the expected build and sideload workflow.
 
@@ -242,6 +243,12 @@ Read-only API v1:
 - `GET /api/v1/products`
 - `GET /api/v1/model-info`
 
+Java ME plain-text API:
+
+- `GET /api/bb/ping`
+- `GET /api/bb/model-status`
+- `GET /api/bb/products`
+
 Legacy routes kept for compatibility:
 
 - `POST /price/`
@@ -255,8 +262,8 @@ Legacy routes kept for compatibility:
 
 - The MVP uses local-only HTTP.
 - There is no authentication or PIN enforcement yet.
-- The optional BlackBerry Java launcher is a source-level spike; it has not yet
-  been built or sideloaded from this checkout.
+- The optional Java ME MIDlet is a source-level spike; it has not yet been built
+  or sideloaded from this checkout.
 - Model/scaler artifacts are committed for demo usage.
 - Model caching is in-process only and clears on backend restart.
 - Scenario explanations are simple and rule-based.

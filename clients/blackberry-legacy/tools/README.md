@@ -1,7 +1,7 @@
 # Legacy BlackBerry Tools
 
 This folder is a placeholder for notes or small helper scripts related to the
-BlackBerry legacy build workflow.
+Java ME / BlackBerry legacy build workflow.
 
 Do not commit vendor SDKs, generated `.cod` files, signing keys, Desktop
 Software installers, or machine-specific paths.
@@ -11,12 +11,13 @@ Useful commands to verify after installing the toolchain:
 ```powershell
 java -version
 javac -version
-rapc
-javaloader.exe -h
+preverifier
+emulator
 ```
 
-Expected sideload shape after a successful build:
+If later converting/installing through BlackBerry-specific tools, also verify:
 
 ```powershell
-javaloader.exe load AshBerryTerminal.cod
+rapc
+javaloader.exe -h
 ```

@@ -26,9 +26,10 @@ The BlackBerry terminal demo loop currently supports:
 The BlackBerry pages use server-rendered HTML, minimal CSS, no JavaScript, no
 CDN assets, and no template dependency.
 
-An optional sideloaded BlackBerry Java client spike is available under
-`clients/blackberry-legacy/`. It is a launcher for the web terminal, not a
-native pricing application.
+An optional sideloaded Java ME client spike is available under
+`clients/blackberry-legacy/`. It renders a native terminal UI and calls compact
+plain-text `/api/bb/*` backend endpoints. It is still not a native pricing
+application.
 
 The read-only status endpoints from the prior phase remain available:
 
@@ -222,9 +223,10 @@ client on a trusted local network only.
 
 ## Optional Legacy BlackBerry Client
 
-The primary BlackBerry experience remains the `/bb` web terminal. The optional
-legacy client in `clients/blackberry-legacy/` is a tiny BlackBerry OS 6 Java
-launcher intended to open that terminal from a home-screen app icon.
+The `/bb` web terminal remains the proven browser-based experience. The optional
+legacy client in `clients/blackberry-legacy/` is now a Java ME MIDlet spike with
+its own compact UI. It talks to the backend directly over local HTTP instead of
+opening or parsing the `/bb` HTML pages.
 
 It does not contain:
 
@@ -234,52 +236,72 @@ It does not contain:
 - product-specific pricing rules
 - API keys or secrets
 
-Current launcher behavior:
+Current MIDlet behavior:
 
-- shows an `ASHBERRY TERMINAL` screen
-- displays a placeholder backend URL
-- opens the URL in the native BlackBerry browser when ENTER is pressed
-- also exposes an `Open Terminal` menu item
+- shows an `ASHBERRY TERMINAL` menu
+- stores a backend base URL in RMS settings
+- calls `GET /api/bb/ping`
+- calls `GET /api/bb/model-status`
+- renders compact status text inside the MIDlet
+- includes settings and about screens
 
-The committed URL is a placeholder:
+The committed base URL placeholder is:
 
 ```text
-http://192.168.1.100:8000/bb
+http://192.168.1.100:8000
 ```
 
-Before building for a real device, replace it locally with the PC LAN URL:
+On device, update it through the settings screen:
 
 ```text
-http://<PC_LOCAL_IP>:8000/bb
+http://<PC_LOCAL_IP>:8000
 ```
 
 Do not commit a machine-specific IP address.
 
+### Java ME API Endpoints
+
+The native MIDlet uses plain-text endpoints:
+
+- `GET /api/bb/ping`
+- `GET /api/bb/model-status`
+- `GET /api/bb/products`
+
+Example:
+
+```text
+OK
+PHOENIX=READY,COLD
+ACCUM=READY,COLD
+BARRIER=READY,COLD
+```
+
+Plain text is intentional because Java ME has limited library support and should
+not pull in a large JSON dependency for this spike.
+
 ### Legacy Tooling Status
 
-The source-level spike was added without a local BlackBerry build toolchain on
-PATH. These commands were not found on the current machine:
+The source-level spike was added with Java/Javac available, but without Java ME
+build tooling. These commands were not found on the current machine:
 
-- `java`
-- `javac`
-- `rapc`
-- `javaloader`
-- `bbwp`
+- `preverifier`
+- `emulator`
 
-Because of that, the `.cod` file was not built and the app was not sideloaded
-from this checkout.
+Because of that, the `.jar` / `.jad` pair was not built and the app was not
+installed from this checkout.
 
 Expected tools to confirm:
 
-- legacy BlackBerry Java SDK/JDE or Eclipse plugin
-- compatible Java JDK for that SDK
-- BlackBerry Desktop Software or USB drivers
-- `javaloader.exe` for command-line sideloading
+- Java ME SDK or compatible Wireless Toolkit with CLDC 1.1 / MIDP 2.0
+- preverification tooling
+- emulator or BlackBerry installation path
+- optional BlackBerry conversion/loading tools if needed later
 
-Expected sideload shape after a successful build:
+Expected source build shape after tooling is available:
 
 ```powershell
-javaloader.exe load AshBerryTerminal.cod
+preverifier ...
+jar ...
 ```
 
 See `clients/blackberry-legacy/README.md` for the client source layout and
@@ -315,8 +337,8 @@ base pricing request/result to shock and reprice later.
 - No authentication or PIN enforcement yet.
 - Model cache is in-process only and clears on backend restart.
 - Scenario explanations are simple and rule-based.
-- The sideloaded BlackBerry app is currently a source-level launcher spike and
-  still needs legacy SDK build verification.
+- The sideloaded Java ME app is currently a source-level MIDlet spike and still
+  needs Java ME build/install verification.
 - BlackBerry browser rendering may require more simplification after device
   testing.
 
