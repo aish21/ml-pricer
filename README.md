@@ -187,6 +187,14 @@ installed from this checkout. See
 [`clients/blackberry-legacy/README.md`](clients/blackberry-legacy/README.md)
 for the expected build and sideload workflow.
 
+Expected build entry point after installing a Java ME Wireless Toolkit:
+
+```powershell
+$env:WTK_HOME="C:\WTK252"
+cd clients\blackberry-legacy\midlet
+.\build.ps1
+```
+
 ## Testing On A BlackBerry Bold 9780
 
 Run the backend on all local network interfaces:

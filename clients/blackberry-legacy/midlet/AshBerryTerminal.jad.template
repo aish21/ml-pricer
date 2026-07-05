@@ -1,8 +1,9 @@
 MIDlet-Name: AshBerry Terminal
 MIDlet-Version: 0.1.0
-MIDlet-Vendor: AshBerry
+MIDlet-Vendor: AshSongh
 MIDlet-1: AshBerry Terminal,,com.ashberry.terminal.AshBerryTerminalMidlet
 MIDlet-Jar-URL: AshBerryTerminal.jar
 MIDlet-Jar-Size: UPDATE_AFTER_BUILD
+MIDlet-Permissions: javax.microedition.io.Connector.http
 MicroEdition-Configuration: CLDC-1.1
 MicroEdition-Profile: MIDP-2.0

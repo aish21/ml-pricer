@@ -297,12 +297,43 @@ Expected tools to confirm:
 - emulator or BlackBerry installation path
 - optional BlackBerry conversion/loading tools if needed later
 
-Expected source build shape after tooling is available:
+Recommended install location:
+
+```text
+C:\WTK252
+```
+
+Set:
 
 ```powershell
-preverifier ...
-jar ...
+$env:WTK_HOME="C:\WTK252"
 ```
+
+Build:
+
+```powershell
+cd clients\blackberry-legacy\midlet
+.\build.ps1
+```
+
+Expected outputs:
+
+```text
+dist/AshBerryTerminal.jar
+dist/AshBerryTerminal.jad
+```
+
+Install options:
+
+- microSD copy: copy the generated `.jar` and `.jad` to the BlackBerry and open
+  the `.jad` or `.jar` from File Manager.
+- local OTA-style download: serve `dist/` from the PC and open
+  `http://<PC_LOCAL_IP>:8010/AshBerryTerminal.jad` from the BlackBerry browser.
+
+For OTA-style install, the server should use:
+
+- `.jad`: `text/vnd.sun.j2me.app-descriptor`
+- `.jar`: `application/java-archive`
 
 See `clients/blackberry-legacy/README.md` for the client source layout and
 build notes.

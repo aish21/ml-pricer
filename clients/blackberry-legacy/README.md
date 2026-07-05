@@ -132,6 +132,60 @@ Toolkit:
 
 Do not commit generated `.jar`, `.jad`, `.cod`, or simulator output.
 
+## Build Command
+
+Install a Java ME Wireless Toolkit first, preferably at:
+
+```text
+C:\WTK252
+```
+
+Then set:
+
+```powershell
+$env:WTK_HOME="C:\WTK252"
+```
+
+Build:
+
+```powershell
+cd clients\blackberry-legacy\midlet
+.\build.ps1
+```
+
+Expected outputs:
+
+```text
+dist/AshBerryTerminal.jar
+dist/AshBerryTerminal.jad
+```
+
+The build script checks for `WTK_HOME`, CLDC/MIDP jars, and
+`preverify`/`preverifier`. If those are missing, it fails with a setup message.
+
+## Install Options
+
+Option A, microSD:
+
+1. Copy `dist/AshBerryTerminal.jar` and `dist/AshBerryTerminal.jad` to the
+   BlackBerry microSD card.
+2. Open the `.jad` or `.jar` from File Manager.
+3. Install and launch `AshBerry Terminal`.
+
+Option B, local OTA-style install:
+
+1. Serve the generated `dist` folder from the PC.
+2. Open this URL from the BlackBerry browser:
+
+```text
+http://<PC_LOCAL_IP>:8010/AshBerryTerminal.jad
+```
+
+3. Ensure the server uses reasonable MIME types:
+
+- `.jad`: `text/vnd.sun.j2me.app-descriptor`
+- `.jar`: `application/java-archive`
+
 ## Runtime Test Flow
 
 1. Start the backend:
