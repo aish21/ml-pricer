@@ -1,12 +1,12 @@
 from typing import Any, Dict, Optional
 
 from app.services.pricing_service import (
-    BB_PRICING_PRODUCT_KEYS,
     InvalidPricingInputError,
     PricingServiceError,
     UnsupportedProductError,
     price_product,
 )
+from app.services.product_registry import get_product_definition
 
 
 class ScenarioServiceError(Exception):
@@ -85,7 +85,7 @@ def _pct_change(base_price: Optional[float], price_change: Optional[float]) -> O
     return (price_change / abs(base_price)) * 100.0
 
 
-def summarize_scenario(shocks: Dict[str, float]) -> str:
+def summarize_scenario(shocks: Dict[str, float], product_name: str) -> str:
     parts = []
     if shocks.get("spot_pct", 0) < 0:
         parts.append("spot down")
@@ -104,7 +104,7 @@ def summarize_scenario(shocks: Dict[str, float]) -> str:
 
     if not parts:
         return "Scenario repriced with supplied shocks."
-    return " / ".join(parts).capitalize() + " changed the Phoenix value."
+    return " / ".join(parts).capitalize() + f" changed the {product_name} value."
 
 
 def run_scenario(
@@ -116,7 +116,10 @@ def run_scenario(
         raise InvalidScenarioInputError("base request missing")
 
     product_key = base_request.get("product_key")
-    if product_key not in BB_PRICING_PRODUCT_KEYS:
+    product = get_product_definition(product_key or "")
+    if product is None:
+        raise UnsupportedProductError(f"unknown product: {product_key}")
+    if not product.enabled_for_bb:
         raise UnsupportedProductError(f"unsupported product: {product_key}")
 
     base_params = base_request.get("params")
@@ -159,7 +162,7 @@ def run_scenario(
         "shocked_request": shocked_request,
         "shocked_result": shocked_result,
         "shocks": normalized_shocks,
-        "summary": summarize_scenario(normalized_shocks),
+        "summary": summarize_scenario(normalized_shocks, product.display_name),
         "model": shocked_result.get("model"),
         "latency_ms": shocked_result.get("latency_ms"),
     }

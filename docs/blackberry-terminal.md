@@ -11,7 +11,8 @@ FastAPI backend.
 The BlackBerry terminal demo loop currently supports:
 
 - open `GET /bb/price`
-- submit a simple Phoenix pricing form with `POST /bb/price`
+- choose from all BB-enabled artifact-backed products
+- submit a product-specific pricing form with `POST /bb/price`
 - save a completed run in SQLite
 - redirect to `GET /bb/result/{run_id}`
 - render compact terminal-style pricing output
@@ -20,6 +21,7 @@ The BlackBerry terminal demo loop currently supports:
 - reprice the shocked request and display before/after output
 - browse `GET /bb/recent-runs`
 - reopen saved price and scenario runs
+- reuse loaded model/scaler bundles from an in-memory process cache
 
 The BlackBerry pages use server-rendered HTML, minimal CSS, no JavaScript, no
 CDN assets, and no template dependency.
@@ -33,11 +35,55 @@ The read-only status endpoints from the prior phase remain available:
 
 ## Supported Pricing Products
 
-The BlackBerry pricing and scenario flows support `phoenix` only.
+The BlackBerry pricing and scenario flows currently support every product with
+an existing payoff class, known terminal fields, and committed model/scaler
+artifacts:
 
-That product was chosen first because it is supported by the existing `/price/`
-path, has committed model/scaler artifacts under `final/results/phoenix`, and
-is the clearest fit for the retro autocallable terminal demo.
+- `phoenix` (`PHOENIX`)
+- `accumulator` (`ACCUM`)
+- `barrier` (`BARRIER`)
+- `decumulator` (`DECUM`)
+- `phoenix_stepdown` (`STEP-PHX`)
+- `reverse_accumulator` (`REV-ACC`)
+
+The legacy JSON `/price/` route still supports only its previous product set.
+The BlackBerry flow uses the newer product registry metadata and does not alter
+legacy route behavior.
+
+## Product Parameters
+
+Phoenix and Step-Down Phoenix:
+
+- `S0`: spot
+- `sigma`: volatility
+- `r`: rate
+- `T`: maturity
+- `autocall_barrier_frac`: autocall barrier fraction
+- `coupon_barrier_frac`: coupon barrier fraction
+- `coupon_rate`: coupon rate
+- `knock_in_frac`: knock-in barrier fraction
+- `obs_count`: observation count
+
+Accumulator, Decumulator, and Reverse Accumulator:
+
+- `S0`: spot
+- `sigma`: volatility
+- `r`: rate
+- `T`: maturity
+- `upper_barrier_frac`: upper barrier fraction
+- `lower_barrier_frac`: lower barrier fraction
+- `participation_rate`: participation rate
+- `obs_frequency`: observation frequency
+
+Barrier:
+
+- `S0`: spot
+- `sigma`: volatility
+- `r`: rate
+- `T`: maturity
+- `K`: strike
+- `barrier_frac`: barrier fraction
+- `option_type`: call or put selector
 
 ## Run Locally
 
@@ -66,16 +112,19 @@ Example flow:
 
 1. Open `http://127.0.0.1:8000/bb`.
 2. Choose `[1] PRICE NOTE`.
-3. Keep the default Phoenix inputs or edit them.
-4. Submit `PRICE`.
-5. Confirm the browser redirects to `/bb/result/{run_id}` and shows price,
+3. Choose a product such as `PHOENIX`, `ACCUM`, or `BARRIER`.
+4. Keep the default inputs or edit them.
+5. Submit `PRICE`.
+6. Confirm the browser redirects to `/bb/result/{run_id}` and shows price,
    Monte Carlo estimate, error, latency, model, and path count.
-6. Choose `[1] SCENARIO SHOCK`.
-7. Enter one or more shocks and submit `PRICE SHOCK`.
-8. Confirm the scenario result shows base price, shocked price, move, shocks,
+7. Choose `[1] SCENARIO SHOCK`.
+8. Enter one or more shocks and submit `PRICE SHOCK`.
+9. Confirm the scenario result shows base price, shocked price, move, shocks,
    and a short summary.
-9. Open `/bb/recent-runs` and confirm the price and scenario runs can be
+10. Open `/bb/recent-runs` and confirm the price and scenario runs can be
    reopened.
+11. Open `/bb/model-status` and confirm priced products move from `COLD` to
+    `CACHED`.
 
 ## Recent Runs
 
@@ -100,8 +149,30 @@ Supported shock fields:
 - `rate_bps`: rate shock in basis points. `50` means `r + 0.005`.
 
 At least one shock is required. Shocked spot and volatility must remain
-positive. Shocked rate must remain non-negative because the current trained
-Phoenix model was built around non-negative rate ranges.
+positive. Shocked rate must remain non-negative because the current terminal
+validation assumes non-negative rate ranges.
+
+The same shock mapping is used for all BB-enabled products in this phase:
+`spot_pct` changes `S0`, `vol_abs` changes `sigma`, and `rate_bps` changes `r`.
+
+## Model Cache
+
+`app/services/model_cache.py` keeps loaded model/scaler bundles in process
+memory. The first price request for a product loads its artifacts from
+`final/results/{product}/model.joblib` and `scaler.joblib`; later requests in
+the same backend process reuse that bundle.
+
+`GET /bb/model-status` shows:
+
+- `READY`: artifacts are present and the product is enabled for BlackBerry
+  pricing.
+- `COLD`: artifacts are present, but the model has not been loaded in this
+  backend process yet.
+- `CACHED`: the model/scaler bundle is loaded in memory.
+- `UNAVAIL`: required artifacts are missing.
+
+The cache is intentionally simple: no Redis, no TTL, no external service. It
+clears when the backend process restarts.
 
 ## Physical BlackBerry Test
 
@@ -171,11 +242,9 @@ base pricing request/result to shock and reprice later.
 
 ## Current Limitations
 
-- BlackBerry pricing and scenario shock support only Phoenix in this phase.
 - Local-only HTTP; no public exposure.
 - No authentication or PIN enforcement yet.
-- Models are still loaded per pricing request, matching the existing backend
-  behavior.
+- Model cache is in-process only and clears on backend restart.
 - Scenario explanations are simple and rule-based.
 - No native sideloaded BlackBerry app yet.
 - BlackBerry browser rendering may require more simplification after device
@@ -183,5 +252,5 @@ base pricing request/result to shock and reprice later.
 
 ## Future Phases
 
-- Phase 6: compact payoff explanations and model-status polish.
+- Compact payoff explanations and model-status polish.
 - Phase 7: optional native or sideloaded BlackBerry wrapper.

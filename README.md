@@ -19,13 +19,14 @@ allocation.
 - Serves pricing through FastAPI.
 - Provides a Streamlit UI for desktop experimentation.
 - Provides a plain HTML BlackBerry terminal at `/bb`.
-- Supports Phoenix pricing in the BlackBerry terminal.
+- Supports multiple artifact-backed products in the BlackBerry terminal.
 - Supports BlackBerry scenario shocks:
   - spot percentage shock
   - volatility absolute shock
   - rate basis-point shock
 - Stores pricing and scenario runs in SQLite.
 - Shows recent runs and model status in a compact terminal UI.
+- Caches loaded model/scaler bundles in backend process memory.
 
 The BlackBerry is a thin client. It does not run the model locally. It sends
 simple HTTP requests over local Wi-Fi to the backend, which performs pricing,
@@ -130,13 +131,23 @@ http://127.0.0.1:8501
 
 1. Open `/bb`.
 2. Select `[1] PRICE NOTE`.
-3. Submit the Phoenix pricing form.
-4. View `/bb/result/{run_id}`.
-5. Select `[1] SCENARIO SHOCK`.
-6. Enter one or more shocks.
-7. View the scenario result.
-8. Open `/bb/recent-runs` to revisit price and scenario runs.
-9. Open `/bb/model-status` to check available artifacts.
+3. Select a product.
+4. Submit the product pricing form.
+5. View `/bb/result/{run_id}`.
+6. Select `[1] SCENARIO SHOCK`.
+7. Enter one or more shocks.
+8. View the scenario result.
+9. Open `/bb/recent-runs` to revisit price and scenario runs.
+10. Open `/bb/model-status` to check available artifacts and cache state.
+
+Currently enabled BlackBerry products:
+
+- `phoenix` (`PHOENIX`)
+- `accumulator` (`ACCUM`)
+- `barrier` (`BARRIER`)
+- `decumulator` (`DECUM`)
+- `phoenix_stepdown` (`STEP-PHX`)
+- `reverse_accumulator` (`REV-ACC`)
 
 The BlackBerry UI is intentionally plain:
 
@@ -213,22 +224,17 @@ Legacy routes kept for compatibility:
 
 ## Current Limitations
 
-- The BlackBerry terminal currently supports Phoenix only.
-- Other payoff families may have artifacts, but they are not yet wired into the
-  BlackBerry pricing form.
 - The MVP uses local-only HTTP.
 - There is no authentication or PIN enforcement yet.
 - There is no native BlackBerry/WebWorks app yet.
 - Model/scaler artifacts are committed for demo usage.
-- Models still load per request; model caching is future work.
+- Model caching is in-process only and clears on backend restart.
 - Scenario explanations are simple and rule-based.
 - Old BlackBerry browser rendering may require further simplification after
   more device testing.
 
 ## Future Roadmap
 
-- Add BlackBerry support for more payoff families.
-- Add model/scaler caching in the backend.
 - Add JSON `POST /api/v1/price` and `POST /api/v1/scenario`.
 - Improve payoff explanations and risk summaries.
 - Add optional PIN or gateway-based access control for non-local deployments.

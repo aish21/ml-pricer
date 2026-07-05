@@ -52,15 +52,24 @@ pre {{ font-family: monospace; white-space: pre-wrap; margin: 0; }}
     return HTMLResponse(html)
 
 
-def product_rows(products: Iterable[dict]) -> str:
+def product_rows(products: Iterable[dict], cache_status: dict[str, bool] | None = None) -> str:
+    cache_status = cache_status or {}
     rows = []
     for product in products:
         artifacts = product["artifacts"]
-        ready = "Y" if artifacts["ready_for_surrogate"] else "N"
-        model = "Y" if artifacts["model_available"] else "N"
-        scaler = "Y" if artifacts["scaler_available"] else "N"
-        key = escape(product["key"])
-        rows.append(f"{key:<20} {ready:<5} {model:<5} {scaler:<6}")
+        if not artifacts["ready_for_surrogate"]:
+            state = "UNAVAIL"
+        elif not product.get("enabled_for_bb"):
+            state = "NO-BB"
+        else:
+            state = "READY"
+
+        cache = "CACHED" if cache_status.get(product["key"]) else "COLD"
+        if state != "READY":
+            cache = "-"
+
+        label = escape(product.get("terminal_label") or product["key"].upper())
+        rows.append(f"{label:<10} {state:<8} {cache:<6}")
     return "\n".join(rows)
 
 

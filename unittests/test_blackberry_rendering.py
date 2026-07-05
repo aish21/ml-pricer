@@ -4,6 +4,7 @@ from app.bb.rendering import (
     format_number,
     format_percent,
     format_shock,
+    product_rows,
     run_price,
     terminal_error,
 )
@@ -32,6 +33,32 @@ def test_run_price_selects_price_or_shocked_price():
 
     assert run_price(price_run) == "0.980000"
     assert run_price(scenario_run) == "0.910000"
+
+
+def test_product_rows_show_terminal_cache_states():
+    rows = product_rows(
+        [
+            {
+                "key": "phoenix",
+                "terminal_label": "PHOENIX",
+                "enabled_for_bb": True,
+                "artifacts": {"ready_for_surrogate": True},
+            },
+            {
+                "key": "barrier",
+                "terminal_label": "BARRIER",
+                "enabled_for_bb": True,
+                "artifacts": {"ready_for_surrogate": False},
+            },
+        ],
+        {"phoenix": True},
+    )
+
+    assert "PHOENIX" in rows
+    assert "READY" in rows
+    assert "CACHED" in rows
+    assert "BARRIER" in rows
+    assert "UNAVAIL" in rows
 
 
 def test_terminal_error_escapes_reason_and_omits_tracebacks():

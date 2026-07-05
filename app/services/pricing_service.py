@@ -3,16 +3,17 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from src.final.evaluator import Evaluator
-from src.final.model_trainer import ModelTrainer
 
-from app.services.product_registry import (
-    build_artifact_status,
-    get_product_definition,
-    get_results_dir,
+from app.services.model_cache import (
+    ModelCacheArtifactError,
+    ModelCacheLoadError,
+    get_model_bundle,
 )
-
-
-BB_PRICING_PRODUCT_KEYS = ("phoenix",)
+from app.services.product_registry import (
+    ProductField,
+    get_bb_product_definitions,
+    get_product_definition,
+)
 
 
 class PricingServiceError(Exception):
@@ -32,55 +33,75 @@ class PricingArtifactError(PricingServiceError):
 
 
 def get_bb_pricing_products() -> list[dict[str, str]]:
-    products = []
-    for key in BB_PRICING_PRODUCT_KEYS:
-        product = get_product_definition(key)
-        if product is not None:
-            products.append({"key": product.key, "display_name": product.display_name})
-    return products
+    return [
+        {
+            "key": product.key,
+            "display_name": product.display_name,
+            "terminal_label": product.terminal_label,
+        }
+        for product in get_bb_product_definitions()
+    ]
 
 
-def _parse_float(params: Dict[str, Any], name: str) -> float:
-    raw_value = params.get(name)
+def _raw_value(params: Dict[str, Any], field: ProductField) -> Any:
+    raw_value = params.get(field.name)
     if raw_value is None or raw_value == "":
-        raise InvalidPricingInputError(f"missing required parameter: {name}")
-    try:
-        return float(raw_value)
-    except (TypeError, ValueError) as exc:
-        raise InvalidPricingInputError(f"invalid numeric parameter: {name}") from exc
+        raise InvalidPricingInputError(f"missing required parameter: {field.name}")
+    return raw_value
 
 
-def _parse_int(params: Dict[str, Any], name: str) -> int:
-    raw_value = params.get(name)
-    if raw_value is None or raw_value == "":
-        raise InvalidPricingInputError(f"missing required parameter: {name}")
+def _parse_float(params: Dict[str, Any], field: ProductField) -> float:
+    raw_value = _raw_value(params, field)
     try:
-        return int(raw_value)
+        value = float(raw_value)
     except (TypeError, ValueError) as exc:
-        raise InvalidPricingInputError(f"invalid integer parameter: {name}") from exc
+        raise InvalidPricingInputError(
+            f"invalid numeric parameter: {field.name}"
+        ) from exc
+    if field.min_value is not None and value < field.min_value:
+        raise InvalidPricingInputError(f"{field.name} must be >= {field.min_value}")
+    return value
+
+
+def _parse_int(params: Dict[str, Any], field: ProductField) -> int:
+    raw_value = _raw_value(params, field)
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError) as exc:
+        raise InvalidPricingInputError(
+            f"invalid integer parameter: {field.name}"
+        ) from exc
+    if field.min_value is not None and value < field.min_value:
+        raise InvalidPricingInputError(f"{field.name} must be >= {field.min_value}")
+    return value
+
+
+def _parse_choice(params: Dict[str, Any], field: ProductField) -> float:
+    raw_value = str(_raw_value(params, field))
+    valid_values = {value for value, _ in field.choices}
+    if raw_value not in valid_values:
+        raise InvalidPricingInputError(f"invalid choice parameter: {field.name}")
+    return float(raw_value)
+
+
+def _parse_field(params: Dict[str, Any], field: ProductField) -> Any:
+    if field.field_type == "int":
+        return _parse_int(params, field)
+    if field.field_type == "choice":
+        return _parse_choice(params, field)
+    return _parse_float(params, field)
 
 
 def normalize_pricing_params(product_key: str, params: Dict[str, Any]) -> Dict[str, Any]:
     product = get_product_definition(product_key)
-    if product is None or product.key not in BB_PRICING_PRODUCT_KEYS:
+    if product is None:
+        raise UnsupportedProductError(f"unknown product: {product_key}")
+    if not product.enabled_for_bb:
         raise UnsupportedProductError(f"unsupported product: {product_key}")
 
     normalized: Dict[str, Any] = {}
-    payoff = product.payoff_class()
-    for name in payoff.get_parameter_names():
-        if name == "obs_count":
-            normalized[name] = _parse_int(params, name)
-        else:
-            normalized[name] = _parse_float(params, name)
-
-    if normalized["S0"] <= 0:
-        raise InvalidPricingInputError("spot must be positive")
-    if normalized["sigma"] < 0:
-        raise InvalidPricingInputError("volatility cannot be negative")
-    if normalized["T"] <= 0:
-        raise InvalidPricingInputError("maturity must be positive")
-    if normalized["obs_count"] < 1:
-        raise InvalidPricingInputError("observation count must be positive")
+    for field in product.bb_fields:
+        normalized[field.name] = _parse_field(params, field)
 
     return normalized
 
@@ -93,7 +114,9 @@ def price_product(
     use_log_target: bool = True,
 ) -> Dict[str, Any]:
     product = get_product_definition(product_key)
-    if product is None or product.key not in BB_PRICING_PRODUCT_KEYS:
+    if product is None:
+        raise UnsupportedProductError(f"unknown product: {product_key}")
+    if not product.enabled_for_bb:
         raise UnsupportedProductError(f"unsupported product: {product_key}")
 
     try:
@@ -105,21 +128,17 @@ def price_product(
 
     normalized_params = normalize_pricing_params(product.key, params)
 
-    base_dir = Path(results_dir) if results_dir else get_results_dir()
-    artifact_status = build_artifact_status(product, base_dir)
-    if not artifact_status["ready_for_surrogate"]:
-        raise PricingArtifactError(f"model artifacts missing for {product.key}")
-
-    model_path = base_dir / product.artifact_dir / "model.joblib"
-    scaler_path = base_dir / product.artifact_dir / "scaler.joblib"
-
     start = time.perf_counter()
-    model, scaler = ModelTrainer.load(model_path, scaler_path)
+    try:
+        bundle = get_model_bundle(product.key, results_dir=results_dir)
+    except (ModelCacheArtifactError, ModelCacheLoadError) as exc:
+        raise PricingArtifactError(str(exc)) from exc
+
     evaluator = Evaluator(product.payoff_class(), verbose=False)
     raw_result = evaluator.evaluate_case(
         params=normalized_params,
-        model=model,
-        scaler=scaler,
+        model=bundle.model,
+        scaler=bundle.scaler,
         n_paths_list=[n_paths_int],
         use_log_target=use_log_target,
     )
@@ -138,6 +157,7 @@ def price_product(
         "mc_price": mc_result.get("price"),
         "abs_error": model_result.get("abs_error"),
         "rel_error": model_result.get("rel_error"),
+        "speedup": model_result.get("speedup"),
         "model_time_s": model_result.get("time"),
         "mc_time_s": mc_result.get("time"),
         "latency_ms": latency_ms,

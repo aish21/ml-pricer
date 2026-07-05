@@ -15,6 +15,8 @@ os.environ.setdefault(
 os.environ.setdefault("MODEL_RUN_STORE_FILE", str(RUN_DB_PATH))
 
 from app.backend import app
+from app.services.model_cache import clear_model_cache
+from app.services.product_registry import get_bb_product_definitions
 from app.services.run_store import save_run
 
 
@@ -61,18 +63,41 @@ BASE_RESULT = {
 
 @pytest.fixture(autouse=True)
 def reset_run_db():
+    clear_model_cache()
     if RUN_DB_PATH.exists():
         RUN_DB_PATH.unlink()
     yield
+    clear_model_cache()
     if RUN_DB_PATH.exists():
         RUN_DB_PATH.unlink()
 
 
-def save_base_run_for_route_tests():
+def default_form_data(product, n_paths="5"):
+    form_data = {"product_key": product.key, "n_paths": n_paths}
+    form_data.update({field.name: str(field.default) for field in product.bb_fields})
+    return form_data
+
+
+def save_base_run_for_route_tests(product_key="phoenix", params=None, price=0.984945):
+    request_payload = BASE_REQUEST
+    result_payload = BASE_RESULT
+    if product_key != "phoenix":
+        request_payload = {
+            "product_key": product_key,
+            "params": params or {},
+            "n_paths": 5,
+            "use_log_target": True,
+        }
+        result_payload = {
+            "product_key": product_key,
+            "price": price,
+            "model": "LightGBM surrogate",
+            "latency_ms": 1,
+        }
     return save_run(
-        "phoenix",
-        request_payload=BASE_REQUEST,
-        result_payload=BASE_RESULT,
+        product_key,
+        request_payload=request_payload,
+        result_payload=result_payload,
     )
 
 
@@ -118,9 +143,21 @@ def test_blackberry_model_status_returns_terminal_style_html():
     body = response.text
     assert "MODEL STATUS" in body
     assert "PRODUCT" in body
-    assert "phoenix" in body
+    assert "PHOENIX" in body
+    assert "READY" in body
+    assert "COLD" in body
     assert "[0] HOME" in body
     assert "<script" not in body.lower()
+
+
+def test_blackberry_model_status_marks_cached_model_after_pricing():
+    client.post("/bb/price", data=VALID_FORM_DATA, follow_redirects=False)
+    response = client.get("/bb/model-status")
+    assert response.status_code == 200
+
+    body = response.text
+    assert "PHOENIX" in body
+    assert "CACHED" in body
 
 
 def test_blackberry_price_form_returns_html():
@@ -130,15 +167,68 @@ def test_blackberry_price_form_returns_html():
 
     body = response.text
     assert "PRICE NOTE" in body
-    assert "Phoenix Autocallable" in body
-    assert "<form" in body
+    assert "PHOENIX" in body
+    assert "ACCUM" in body
+    assert "BARRIER" in body
     assert "<script" not in body.lower()
+
+
+def test_blackberry_price_product_forms_render_for_each_enabled_product():
+    for product in get_bb_product_definitions():
+        response = client.get(f"/bb/price?product={product.key}")
+        assert response.status_code == 200
+
+        body = response.text
+        assert f"PRICE {product.terminal_label}" in body
+        assert '<form method="post" action="/bb/price">' in body
+        for field in product.bb_fields:
+            assert field.label in body
+        assert "<script" not in body.lower()
+
+
+def test_blackberry_price_unknown_product_returns_error_html():
+    response = client.get("/bb/price?product=not_real")
+    assert response.status_code == 200
+
+    body = response.text
+    assert "ERROR" in body
+    assert "product not enabled" in body
+    assert "Traceback" not in body
 
 
 def test_blackberry_price_post_redirects_to_result():
     response = client.post("/bb/price", data=VALID_FORM_DATA, follow_redirects=False)
     assert response.status_code == 303
     assert response.headers["location"].startswith("/bb/result/")
+
+
+def test_blackberry_price_post_redirects_for_each_enabled_product(monkeypatch):
+    def fake_price_product(product_key, params, n_paths):
+        return {
+            "product_key": product_key,
+            "product_name": product_key,
+            "params": params,
+            "n_paths": int(n_paths),
+            "price": 1.23,
+            "mc_price": 1.25,
+            "abs_error": 0.02,
+            "model": "LightGBM surrogate",
+            "latency_ms": 1,
+        }
+
+    monkeypatch.setattr("app.bb.routes.price_product", fake_price_product)
+
+    for product in get_bb_product_definitions():
+        response = client.post(
+            "/bb/price",
+            data=default_form_data(product),
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+
+        result_response = client.get(response.headers["location"])
+        assert result_response.status_code == 200
+        assert product.terminal_label in result_response.text
 
 
 def test_blackberry_result_returns_compact_html_after_pricing():
@@ -219,6 +309,46 @@ def test_blackberry_scenario_post_valid_shocks_returns_result():
     assert "[2] NEW SHOCK" in body
 
 
+def test_blackberry_scenario_post_works_for_each_enabled_product(monkeypatch):
+    def fake_run_scenario(base_request, base_result, shocks):
+        product_key = base_request["product_key"]
+        shocked_request = dict(base_request)
+        shocked_request["params"] = dict(base_request["params"])
+        return {
+            "product_key": product_key,
+            "base_price": base_result.get("price"),
+            "shocked_price": 0.9,
+            "price_change": -0.1,
+            "price_change_pct": -10.0,
+            "base_request": base_request,
+            "base_result": base_result,
+            "shocked_request": shocked_request,
+            "shocked_result": {
+                "product_key": product_key,
+                "price": 0.9,
+                "model": "LightGBM surrogate",
+                "latency_ms": 1,
+            },
+            "shocks": {"spot_pct": -10.0},
+            "summary": "Spot down changed the product value.",
+            "model": "LightGBM surrogate",
+            "latency_ms": 1,
+        }
+
+    monkeypatch.setattr("app.bb.routes.run_scenario", fake_run_scenario)
+
+    for product in get_bb_product_definitions():
+        params = {field.name: field.default for field in product.bb_fields}
+        run_id = save_base_run_for_route_tests(product.key, params=params, price=1.0)
+        response = client.post(f"/bb/scenario/{run_id}", data={"spot_pct": "-10"})
+        assert response.status_code == 200
+
+        body = response.text
+        assert "SCENARIO RESULT" in body
+        assert product.terminal_label in body
+        assert "Spot: -10%" in body
+
+
 def test_blackberry_scenario_post_no_shocks_returns_error_html():
     run_id = save_base_run_for_route_tests()
     response = client.post(
@@ -253,6 +383,27 @@ def test_blackberry_recent_runs_shows_price_run_with_result_link():
     assert "PRICE PHOENIX" in body
     assert "/bb/result/" + run_id in body
     assert "0.984945" in body
+
+
+def test_blackberry_recent_runs_shows_multiple_product_labels():
+    save_base_run_for_route_tests()
+    accumulator = next(
+        product
+        for product in get_bb_product_definitions()
+        if product.key == "accumulator"
+    )
+    save_base_run_for_route_tests(
+        accumulator.key,
+        params={field.name: field.default for field in accumulator.bb_fields},
+        price=8.5,
+    )
+
+    response = client.get("/bb/recent-runs")
+    assert response.status_code == 200
+
+    body = response.text
+    assert "PRICE PHOENIX" in body
+    assert "PRICE ACCUM" in body
 
 
 def test_blackberry_recent_runs_shows_scenario_run_with_base():

@@ -4,7 +4,9 @@ from app.services.scenario_service import (
     InvalidScenarioInputError,
     apply_shocks_to_params,
     normalize_shocks,
+    run_scenario,
 )
+from app.services.product_registry import get_bb_product_definitions
 
 
 BASE_PARAMS = {
@@ -54,3 +56,39 @@ def test_scenario_rejects_shocked_spot_not_positive():
 def test_scenario_rejects_shocked_volatility_not_positive():
     with pytest.raises(InvalidScenarioInputError):
         apply_shocks_to_params(BASE_PARAMS, {"vol_abs": "-0.2"})
+
+
+def test_scenario_runs_for_each_bb_enabled_product(monkeypatch):
+    def fake_price_product(product_key, params, n_paths=500, use_log_target=True):
+        return {
+            "product_key": product_key,
+            "params": params,
+            "n_paths": n_paths,
+            "price": 90.0,
+            "model": "LightGBM surrogate",
+            "latency_ms": 1,
+        }
+
+    monkeypatch.setattr(
+        "app.services.scenario_service.price_product",
+        fake_price_product,
+    )
+
+    for product in get_bb_product_definitions():
+        params = {field.name: field.default for field in product.bb_fields}
+        base_request = {
+            "product_key": product.key,
+            "params": params,
+            "n_paths": 5,
+            "use_log_target": True,
+        }
+        base_result = {"price": 100.0}
+
+        result = run_scenario(base_request, base_result, {"spot_pct": "-10"})
+
+        assert result["product_key"] == product.key
+        assert result["base_price"] == 100.0
+        assert result["shocked_price"] == 90.0
+        assert result["price_change"] == -10.0
+        assert result["shocked_request"]["params"]["S0"] == pytest.approx(90.0)
+        assert product.display_name in result["summary"]

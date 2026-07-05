@@ -16,7 +16,12 @@ from app.bb.rendering import (
     terminal_page,
 )
 
-from app.services.product_registry import get_model_info
+from app.services.model_cache import get_model_cache_status
+from app.services.product_registry import (
+    ProductDefinition,
+    get_model_info,
+    get_product_definition,
+)
 from app.services.pricing_service import (
     PricingServiceError,
     get_bb_pricing_products,
@@ -31,18 +36,6 @@ from app.services.run_store import get_run, list_recent_runs, save_run
 
 router = APIRouter(prefix="/bb", tags=["blackberry"])
 
-PHOENIX_FORM_FIELDS = (
-    ("S0", "Spot", "100.0"),
-    ("sigma", "Vol", "0.2"),
-    ("r", "Rate", "0.03"),
-    ("T", "Mat", "1.0"),
-    ("autocall_barrier_frac", "AutoB", "1.05"),
-    ("coupon_barrier_frac", "CpnB", "1.0"),
-    ("coupon_rate", "Cpn", "0.02"),
-    ("knock_in_frac", "KI", "0.7"),
-    ("obs_count", "Obs", "6"),
-)
-
 SCENARIO_FORM_FIELDS = (
     ("spot_pct", "Spot %", ""),
     ("vol_abs", "Vol abs", ""),
@@ -54,6 +47,52 @@ async def read_urlencoded_form(request: Request) -> dict[str, str]:
     raw_body = (await request.body()).decode("utf-8")
     parsed = parse_qs(raw_body, keep_blank_values=True)
     return {key: values[-1] if values else "" for key, values in parsed.items()}
+
+
+def bb_enabled_product(product_key: str) -> ProductDefinition | None:
+    product = get_product_definition(product_key or "")
+    if product is None or not product.enabled_for_bb:
+        return None
+    return product
+
+
+def product_terminal_label(product_key: str) -> str:
+    product = get_product_definition(product_key or "")
+    if product is None:
+        return (product_key or "N/A").upper()
+    return product.terminal_label
+
+
+def price_form_href(product_key: str) -> str:
+    if not product_key:
+        return "/bb/price"
+    return f"/bb/price?product={escape(product_key)}"
+
+
+def render_product_fields(product: ProductDefinition) -> str:
+    rows = []
+    for field in product.bb_fields:
+        field_id = escape(field.name)
+        label = escape(field.label)
+        if field.field_type == "choice":
+            options = []
+            for value, choice_label in field.choices:
+                selected = " selected" if str(value) == str(field.default) else ""
+                options.append(
+                    f'<option value="{escape(str(value))}"{selected}>'
+                    f"{escape(choice_label)}</option>"
+                )
+            control = (
+                f'<select id="{field_id}" name="{field_id}">'
+                f"{''.join(options)}</select>"
+            )
+        else:
+            control = (
+                f'<input id="{field_id}" name="{field_id}" '
+                f'value="{escape(str(field.default))}">'
+            )
+        rows.append(f'<div><label for="{field_id}">{label}:</label>{control}</div>')
+    return "\n".join(rows)
 
 
 @router.get("", response_class=HTMLResponse)
@@ -81,31 +120,43 @@ PRODUCTS: {len(info["available_product_keys"])}/{len(info["supported_product_key
 
 
 @router.get("/price", response_class=HTMLResponse)
-def blackberry_price_form():
-    product_options = "\n".join(
-        f'<option value="{escape(product["key"])}">{escape(product["display_name"])}</option>'
-        for product in get_bb_pricing_products()
-    )
-    fields = "\n".join(
-        f'<div><label for="{escape(name)}">{escape(label)}:</label>'
-        f'<input id="{escape(name)}" name="{escape(name)}" value="{escape(default)}"></div>'
-        for name, label, default in PHOENIX_FORM_FIELDS
-    )
+def blackberry_price_form(product: str = ""):
+    if not product:
+        rows = []
+        for index, entry in enumerate(get_bb_pricing_products(), start=1):
+            rows.append(
+                f'<div><a href="/bb/price?product={escape(entry["key"])}">'
+                f'[{index}] {escape(entry["terminal_label"])}</a></div>'
+            )
+        body = f"""
+<div class="head"><pre>PRICE NOTE</pre></div>
+<div class="menu">
+{''.join(rows)}
+</div>
+<div class="status"><a href="/bb">[H] HOME</a></div>
+"""
+        return terminal_page("ML-Pricer Price Products", body)
+
+    product_def = bb_enabled_product(product)
+    if product_def is None:
+        return terminal_error("product not enabled", "/bb/price", "PRODUCTS")
+
+    fields = render_product_fields(product_def)
     body = f"""
 <div class="head">
 <pre>ML-PRICER BB TERMINAL
-PRICE NOTE</pre>
+PRICE {escape(product_def.terminal_label)}</pre>
 </div>
 <form method="post" action="/bb/price">
-<div><label for="product_key">Prod:</label>
-<select id="product_key" name="product_key">
-{product_options}
-</select></div>
+<input type="hidden" name="product_key" value="{escape(product_def.key)}">
 {fields}
 <div><label for="n_paths">Paths:</label><input id="n_paths" name="n_paths" value="500"></div>
 <button type="submit">PRICE</button>
 </form>
-<div class="status"><a href="/bb">[0] HOME</a></div>
+<div class="status">
+<div><a href="/bb/price">[1] PRODUCTS</a></div>
+<div><a href="/bb">[0] HOME</a></div>
+</div>
 """
     return terminal_page("ML-Pricer Price Note", body)
 
@@ -115,7 +166,12 @@ async def blackberry_price_submit(request: Request):
     form = await read_urlencoded_form(request)
     product_key = form.get("product_key", "")
     n_paths = form.get("n_paths", "500")
-    params = {name: form.get(name, "") for name, _, _ in PHOENIX_FORM_FIELDS}
+    product = bb_enabled_product(product_key)
+    if product is None:
+        return terminal_error("product not enabled", "/bb/price", "PRODUCTS")
+
+    params = {field.name: form.get(field.name, "") for field in product.bb_fields}
+    back_href = price_form_href(product.key)
 
     try:
         result = price_product(product_key=product_key, params=params, n_paths=n_paths)
@@ -131,9 +187,9 @@ async def blackberry_price_submit(request: Request):
             result_payload=result,
         )
     except PricingServiceError as exc:
-        return terminal_error(str(exc), "/bb/price", "BACK")
+        return terminal_error(str(exc), back_href, "BACK")
     except Exception:
-        return terminal_error("pricing failed", "/bb/price", "BACK")
+        return terminal_error("pricing failed", back_href, "BACK")
 
     return RedirectResponse(f"/bb/result/{run_id}", status_code=303)
 
@@ -156,7 +212,7 @@ def blackberry_result(run_id: str):
         return terminal_error("unsupported run type")
 
     result = run["result_payload"]
-    product_name = result.get("product_key", run["product_key"]).upper()
+    product_name = product_terminal_label(result.get("product_key", run["product_key"]))
     latency = result.get("latency_ms")
     latency_text = "N/A" if latency is None else f"{latency}ms"
     body = f"""
@@ -191,7 +247,8 @@ def blackberry_scenario_form(run_id: str):
     result_payload = run.get("result_payload") or {}
     if not request_payload:
         return terminal_error("base request missing", f"/bb/result/{escape(run_id)}", "BACK")
-    if request_payload.get("product_key") != "phoenix":
+    product = bb_enabled_product(request_payload.get("product_key", ""))
+    if product is None:
         return terminal_error("unsupported product", f"/bb/result/{escape(run_id)}", "BACK")
 
     fields = "\n".join(
@@ -202,7 +259,7 @@ def blackberry_scenario_form(run_id: str):
     body = f"""
 <div class="head"><pre>SCENARIO SHOCK</pre></div>
 <pre>Base: {escape(compact_run_id(run_id))}
-Product: PHOENIX
+Product: {escape(product.terminal_label)}
 Price: {format_number(result_payload.get("price"))}</pre>
 <form method="post" action="/bb/scenario/{escape(run_id)}">
 {fields}
@@ -275,6 +332,7 @@ def blackberry_scenario_result(
     body = f"""
 <div class="head"><pre>SCENARIO RESULT</pre></div>
 <pre>Run: {escape(compact_run_id(scenario_run_id))}
+Prod: {escape(product_terminal_label(result.get("product_key", "")))}
 Base: {format_number(result.get("base_price"))}
 Shock: {format_number(result.get("shocked_price"))}
 Move: {format_number(result.get("price_change"))}
@@ -313,7 +371,7 @@ def blackberry_recent_runs():
     rows = []
     for index, run in enumerate(runs, start=1):
         run_type = (run.get("run_type") or "price").upper()
-        product = (run.get("product_key") or "N/A").upper()
+        product = product_terminal_label(run.get("product_key") or "N/A")
         short_id = compact_run_id(run.get("run_id", ""))
         timestamp = compact_timestamp(run.get("created_at", ""))
         price = run_price(run)
@@ -341,7 +399,7 @@ def blackberry_recent_runs():
 @router.get("/model-status", response_class=HTMLResponse)
 def blackberry_model_status():
     info = get_model_info()
-    rows = product_rows(info["products"])
+    rows = product_rows(info["products"], get_model_cache_status())
     body = f"""
 <div class="head">
 <pre>MODEL STATUS
@@ -351,7 +409,7 @@ ML-PRICER BB</pre>
 FAMILY: {escape(info["model_family"])}
 MC FALLBACK: YES
 
-PRODUCT              READY MODEL SCALER
+PRODUCT    STATUS   CACHE
 {rows}</pre>
 <div class="status"><a href="/bb">[0] HOME</a></div>
 """

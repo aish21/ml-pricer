@@ -1,5 +1,6 @@
 from app.services.product_registry import (
     build_artifact_status,
+    get_bb_product_definitions,
     get_product_definition,
     list_products,
 )
@@ -18,6 +19,16 @@ EXPECTED_PRODUCT_KEYS = {
 def test_product_registry_returns_expected_supported_keys():
     keys = {product["key"] for product in list_products()}
     assert EXPECTED_PRODUCT_KEYS.issubset(keys)
+
+
+def test_bb_enabled_products_have_terminal_fields():
+    products = get_bb_product_definitions()
+    assert {product.key for product in products} == EXPECTED_PRODUCT_KEYS
+
+    for product in products:
+        assert product.terminal_label
+        assert product.bb_fields
+        assert all(field.name and field.label and field.field_type for field in product.bb_fields)
 
 
 def test_model_status_detects_artifact_availability(tmp_path):
