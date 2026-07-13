@@ -117,6 +117,7 @@ class DataGenerator:
             "feature_order": self.payoff.get_feature_order(),
             "generated_at": time.time(),
             "payoff_type": self.payoff.__class__.__name__,
+            "contract_version": self.payoff.contract_version,
         }
 
         np.savez_compressed(output_path, X=X, y=y, meta=meta)

@@ -6,6 +6,8 @@ import math
 class StepDownPhoenixPayoff(PhoenixPayoff):
     """Phoenix payoff with step-down autocall barrier."""
 
+    contract_version = "unvalidated-stepdown-phoenix"
+
     def compute_payoff(self, paths, params, r, T):
         n_paths, n_points = paths.shape
         n_steps = n_points - 1
@@ -49,6 +51,8 @@ class StepDownPhoenixPayoff(PhoenixPayoff):
 
 class ReverseAccumulatorPayoff(AccumulatorPayoff):
     """Reverse accumulator - accumulates when price is OUTSIDE barriers."""
+
+    contract_version = "unvalidated-reverse-accumulator"
 
     def compute_payoff(self, paths, params, r, T):
         n_paths, n_points = paths.shape

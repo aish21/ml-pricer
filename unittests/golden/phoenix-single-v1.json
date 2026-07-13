@@ -1,0 +1,28 @@
+{
+  "contract_version": "phoenix-single-v1",
+  "pricing_model_version": "gbm-flat-v1",
+  "cases": [
+    {
+      "case_id": "baseline-non-memory",
+      "params": {
+        "S0": 100.0,
+        "r": 0.0,
+        "sigma": 0.2,
+        "T": 1.0,
+        "autocall_barrier_frac": 1.1,
+        "coupon_barrier_frac": 1.0,
+        "coupon_rate": 0.02,
+        "knock_in_frac": 0.7,
+        "obs_count": 6
+      },
+      "n_paths": 500,
+      "n_steps": 252,
+      "seed": 123,
+      "expected": {
+        "price": 1.0038839548243694,
+        "payoff_std": 0.10530063920475427,
+        "standard_error": 0.004709187746720199
+      }
+    }
+  ]
+}

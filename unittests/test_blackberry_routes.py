@@ -10,13 +10,17 @@ if RUN_DB_PATH.exists():
     RUN_DB_PATH.unlink()
 
 os.environ.setdefault(
-    "MODEL_HISTORY_FILE", str(Path(tempfile.gettempdir()) / "ml_pricer_test_history.csv")
+    "MODEL_HISTORY_FILE",
+    str(Path(tempfile.gettempdir()) / "ml_pricer_test_history.csv"),
 )
 os.environ.setdefault("MODEL_RUN_STORE_FILE", str(RUN_DB_PATH))
 
 from app.backend import app
 from app.services.model_cache import clear_model_cache
-from app.services.product_registry import get_bb_product_definitions
+from app.services.product_registry import (
+    get_bb_product_definitions,
+    get_product_definition,
+)
 from app.services.run_store import save_run
 
 
@@ -50,13 +54,14 @@ BASE_REQUEST = {
         "obs_count": 6,
     },
     "n_paths": 5,
-    "use_log_target": True,
+    "seed": 42,
+    "contract_version": "phoenix-single-v1",
 }
 
 BASE_RESULT = {
     "product_key": "phoenix",
     "price": 0.984945,
-    "model": "LightGBM surrogate",
+    "model": "Monte Carlo reference",
     "latency_ms": 1,
 }
 
@@ -86,12 +91,12 @@ def save_base_run_for_route_tests(product_key="phoenix", params=None, price=0.98
             "product_key": product_key,
             "params": params or {},
             "n_paths": 5,
-            "use_log_target": True,
+            "seed": 42,
         }
         result_payload = {
             "product_key": product_key,
             "price": price,
-            "model": "LightGBM surrogate",
+            "model": "Monte Carlo reference",
             "latency_ms": 1,
         }
     return save_run(
@@ -144,20 +149,20 @@ def test_blackberry_model_status_returns_terminal_style_html():
     assert "MODEL STATUS" in body
     assert "PRODUCT" in body
     assert "PHOENIX" in body
-    assert "READY" in body
-    assert "COLD" in body
+    assert "REF" in body
     assert "[0] HOME" in body
     assert "<script" not in body.lower()
 
 
-def test_blackberry_model_status_marks_cached_model_after_pricing():
+def test_blackberry_reference_pricing_does_not_cache_legacy_model():
     client.post("/bb/price", data=VALID_FORM_DATA, follow_redirects=False)
     response = client.get("/bb/model-status")
     assert response.status_code == 200
 
     body = response.text
     assert "PHOENIX" in body
-    assert "CACHED" in body
+    assert "REF" in body
+    assert "CACHED" not in body
 
 
 def test_blackberry_price_form_returns_html():
@@ -168,8 +173,8 @@ def test_blackberry_price_form_returns_html():
     body = response.text
     assert "PRICE NOTE" in body
     assert "PHOENIX" in body
-    assert "ACCUM" in body
-    assert "BARRIER" in body
+    assert "ACCUM" not in body
+    assert "BARRIER" not in body
     assert "<script" not in body.lower()
 
 
@@ -387,11 +392,7 @@ def test_blackberry_recent_runs_shows_price_run_with_result_link():
 
 def test_blackberry_recent_runs_shows_multiple_product_labels():
     save_base_run_for_route_tests()
-    accumulator = next(
-        product
-        for product in get_bb_product_definitions()
-        if product.key == "accumulator"
-    )
+    accumulator = get_product_definition("accumulator")
     save_base_run_for_route_tests(
         accumulator.key,
         params={field.name: field.default for field in accumulator.bb_fields},

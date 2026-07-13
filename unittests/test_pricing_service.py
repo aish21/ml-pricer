@@ -3,7 +3,6 @@ import pytest
 from app.services.model_cache import clear_model_cache
 from app.services.pricing_service import (
     InvalidPricingInputError,
-    PricingArtifactError,
     UnsupportedProductError,
     normalize_pricing_params,
     price_product,
@@ -39,9 +38,13 @@ def test_pricing_service_prices_valid_phoenix_request():
     result = price_product("phoenix", VALID_PHOENIX_PARAMS, n_paths=5)
 
     assert result["product_key"] == "phoenix"
-    assert result["model"] == "LightGBM surrogate"
+    assert result["model"] == "Monte Carlo reference"
+    assert result["contract_version"] == "phoenix-single-v1"
+    assert result["pricing_method"] == "monte_carlo_reference"
     assert isinstance(result["price"], float)
-    assert isinstance(result["mc_price"], float)
+    assert result["mc_price"] == result["price"]
+    assert result["standard_error"] >= 0
+    assert len(result["confidence_interval"]) == 2
     assert result["latency_ms"] >= 0
 
 
@@ -51,7 +54,7 @@ def test_pricing_service_prices_each_bb_enabled_product():
 
         assert result["product_key"] == product.key
         assert result["product_name"] == product.display_name
-        assert result["model"] == "LightGBM surrogate"
+        assert result["model"] == "Monte Carlo reference"
         assert isinstance(result["price"], float)
         assert isinstance(result["mc_price"], float)
         assert result["latency_ms"] >= 0
@@ -78,6 +81,33 @@ def test_pricing_service_rejects_missing_required_input():
         normalize_pricing_params("phoenix", params)
 
 
-def test_pricing_service_rejects_missing_model_artifacts(tmp_path):
-    with pytest.raises(PricingArtifactError):
-        price_product("phoenix", VALID_PHOENIX_PARAMS, n_paths=5, results_dir=tmp_path)
+def test_pricing_service_is_deterministic_without_surrogate_artifacts(tmp_path):
+    first = price_product(
+        "phoenix", VALID_PHOENIX_PARAMS, n_paths=100, results_dir=tmp_path
+    )
+    second = price_product(
+        "phoenix", VALID_PHOENIX_PARAMS, n_paths=100, results_dir=tmp_path
+    )
+
+    assert first["price"] == second["price"]
+    assert first["confidence_interval"] == second["confidence_interval"]
+
+
+def test_pricing_service_rejects_invalid_barrier_order():
+    params = dict(VALID_PHOENIX_PARAMS)
+    params["coupon_barrier_frac"] = "1.10"
+
+    with pytest.raises(InvalidPricingInputError, match="barriers must satisfy"):
+        normalize_pricing_params("phoenix", params)
+
+
+def test_pricing_service_rejects_non_finite_and_excessive_inputs():
+    non_finite = dict(VALID_PHOENIX_PARAMS)
+    non_finite["sigma"] = "nan"
+    with pytest.raises(InvalidPricingInputError, match="must be finite"):
+        normalize_pricing_params("phoenix", non_finite)
+
+    too_many_observations = dict(VALID_PHOENIX_PARAMS)
+    too_many_observations["obs_count"] = "253"
+    with pytest.raises(InvalidPricingInputError, match="must be <= 252"):
+        normalize_pricing_params("phoenix", too_many_observations)

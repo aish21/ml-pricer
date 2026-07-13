@@ -61,6 +61,15 @@ class PricingPipeline:
             if self.verbose:
                 print(f"Loading training data from {data_file}")
             X, y, meta = DataGenerator.load(data_file)
+            expected_features = self.payoff.get_feature_order()
+            if meta.get("contract_version") != self.payoff.contract_version:
+                raise ValueError(
+                    "training data contract version does not match the payoff"
+                )
+            if meta.get("feature_order") != expected_features:
+                raise ValueError(
+                    "training data feature order does not match the payoff"
+                )
         else:
             if self.verbose:
                 print("Generating training data...")
@@ -108,6 +117,8 @@ class PricingPipeline:
         output = {
             "config": {
                 "payoff_type": self.payoff.__class__.__name__,
+                "contract_version": self.payoff.contract_version,
+                "feature_order": self.payoff.get_feature_order(),
                 "n_samples": n_samples,
                 "n_paths_per_sample": n_paths_per_sample,
                 "n_steps": self.n_steps,

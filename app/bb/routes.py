@@ -179,7 +179,8 @@ async def blackberry_price_submit(request: Request):
             "product_key": product_key,
             "params": result["params"],
             "n_paths": result["n_paths"],
-            "use_log_target": True,
+            "seed": result.get("seed"),
+            "contract_version": result.get("contract_version"),
         }
         run_id = save_run(
             product_key=product_key,
@@ -206,7 +207,9 @@ def blackberry_result(run_id: str):
             or (run.get("request_payload") or {}).get("base_run_id")
             or ""
         )
-        return blackberry_scenario_result(run["run_id"], run["result_payload"], base_run_id)
+        return blackberry_scenario_result(
+            run["run_id"], run["result_payload"], base_run_id
+        )
 
     if run.get("run_type") != "price":
         return terminal_error("unsupported run type")
@@ -215,14 +218,20 @@ def blackberry_result(run_id: str):
     product_name = product_terminal_label(result.get("product_key", run["product_key"]))
     latency = result.get("latency_ms")
     latency_text = "N/A" if latency is None else f"{latency}ms"
+    confidence_interval = result.get("confidence_interval") or []
+    confidence_text = (
+        f"{format_number(confidence_interval[0])}..{format_number(confidence_interval[1])}"
+        if len(confidence_interval) == 2
+        else "N/A"
+    )
     body = f"""
 <div class="head"><pre>RUN: {escape(compact_run_id(run["run_id"]))}</pre></div>
 <pre>{escape(product_name)}
 Price: {format_number(result.get("price"))}
-MC: {format_number(result.get("mc_price"))}
-Err: {format_number(result.get("abs_error"))}
+SE: {format_number(result.get("standard_error"))}
+95%: {confidence_text}
 Latency: {escape(latency_text)}
-Model: {escape(str(result.get("model", "N/A")))}
+Method: {escape(str(result.get("model", "N/A")))}
 Paths: {escape(str(result.get("n_paths", "N/A")))}</pre>
 <div class="status">
 <div><a href="/bb/scenario/{escape(run["run_id"])}">[1] SCENARIO SHOCK</a></div>
@@ -246,10 +255,14 @@ def blackberry_scenario_form(run_id: str):
     request_payload = run.get("request_payload") or {}
     result_payload = run.get("result_payload") or {}
     if not request_payload:
-        return terminal_error("base request missing", f"/bb/result/{escape(run_id)}", "BACK")
+        return terminal_error(
+            "base request missing", f"/bb/result/{escape(run_id)}", "BACK"
+        )
     product = bb_enabled_product(request_payload.get("product_key", ""))
     if product is None:
-        return terminal_error("unsupported product", f"/bb/result/{escape(run_id)}", "BACK")
+        return terminal_error(
+            "unsupported product", f"/bb/result/{escape(run_id)}", "BACK"
+        )
 
     fields = "\n".join(
         f'<div><label for="{escape(name)}">{escape(label)}:</label>'
@@ -295,8 +308,9 @@ async def blackberry_scenario_submit(run_id: str, request: Request):
             "base_run_id": run_id,
             "params": scenario_result["shocked_request"].get("params", {}),
             "n_paths": scenario_result["shocked_request"].get("n_paths"),
-            "use_log_target": scenario_result["shocked_request"].get(
-                "use_log_target", True
+            "seed": scenario_result["shocked_request"].get("seed"),
+            "contract_version": scenario_result["shocked_request"].get(
+                "contract_version"
             ),
             "shocks": scenario_result["shocks"],
         }
@@ -310,7 +324,9 @@ async def blackberry_scenario_submit(run_id: str, request: Request):
     except (ScenarioServiceError, PricingServiceError) as exc:
         return terminal_error(str(exc), f"/bb/scenario/{escape(run_id)}", "BACK")
     except Exception:
-        return terminal_error("scenario failed", f"/bb/scenario/{escape(run_id)}", "BACK")
+        return terminal_error(
+            "scenario failed", f"/bb/scenario/{escape(run_id)}", "BACK"
+        )
 
     return blackberry_scenario_result(scenario_run_id, scenario_result, run_id)
 
@@ -399,7 +415,10 @@ def blackberry_recent_runs():
 @router.get("/model-status", response_class=HTMLResponse)
 def blackberry_model_status():
     info = get_model_info()
-    rows = product_rows(info["products"], get_model_cache_status())
+    enabled_products = [
+        product for product in info["products"] if product.get("enabled_for_bb")
+    ]
+    rows = product_rows(enabled_products, get_model_cache_status())
     body = f"""
 <div class="head">
 <pre>MODEL STATUS

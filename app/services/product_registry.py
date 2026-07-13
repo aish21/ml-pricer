@@ -1,3 +1,4 @@
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,6 +24,7 @@ class ProductField:
     field_type: str
     default: Any
     min_value: Optional[float] = None
+    max_value: Optional[float] = None
     choices: Tuple[Tuple[str, str], ...] = ()
 
 
@@ -32,22 +34,38 @@ class ProductDefinition:
     display_name: str
     terminal_label: str
     payoff_class: type
+    contract_version: str
     artifact_dir: str
+    validated_for_pricing: bool
+    reference_pricing_enabled: bool
     legacy_price_route_enabled: bool
     enabled_for_bb: bool
     bb_fields: Tuple[ProductField, ...]
 
 
 PHOENIX_FIELDS: tuple[ProductField, ...] = (
-    ProductField("S0", "Spot", "float", 100.0, min_value=0.000001),
-    ProductField("sigma", "Vol", "float", 0.2, min_value=0.000001),
-    ProductField("r", "Rate", "float", 0.03, min_value=0.0),
-    ProductField("T", "Mat", "float", 1.0, min_value=0.000001),
-    ProductField("autocall_barrier_frac", "AutoB", "float", 1.05, min_value=0.0),
-    ProductField("coupon_barrier_frac", "CpnB", "float", 1.0, min_value=0.0),
-    ProductField("coupon_rate", "Cpn", "float", 0.02, min_value=0.0),
-    ProductField("knock_in_frac", "KI", "float", 0.7, min_value=0.0),
-    ProductField("obs_count", "Obs", "int", 6, min_value=1),
+    ProductField(
+        "S0", "Spot", "float", 100.0, min_value=0.000001, max_value=1_000_000.0
+    ),
+    ProductField("sigma", "Vol", "float", 0.2, min_value=0.000001, max_value=3.0),
+    ProductField("r", "Rate", "float", 0.03, min_value=-0.1, max_value=0.25),
+    ProductField("T", "Mat", "float", 1.0, min_value=0.000001, max_value=30.0),
+    ProductField(
+        "autocall_barrier_frac",
+        "AutoB",
+        "float",
+        1.05,
+        min_value=0.000001,
+        max_value=3.0,
+    ),
+    ProductField(
+        "coupon_barrier_frac", "CpnB", "float", 1.0, min_value=0.000001, max_value=3.0
+    ),
+    ProductField("coupon_rate", "Cpn", "float", 0.02, min_value=0.0, max_value=1.0),
+    ProductField(
+        "knock_in_frac", "KI", "float", 0.7, min_value=0.000001, max_value=1.0
+    ),
+    ProductField("obs_count", "Obs", "int", 6, min_value=1, max_value=252),
 )
 
 ACCUMULATOR_FIELDS: tuple[ProductField, ...] = (
@@ -84,7 +102,10 @@ PRODUCT_DEFINITIONS: tuple[ProductDefinition, ...] = (
         display_name="Phoenix Autocallable",
         terminal_label="PHOENIX",
         payoff_class=PhoenixPayoff,
+        contract_version=PhoenixPayoff.contract_version,
         artifact_dir="phoenix",
+        validated_for_pricing=True,
+        reference_pricing_enabled=True,
         legacy_price_route_enabled=True,
         enabled_for_bb=True,
         bb_fields=PHOENIX_FIELDS,
@@ -94,9 +115,12 @@ PRODUCT_DEFINITIONS: tuple[ProductDefinition, ...] = (
         display_name="Accumulator",
         terminal_label="ACCUM",
         payoff_class=AccumulatorPayoff,
+        contract_version=AccumulatorPayoff.contract_version,
         artifact_dir="accumulator",
+        validated_for_pricing=False,
+        reference_pricing_enabled=False,
         legacy_price_route_enabled=True,
-        enabled_for_bb=True,
+        enabled_for_bb=False,
         bb_fields=ACCUMULATOR_FIELDS,
     ),
     ProductDefinition(
@@ -104,9 +128,12 @@ PRODUCT_DEFINITIONS: tuple[ProductDefinition, ...] = (
         display_name="Barrier Option",
         terminal_label="BARRIER",
         payoff_class=BarrierOptionPayoff,
+        contract_version=BarrierOptionPayoff.contract_version,
         artifact_dir="barrier",
+        validated_for_pricing=False,
+        reference_pricing_enabled=False,
         legacy_price_route_enabled=True,
-        enabled_for_bb=True,
+        enabled_for_bb=False,
         bb_fields=BARRIER_FIELDS,
     ),
     ProductDefinition(
@@ -114,9 +141,12 @@ PRODUCT_DEFINITIONS: tuple[ProductDefinition, ...] = (
         display_name="Decumulator",
         terminal_label="DECUM",
         payoff_class=DecumulatorPayoff,
+        contract_version=DecumulatorPayoff.contract_version,
         artifact_dir="decumulator",
+        validated_for_pricing=False,
+        reference_pricing_enabled=False,
         legacy_price_route_enabled=True,
-        enabled_for_bb=True,
+        enabled_for_bb=False,
         bb_fields=ACCUMULATOR_FIELDS,
     ),
     ProductDefinition(
@@ -124,9 +154,12 @@ PRODUCT_DEFINITIONS: tuple[ProductDefinition, ...] = (
         display_name="Step-Down Phoenix",
         terminal_label="STEP-PHX",
         payoff_class=StepDownPhoenixPayoff,
+        contract_version=StepDownPhoenixPayoff.contract_version,
         artifact_dir="phoenix_stepdown",
+        validated_for_pricing=False,
+        reference_pricing_enabled=False,
         legacy_price_route_enabled=False,
-        enabled_for_bb=True,
+        enabled_for_bb=False,
         bb_fields=PHOENIX_FIELDS,
     ),
     ProductDefinition(
@@ -134,9 +167,12 @@ PRODUCT_DEFINITIONS: tuple[ProductDefinition, ...] = (
         display_name="Reverse Accumulator",
         terminal_label="REV-ACC",
         payoff_class=ReverseAccumulatorPayoff,
+        contract_version=ReverseAccumulatorPayoff.contract_version,
         artifact_dir="reverse_accumulator",
+        validated_for_pricing=False,
+        reference_pricing_enabled=False,
         legacy_price_route_enabled=False,
-        enabled_for_bb=True,
+        enabled_for_bb=False,
         bb_fields=ACCUMULATOR_FIELDS,
     ),
 )
@@ -175,14 +211,37 @@ def build_artifact_status(
     product_dir = base_dir / product.artifact_dir
     has_model = (product_dir / "model.joblib").exists()
     has_scaler = (product_dir / "scaler.joblib").exists()
-    has_results = (product_dir / "results.json").exists()
+    results_path = product_dir / "results.json"
+    has_results = results_path.exists()
+    metadata_contract_version = None
+    metadata_feature_order = None
+    metadata_valid = False
+    if has_results:
+        try:
+            metadata = json.loads(results_path.read_text(encoding="utf-8"))
+            config = metadata.get("config") or {}
+            metadata_contract_version = config.get("contract_version")
+            metadata_feature_order = config.get("feature_order")
+            metadata_valid = isinstance(config, dict)
+        except (AttributeError, OSError, ValueError, TypeError):
+            metadata_valid = False
+
+    expected_feature_order = product.payoff_class().get_feature_order()
+    artifact_compatible = bool(
+        metadata_valid
+        and metadata_contract_version == product.contract_version
+        and metadata_feature_order == expected_feature_order
+    )
 
     return {
         "artifact_dir": product.artifact_dir,
         "model_available": has_model,
         "scaler_available": has_scaler,
         "training_metadata_available": has_results,
-        "ready_for_surrogate": has_model and has_scaler,
+        "metadata_contract_version": metadata_contract_version,
+        "expected_contract_version": product.contract_version,
+        "artifact_compatible": artifact_compatible,
+        "ready_for_surrogate": has_model and has_scaler and artifact_compatible,
     }
 
 
@@ -195,9 +254,12 @@ def build_product_status(
         "display_name": product.display_name,
         "terminal_label": product.terminal_label,
         "payoff_class": product.payoff_class.__name__,
+        "contract_version": product.contract_version,
         "parameter_names": payoff.get_parameter_names(),
         "feature_order": payoff.get_feature_order(),
         "legacy_price_route_enabled": product.legacy_price_route_enabled,
+        "validated_for_pricing": product.validated_for_pricing,
+        "reference_pricing_available": product.reference_pricing_enabled,
         "enabled_for_bb": product.enabled_for_bb,
         "bb_fields": [
             {
@@ -206,9 +268,9 @@ def build_product_status(
                 "type": field.field_type,
                 "default": field.default,
                 "min_value": field.min_value,
+                "max_value": field.max_value,
                 "choices": [
-                    {"value": value, "label": label}
-                    for value, label in field.choices
+                    {"value": value, "label": label} for value, label in field.choices
                 ],
             }
             for field in product.bb_fields
@@ -228,7 +290,11 @@ def available_product_keys(products: Iterable[Dict[str, Any]]) -> List[str]:
     return [
         product["key"]
         for product in products
-        if product["artifacts"]["ready_for_surrogate"]
+        if product["validated_for_pricing"]
+        and (
+            product["reference_pricing_available"]
+            or product["artifacts"]["ready_for_surrogate"]
+        )
     ]
 
 
@@ -237,9 +303,16 @@ def get_model_info(results_dir: Optional[Path] = None) -> Dict[str, Any]:
     return {
         "service": "ml-pricer",
         "api": "online",
-        "model_family": "LightGBM surrogate",
+        "model_family": "Monte Carlo reference",
         "monte_carlo_fallback": "available_via_backend_evaluator",
-        "supported_product_keys": [product["key"] for product in products],
+        "supported_product_keys": [
+            product["key"] for product in products if product["validated_for_pricing"]
+        ],
+        "research_product_keys": [
+            product["key"]
+            for product in products
+            if not product["validated_for_pricing"]
+        ],
         "available_product_keys": available_product_keys(products),
         "products": products,
     }

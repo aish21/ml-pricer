@@ -7,6 +7,8 @@ import numpy as np
 class BasePayoff(ABC):
     """Base class for payoff functions."""
 
+    contract_version = "unversioned"
+
     def __init__(self, param_ranges: Dict[str, Tuple[float, float]]):
         self.param_ranges = param_ranges
 
@@ -29,7 +31,9 @@ class BasePayoff(ABC):
 
 
 class PhoenixPayoff(BasePayoff):
-    """Phoenix/autocallable structured product payoff."""
+    """Single-underlier Phoenix with non-memory periodic coupons."""
+
+    contract_version = "phoenix-single-v1"
 
     def __init__(self):
         param_ranges = {
@@ -68,46 +72,58 @@ class PhoenixPayoff(BasePayoff):
             "coupon_barrier_frac",
             "coupon_rate",
             "knock_in_frac",
+            "obs_count",
         ]
 
     def compute_payoff(
         self, paths: np.ndarray, params: Dict[str, Any], r: float, T: float
     ) -> np.ndarray:
-        """Phoenix payoff: autocall or knockout depending on barriers."""
+        """Return discounted cashflows per unit notional for every path.
+
+        Coupons are non-memory and paid on each observation where the underlier
+        is at or above the coupon barrier.  An autocall redeems principal on the
+        first observation at or above the autocall barrier.  If the note is not
+        called, maturity redemption is one unless the knock-in was touched and
+        the final level is below the initial level, in which case redemption is
+        ``S_T / S0``.
+        """
         n_paths, n_points = paths.shape
         n_steps = n_points - 1
         obs_count = int(params.get("obs_count", 6))
+        if obs_count < 1 or obs_count > n_steps:
+            raise ValueError("obs_count must be between 1 and the path step count")
         obs_idx = np.linspace(0, n_steps, obs_count + 1, dtype=int)[1:]
 
-        autocall_b = params["S0"] * params["autocall_barrier_frac"]
-        coupon_rate = params["coupon_rate"]
-        knockin_b = params["S0"] * params["knock_in_frac"]
+        s0 = float(params["S0"])
+        autocall_b = s0 * float(params["autocall_barrier_frac"])
+        coupon_b = s0 * float(params["coupon_barrier_frac"])
+        coupon_rate = float(params["coupon_rate"])
+        knockin_b = s0 * float(params["knock_in_frac"])
 
-        payoffs = np.zeros(n_paths, dtype=np.float64)
+        present_values = np.zeros(n_paths, dtype=np.float64)
+        active = np.ones(n_paths, dtype=bool)
 
-        for i in range(n_paths):
-            path = paths[i]
-            knocked_in = np.any(path < knockin_b)
-            call_idx = None
+        for idx in obs_idx:
+            observation_time = (idx / n_steps) * T
+            discount_factor = math.exp(-r * observation_time)
+            levels = paths[:, idx]
 
-            for idx in obs_idx:
-                if path[idx] >= autocall_b:
-                    call_idx = idx
-                    break
+            coupon_due = active & (levels >= coupon_b)
+            present_values[coupon_due] += coupon_rate * discount_factor
 
-            if call_idx is not None:
-                t_call = (call_idx / n_steps) * T
-                payoff = 1.0 + coupon_rate
-                payoffs[i] = payoff * math.exp(-r * t_call)
-            else:
-                t_maturity = T
-                if knocked_in:
-                    payoff = path[-1] / path[0]
-                else:
-                    payoff = 1.0 + coupon_rate
-                payoffs[i] = payoff * math.exp(-r * t_maturity)
+            called = active & (levels >= autocall_b)
+            present_values[called] += discount_factor
+            active[called] = False
 
-        return payoffs
+        if np.any(active):
+            final_levels = paths[:, -1]
+            knocked_in = np.any(paths <= knockin_b, axis=1)
+            capital_loss = knocked_in & (final_levels < s0)
+            redemption = np.ones(n_paths, dtype=np.float64)
+            redemption[capital_loss] = final_levels[capital_loss] / s0
+            present_values[active] += redemption[active] * math.exp(-r * T)
+
+        return present_values
 
 
 class AccumulatorPayoff(BasePayoff):

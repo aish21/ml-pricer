@@ -3,7 +3,7 @@
 The BlackBerry Quant Terminal is a legacy-device-compatible extension for
 ML-Pricer. The intended client is a BlackBerry Bold 9780 on local Wi-Fi. The
 device should only collect inputs and display compact results; pricing,
-scenario analysis, model inference, storage, and validation stay on the
+ scenario analysis, reference pricing, storage, and validation stay on the
 FastAPI backend.
 
 ## Current Implementation
@@ -11,7 +11,7 @@ FastAPI backend.
 The BlackBerry terminal demo loop currently supports:
 
 - open `GET /bb/price`
-- choose from all BB-enabled artifact-backed products
+- choose the validated `PHOENIX` contract
 - submit a product-specific pricing form with `POST /bb/price`
 - save a completed run in SQLite
 - redirect to `GET /bb/result/{run_id}`
@@ -21,7 +21,7 @@ The BlackBerry terminal demo loop currently supports:
 - reprice the shocked request and display before/after output
 - browse `GET /bb/recent-runs`
 - reopen saved price and scenario runs
-- reuse loaded model/scaler bundles from an in-memory process cache
+- display deterministic reference prices with uncertainty information
 
 The BlackBerry pages use server-rendered HTML, minimal CSS, no JavaScript, no
 CDN assets, and no template dependency.
@@ -40,24 +40,19 @@ The read-only status endpoints from the prior phase remain available:
 
 ## Supported Pricing Products
 
-The BlackBerry pricing and scenario flows currently support every product with
-an existing payoff class, known terminal fields, and committed model/scaler
-artifacts:
+The BlackBerry pricing and scenario flows currently expose one validated,
+versioned product:
 
 - `phoenix` (`PHOENIX`)
-- `accumulator` (`ACCUM`)
-- `barrier` (`BARRIER`)
-- `decumulator` (`DECUM`)
-- `phoenix_stepdown` (`STEP-PHX`)
-- `reverse_accumulator` (`REV-ACC`)
 
-The legacy JSON `/price/` route still supports only its previous product set.
-The BlackBerry flow uses the newer product registry metadata and does not alter
-legacy route behavior.
+Other payoff classes remain research-only. Their committed artifacts do not
+declare the validated contract version and feature order, so they are not
+eligible for serving. The legacy JSON `/price/` route now uses the same pricing
+service and validation boundary as the BlackBerry flow.
 
 ## Product Parameters
 
-Phoenix and Step-Down Phoenix:
+Phoenix Single v1:
 
 - `S0`: spot
 - `sigma`: volatility
@@ -65,30 +60,12 @@ Phoenix and Step-Down Phoenix:
 - `T`: maturity
 - `autocall_barrier_frac`: autocall barrier fraction
 - `coupon_barrier_frac`: coupon barrier fraction
-- `coupon_rate`: coupon rate
+- `coupon_rate`: non-memory coupon per observation
 - `knock_in_frac`: knock-in barrier fraction
 - `obs_count`: observation count
 
-Accumulator, Decumulator, and Reverse Accumulator:
-
-- `S0`: spot
-- `sigma`: volatility
-- `r`: rate
-- `T`: maturity
-- `upper_barrier_frac`: upper barrier fraction
-- `lower_barrier_frac`: lower barrier fraction
-- `participation_rate`: participation rate
-- `obs_frequency`: observation frequency
-
-Barrier:
-
-- `S0`: spot
-- `sigma`: volatility
-- `r`: rate
-- `T`: maturity
-- `K`: strike
-- `barrier_frac`: barrier fraction
-- `option_type`: call or put selector
+See `docs/phoenix-single-v1.md` for the complete cashflow and validation
+specification.
 
 ## Run Locally
 
@@ -117,19 +94,18 @@ Example flow:
 
 1. Open `http://127.0.0.1:8000/bb`.
 2. Choose `[1] PRICE NOTE`.
-3. Choose a product such as `PHOENIX`, `ACCUM`, or `BARRIER`.
+3. Choose `PHOENIX`.
 4. Keep the default inputs or edit them.
 5. Submit `PRICE`.
-6. Confirm the browser redirects to `/bb/result/{run_id}` and shows price,
-   Monte Carlo estimate, error, latency, model, and path count.
+6. Confirm the browser redirects to `/bb/result/{run_id}` and shows the
+   reference price, standard error, confidence interval, latency, and path count.
 7. Choose `[1] SCENARIO SHOCK`.
 8. Enter one or more shocks and submit `PRICE SHOCK`.
 9. Confirm the scenario result shows base price, shocked price, move, shocks,
    and a short summary.
 10. Open `/bb/recent-runs` and confirm the price and scenario runs can be
    reopened.
-11. Open `/bb/model-status` and confirm priced products move from `COLD` to
-    `CACHED`.
+11. Open `/bb/model-status` and confirm Phoenix is marked `REF`.
 
 ## Recent Runs
 
@@ -137,7 +113,7 @@ Example flow:
 SQLite. The page keeps full run IDs in links but displays compact IDs for the
 BlackBerry screen.
 
-Price runs show the saved model price. Scenario runs show the shocked price and
+Price runs show the saved reference price. Scenario runs show the shocked price and
 the compact ID of the base run.
 
 ## Scenario Shock Conventions
@@ -154,30 +130,28 @@ Supported shock fields:
 - `rate_bps`: rate shock in basis points. `50` means `r + 0.005`.
 
 At least one shock is required. Shocked spot and volatility must remain
-positive. Shocked rate must remain non-negative because the current terminal
-validation assumes non-negative rate ranges.
+positive. Rate bounds are enforced by the versioned product validation.
 
-The same shock mapping is used for all BB-enabled products in this phase:
+The shock mapping for Phoenix is:
 `spot_pct` changes `S0`, `vol_abs` changes `sigma`, and `rate_bps` changes `r`.
 
-## Model Cache
+## Pricing status and legacy model cache
 
-`app/services/model_cache.py` keeps loaded model/scaler bundles in process
-memory. The first price request for a product loads its artifacts from
-`final/results/{product}/model.joblib` and `scaler.joblib`; later requests in
-the same backend process reuse that bundle.
+`app/services/model_cache.py` remains available for future compatible
+surrogates. Phase 1 does not load the committed legacy artifacts: compatibility
+requires matching contract-version and feature-order metadata.
 
 `GET /bb/model-status` shows:
 
-- `READY`: artifacts are present and the product is enabled for BlackBerry
-  pricing.
+- `REF`: validated Monte Carlo reference pricing is active without a compatible
+  surrogate.
+- `READY`: a compatible surrogate is present and enabled.
 - `COLD`: artifacts are present, but the model has not been loaded in this
   backend process yet.
 - `CACHED`: the model/scaler bundle is loaded in memory.
 - `UNAVAIL`: required artifacts are missing.
 
-The cache is intentionally simple: no Redis, no TTL, no external service. It
-clears when the backend process restarts.
+The cache is intentionally simple and clears when the backend process restarts.
 
 ## Physical BlackBerry Test
 
@@ -271,9 +245,7 @@ Example:
 
 ```text
 OK
-PHOENIX=READY,COLD
-ACCUM=READY,COLD
-BARRIER=READY,COLD
+PHOENIX=REF,-
 ```
 
 Plain text is intentional because Java ME has limited library support and should
@@ -354,7 +326,7 @@ Each saved run stores:
 - product key
 - original request payload
 - compact result payload
-- model label
+- pricing-method label
 - latency in milliseconds
 - `run_type` (`price` or `scenario`)
 - `parent_run_id` for scenario runs
@@ -366,7 +338,8 @@ base pricing request/result to shock and reprice later.
 
 - Local-only HTTP; no public exposure.
 - No authentication or PIN enforcement yet.
-- Model cache is in-process only and clears on backend restart.
+- The current reference model is constant-volatility, flat-rate GBM and does not
+  yet consume a live market snapshot.
 - Scenario explanations are simple and rule-based.
 - The sideloaded Java ME app is currently a source-level MIDlet spike and still
   needs Java ME build/install verification.

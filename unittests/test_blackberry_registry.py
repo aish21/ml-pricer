@@ -14,6 +14,7 @@ EXPECTED_PRODUCT_KEYS = {
     "phoenix_stepdown",
     "reverse_accumulator",
 }
+EXPECTED_VALIDATED_KEYS = {"phoenix"}
 
 
 def test_product_registry_returns_expected_supported_keys():
@@ -23,12 +24,15 @@ def test_product_registry_returns_expected_supported_keys():
 
 def test_bb_enabled_products_have_terminal_fields():
     products = get_bb_product_definitions()
-    assert {product.key for product in products} == EXPECTED_PRODUCT_KEYS
+    assert {product.key for product in products} == EXPECTED_VALIDATED_KEYS
 
     for product in products:
         assert product.terminal_label
         assert product.bb_fields
-        assert all(field.name and field.label and field.field_type for field in product.bb_fields)
+        assert all(
+            field.name and field.label and field.field_type
+            for field in product.bb_fields
+        )
 
 
 def test_model_status_detects_artifact_availability(tmp_path):
@@ -45,8 +49,24 @@ def test_model_status_detects_artifact_availability(tmp_path):
     (product_dir / "scaler.joblib").write_text("scaler", encoding="utf-8")
     (product_dir / "results.json").write_text("{}", encoding="utf-8")
 
+    incompatible = build_artifact_status(product, tmp_path)
+    assert incompatible["ready_for_surrogate"] is False
+    assert incompatible["artifact_compatible"] is False
+
+    (product_dir / "results.json").write_text(
+        """{
+          "config": {
+            "contract_version": "phoenix-single-v1",
+            "feature_order": [
+              "S0", "r", "sigma", "T", "autocall_barrier_frac",
+              "coupon_barrier_frac", "coupon_rate", "knock_in_frac",
+              "obs_count"
+            ]
+          }
+        }""",
+        encoding="utf-8",
+    )
+
     available = build_artifact_status(product, tmp_path)
     assert available["ready_for_surrogate"] is True
-    assert available["model_available"] is True
-    assert available["scaler_available"] is True
-    assert available["training_metadata_available"] is True
+    assert available["artifact_compatible"] is True

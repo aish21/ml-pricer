@@ -9,6 +9,7 @@ from .data_generator import DataGenerator
 from .model_trainer import ModelTrainer
 from .evaluator import Evaluator
 from .pipeline import PricingPipeline
+from .reference_pricer import price_reference
 
 __all__ = [
     "BasePayoff",
@@ -20,4 +21,5 @@ __all__ = [
     "ModelTrainer",
     "Evaluator",
     "PricingPipeline",
+    "price_reference",
 ]

@@ -52,15 +52,22 @@ pre {{ font-family: monospace; white-space: pre-wrap; margin: 0; }}
     return HTMLResponse(html)
 
 
-def product_rows(products: Iterable[dict], cache_status: dict[str, bool] | None = None) -> str:
+def product_rows(
+    products: Iterable[dict], cache_status: dict[str, bool] | None = None
+) -> str:
     cache_status = cache_status or {}
     rows = []
     for product in products:
         artifacts = product["artifacts"]
-        if not artifacts["ready_for_surrogate"]:
-            state = "UNAVAIL"
-        elif not product.get("enabled_for_bb"):
+        if not product.get("enabled_for_bb"):
             state = "NO-BB"
+        elif (
+            product.get("reference_pricing_available")
+            and not artifacts["ready_for_surrogate"]
+        ):
+            state = "REF"
+        elif not artifacts["ready_for_surrogate"]:
+            state = "UNAVAIL"
         else:
             state = "READY"
 

@@ -43,6 +43,12 @@ def test_scenario_applies_rate_basis_point_shock():
     assert shocked["r"] == pytest.approx(0.035)
 
 
+def test_scenario_allows_negative_rates_within_product_bounds():
+    shocked, _ = apply_shocks_to_params(BASE_PARAMS, {"rate_bps": "-400"})
+
+    assert shocked["r"] == pytest.approx(-0.01)
+
+
 def test_scenario_rejects_no_shocks():
     with pytest.raises(InvalidScenarioInputError):
         normalize_shocks({"spot_pct": "", "vol_abs": "", "rate_bps": ""})
@@ -59,7 +65,7 @@ def test_scenario_rejects_shocked_volatility_not_positive():
 
 
 def test_scenario_runs_for_each_bb_enabled_product(monkeypatch):
-    def fake_price_product(product_key, params, n_paths=500, use_log_target=True):
+    def fake_price_product(product_key, params, n_paths=500, seed=42):
         return {
             "product_key": product_key,
             "params": params,
@@ -80,7 +86,8 @@ def test_scenario_runs_for_each_bb_enabled_product(monkeypatch):
             "product_key": product.key,
             "params": params,
             "n_paths": 5,
-            "use_log_target": True,
+            "seed": 42,
+            "contract_version": "phoenix-single-v1",
         }
         base_result = {"price": 100.0}
 

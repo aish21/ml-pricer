@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from app.services.model_cache import (
@@ -21,6 +23,27 @@ def make_artifact_dir(tmp_path, product_key="phoenix"):
     product_dir.mkdir()
     (product_dir / "model.joblib").write_text("model", encoding="utf-8")
     (product_dir / "scaler.joblib").write_text("scaler", encoding="utf-8")
+    (product_dir / "results.json").write_text(
+        json.dumps(
+            {
+                "config": {
+                    "contract_version": "phoenix-single-v1",
+                    "feature_order": [
+                        "S0",
+                        "r",
+                        "sigma",
+                        "T",
+                        "autocall_barrier_frac",
+                        "coupon_barrier_frac",
+                        "coupon_rate",
+                        "knock_in_frac",
+                        "obs_count",
+                    ],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
     return product_dir
 
 

@@ -3,10 +3,11 @@
 ML-powered exotic derivatives pricing with a retro BlackBerry quant terminal.
 
 Neural Pricer is an experimental pricing platform for exotic and structured
-derivatives. It uses Monte Carlo simulation to produce reference prices and
-trained ML surrogate models, currently LightGBM-based, to return fast pricing
-estimates through a FastAPI backend, a Streamlit frontend, and a local
-BlackBerry Bold 9780-compatible terminal interface.
+derivatives. Phase 1 currently exposes a versioned, single-underlier Phoenix
+contract priced by deterministic Monte Carlo through a FastAPI backend, a
+Streamlit frontend, and a local BlackBerry Bold 9780-compatible terminal.
+Existing LightGBM artifacts are retained as research outputs but are not served
+because they predate the validated contract and feature schema.
 
 This is an educational/demo system. It is not production trading
 infrastructure, financial advice, or a risk system suitable for live capital
@@ -14,19 +15,20 @@ allocation.
 
 ## What It Does
 
-- Prices structured/exotic products with reusable payoff classes.
-- Compares model-backed prices against Monte Carlo reference results.
+- Prices the validated `phoenix-single-v1` contract per unit notional.
+- Reports a deterministic Monte Carlo price, standard error, and 95% confidence
+  interval.
 - Serves pricing through FastAPI.
 - Provides a Streamlit UI for desktop experimentation.
 - Provides a plain HTML BlackBerry terminal at `/bb`.
-- Supports multiple artifact-backed products in the BlackBerry terminal.
+- Keeps unvalidated product experiments visible as research code but out of the
+  pricing interfaces.
 - Supports BlackBerry scenario shocks:
   - spot percentage shock
   - volatility absolute shock
   - rate basis-point shock
 - Stores pricing and scenario runs in SQLite.
-- Shows recent runs and model status in a compact terminal UI.
-- Caches loaded model/scaler bundles in backend process memory.
+- Shows recent runs and pricing-method status in a compact terminal UI.
 
 The BlackBerry is a thin client. It does not run the model locally. It sends
 simple HTTP requests over local Wi-Fi to the backend, which performs pricing,
@@ -38,7 +40,7 @@ scenario analysis, validation, and storage.
 BlackBerry Bold 9780
   -> local HTTP over Wi-Fi
   -> FastAPI backend
-  -> pricing/evaluator/model layer
+  -> versioned payoff + Monte Carlo reference layer
   -> SQLite run store
   -> compact terminal result page
 ```
@@ -67,10 +69,11 @@ src/final/
   data_generator.py       Monte Carlo path/data generation
   model_trainer.py        LightGBM training and model loading
   evaluator.py            Model vs Monte Carlo evaluation
+  reference_pricer.py     Deterministic reference price and uncertainty
   pipeline.py             Training/evaluation orchestration
 
 final/results/
-  */model.joblib          Saved demo surrogate models
+  */model.joblib          Legacy research artifacts (not served unless compatible)
   */scaler.joblib         Saved feature scalers
   */results.json          Training/evaluation metadata
 
@@ -79,6 +82,7 @@ data/
 
 docs/
   blackberry-terminal.md  BlackBerry terminal details and testing guide
+  phoenix-single-v1.md    Versioned payoff and cashflow specification
 
 clients/
   blackberry-legacy/      Optional Java ME native thin-client spike
@@ -138,23 +142,22 @@ http://127.0.0.1:8501
 
 1. Open `/bb`.
 2. Select `[1] PRICE NOTE`.
-3. Select a product.
+3. Select `PHOENIX`.
 4. Submit the product pricing form.
 5. View `/bb/result/{run_id}`.
 6. Select `[1] SCENARIO SHOCK`.
 7. Enter one or more shocks.
 8. View the scenario result.
 9. Open `/bb/recent-runs` to revisit price and scenario runs.
-10. Open `/bb/model-status` to check available artifacts and cache state.
+10. Open `/bb/model-status` to check the active pricing method.
 
 Currently enabled BlackBerry products:
 
 - `phoenix` (`PHOENIX`)
-- `accumulator` (`ACCUM`)
-- `barrier` (`BARRIER`)
-- `decumulator` (`DECUM`)
-- `phoenix_stepdown` (`STEP-PHX`)
-- `reverse_accumulator` (`REV-ACC`)
+
+Accumulator, barrier, decumulator, step-down Phoenix, and reverse accumulator
+remain research definitions until they have versioned specifications and
+quantitative validation.
 
 The BlackBerry UI is intentionally plain:
 
@@ -272,8 +275,12 @@ Legacy routes kept for compatibility:
 - There is no authentication or PIN enforcement yet.
 - The optional Java ME MIDlet is a source-level spike; it has not yet been built
   or sideloaded from this checkout.
-- Model/scaler artifacts are committed for demo usage.
-- Model caching is in-process only and clears on backend restart.
+- The Phase 1 market model is flat-rate, constant-volatility GBM without a
+  dividend/forward curve or volatility surface.
+- Observation dates are evenly spaced and knock-in monitoring is discrete on
+  simulated path steps.
+- Legacy model/scaler artifacts remain committed but fail contract/feature
+  compatibility checks and are not used for pricing.
 - Scenario explanations are simple and rule-based.
 - Old BlackBerry browser rendering may require further simplification after
   more device testing.
@@ -281,9 +288,14 @@ Legacy routes kept for compatibility:
 ## Future Roadmap
 
 - Add JSON `POST /api/v1/price` and `POST /api/v1/scenario`.
+- Add dated market snapshots, forward/discount curves, and an implied-volatility
+  surface for arbitrary equity-like underlier symbols.
+- Train and validate a replacement surrogate against the frozen Phoenix
+  contract and an untouched test set.
 - Improve payoff explanations and risk summaries.
 - Add optional PIN or gateway-based access control for non-local deployments.
-- Improve model registry/versioning.
+- Move datasets and model artifacts out of normal Git history and add a versioned
+  artifact registry.
 - Explore an optional WebWorks or native wrapper after the browser MVP is
   stable.
 
@@ -312,8 +324,8 @@ Docker notes.
 
 ## Notes For Contributors
 
-- Keep payoff formulas, Monte Carlo logic, evaluator semantics, and trained
-  artifacts stable unless a change explicitly targets pricing behavior.
+- Treat payoff or market-model changes as new contract/model versions with
+  updated quantitative regression tests.
 - Keep BlackBerry pages plain and local-network friendly.
 - Do not put secrets on the BlackBerry.
 - Prefer small service-layer changes over route-level pricing logic.

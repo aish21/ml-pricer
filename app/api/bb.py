@@ -10,10 +10,15 @@ router = APIRouter(prefix="/api/bb", tags=["api-bb"])
 
 def _product_state(product: dict, cache_status: dict[str, bool]) -> tuple[str, str]:
     artifacts = product["artifacts"]
-    if not artifacts["ready_for_surrogate"]:
-        return "UNAVAIL", "-"
     if not product.get("enabled_for_bb"):
         return "NO-BB", "-"
+    if (
+        product.get("reference_pricing_available")
+        and not artifacts["ready_for_surrogate"]
+    ):
+        return "REF", "-"
+    if not artifacts["ready_for_surrogate"]:
+        return "UNAVAIL", "-"
     return "READY", "CACHED" if cache_status.get(product["key"]) else "COLD"
 
 
@@ -28,6 +33,8 @@ def model_status():
     cache_status = get_model_cache_status()
     lines = ["OK"]
     for product in info["products"]:
+        if not product.get("enabled_for_bb"):
+            continue
         state, cache = _product_state(product, cache_status)
         label = product.get("terminal_label") or product["key"].upper()
         lines.append(f"{label}={state},{cache}")
@@ -39,6 +46,8 @@ def products():
     info = get_model_info()
     lines = ["OK"]
     for product in info["products"]:
+        if not product.get("enabled_for_bb"):
+            continue
         lines.append(
             "|".join(
                 [

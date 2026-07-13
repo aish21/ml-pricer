@@ -1,49 +1,38 @@
 from fastapi import FastAPI
-from fastapi import Request
-from pydantic import BaseModel
-from typing import Dict, Any, Optional
+from pydantic import BaseModel, ConfigDict, Field
+from typing import Dict, Any
 from pathlib import Path
 import os
-import traceback
 import json
 from fastapi.responses import JSONResponse
 import csv
-from datetime import datetime
+from datetime import datetime, timezone
 
-from src.final.payoffs import (
-    PhoenixPayoff,
-    AccumulatorPayoff,
-    BarrierOptionPayoff,
-    DecumulatorPayoff,
-)
-from src.final.model_trainer import ModelTrainer
-from src.final.evaluator import Evaluator
 from app.api.bb import router as bb_api_router
 from app.api.v1 import router as api_v1_router
 from app.bb.routes import router as blackberry_router
+from app.services.pricing_service import (
+    InvalidPricingInputError,
+    PricingServiceError,
+    UnsupportedProductError,
+    price_product,
+)
+from app.services.product_registry import (
+    REPO_ROOT,
+    build_artifact_status,
+    get_product_definition,
+    get_results_dir,
+)
 
 app = FastAPI(title="ML Pricer API", version="1.0")
 app.include_router(bb_api_router)
 app.include_router(api_v1_router)
 app.include_router(blackberry_router)
 
-PAYOFF_MAP = {
-    "phoenix": PhoenixPayoff,
-    "accumulator": AccumulatorPayoff,
-    "barrier": BarrierOptionPayoff,
-    "decumulator": DecumulatorPayoff,
-}
-
-# Environment-driven locations
-BASE_RESULTS_DIR = Path(
-    os.getenv(
-        "MODEL_RESULTS_DIR",
-        r"C:\Users\aisha\OneDrive\Desktop\GitHub\neural-pricer\final\results",
-    )
-)
+BASE_RESULTS_DIR = get_results_dir()
 # By default write history to a container-writable location. In Docker we mount ./data -> /srv/app/data
 HISTORY_FILE = Path(
-    os.getenv("MODEL_HISTORY_FILE", "/srv/app/data/pricing_history.csv")
+    os.getenv("MODEL_HISTORY_FILE", str(REPO_ROOT / "data" / "pricing_history.csv"))
 )
 
 # Ensure history directory exists
@@ -51,10 +40,11 @@ HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 
 class PricingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     payoff_type: str
     params: Dict[str, Any]
-    n_paths: Optional[int] = 2000
-    use_log_target: Optional[bool] = True
+    n_paths: int = Field(default=2000, ge=1, le=20_000)
 
 
 @app.post("/price/")
@@ -64,70 +54,24 @@ def price_instrument(req: PricingRequest):
     Returns {"status": "success", "result": ...} on success.
     """
     try:
-        payoff_cls = PAYOFF_MAP.get(req.payoff_type.lower())
-        if payoff_cls is None:
-            return JSONResponse(
-                {
-                    "status": "error",
-                    "message": f"Unsupported payoff type: {req.payoff_type}",
-                },
-                status_code=400,
-            )
-
-        payoff = payoff_cls()
-        model_path = BASE_RESULTS_DIR / req.payoff_type.lower() / "model.joblib"
-        scaler_path = BASE_RESULTS_DIR / req.payoff_type.lower() / "scaler.joblib"
-
-        if not model_path.exists() or not scaler_path.exists():
-            return JSONResponse(
-                {
-                    "status": "error",
-                    "message": f"Model or scaler not found for payoff '{req.payoff_type}'. Expected at: {model_path} and {scaler_path}",
-                },
-                status_code=404,
-            )
-
-        model, scaler = ModelTrainer.load(model_path, scaler_path)
-
-        evaluator = Evaluator(payoff)
-        result = evaluator.evaluate_case(
+        result = price_product(
+            product_key=req.payoff_type,
             params=req.params,
-            model=model,
-            scaler=scaler,
-            n_paths_list=[int(req.n_paths or 2000)],
-            use_log_target=bool(req.use_log_target),
+            n_paths=req.n_paths,
         )
 
         # Also append to server-side history CSV (best-effort, non-blocking)
         try:
-            # pick the per-npaths result we just computed
-            per_npaths = result.get("per_npaths") or find_first_per_npaths(result)
-            # get the key (n_paths as string)
-            key = (
-                str(int(req.n_paths)) if req.n_paths else next(iter(per_npaths.keys()))
-            )
-            entry = (
-                per_npaths.get(key)
-                if per_npaths and key in per_npaths
-                else (next(iter(per_npaths.values())) if per_npaths else None)
-            )
-            model_price = entry.get("Model", {}).get("price") if entry else None
-            mc_price = entry.get("MC", {}).get("price") if entry else None
-            model_time = entry.get("Model", {}).get("time") if entry else None
-            mc_time = entry.get("MC", {}).get("time") if entry else None
-            abs_err = entry.get("Model", {}).get("abs_error") if entry else None
-            rel_err = entry.get("Model", {}).get("rel_error") if entry else None
-
             row = {
-                "timestamp_utc": datetime.utcnow().isoformat(),
+                "timestamp_utc": datetime.now(timezone.utc).isoformat(),
                 "payoff_type": req.payoff_type,
                 "n_paths": req.n_paths,
-                "model_price": model_price,
-                "mc_price": mc_price,
-                "abs_error": abs_err,
-                "rel_error": rel_err,
-                "model_time_s": model_time,
-                "mc_time_s": mc_time,
+                "model_price": "",
+                "mc_price": result.get("price"),
+                "abs_error": "",
+                "rel_error": "",
+                "model_time_s": "",
+                "mc_time_s": result.get("mc_time_s"),
             }
             append_history(HISTORY_FILE, row)
         except Exception:
@@ -135,9 +79,15 @@ def price_instrument(req: PricingRequest):
             pass
 
         return {"status": "success", "result": result}
-    except Exception as e:
+    except UnsupportedProductError as exc:
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=400)
+    except InvalidPricingInputError as exc:
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=422)
+    except PricingServiceError as exc:
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=503)
+    except Exception:
         return JSONResponse(
-            {"status": "error", "message": str(e), "trace": traceback.format_exc()},
+            {"status": "error", "message": "pricing failed"},
             status_code=500,
         )
 
@@ -170,20 +120,6 @@ def append_history(path: Path, row: Dict[str, Any]):
         pass
 
 
-def find_first_per_npaths(obj: Dict[str, Any]):
-    """Fallback to locate per_npaths in complex result objects (used server-side)."""
-    if not obj:
-        return None
-    if isinstance(obj, dict):
-        if "per_npaths" in obj and isinstance(obj["per_npaths"], dict):
-            return obj["per_npaths"]
-        for v in obj.values():
-            found = find_first_per_npaths(v) if isinstance(v, dict) else None
-            if found:
-                return found
-    return None
-
-
 @app.post("/history/append")
 def history_append(payload: Dict[str, Any]):
     """Endpoint to append frontend-sent history rows to server-side CSV file."""
@@ -208,9 +144,9 @@ def get_history():
             for r in reader:
                 rows.append(r)
         return {"status": "success", "history": rows}
-    except Exception as e:
+    except Exception:
         return JSONResponse(
-            {"status": "error", "message": str(e), "trace": traceback.format_exc()},
+            {"status": "error", "message": "history unavailable"},
             status_code=500,
         )
 
@@ -222,6 +158,24 @@ def get_training_info(payoff_type: str):
     """
     try:
         payoff_key = payoff_type.lower()
+        product = get_product_definition(payoff_key)
+        if product is None:
+            return JSONResponse(
+                {"status": "error", "message": f"Unknown product: {payoff_type}"},
+                status_code=404,
+            )
+        artifact_status = build_artifact_status(product, BASE_RESULTS_DIR)
+        if (
+            not product.validated_for_pricing
+            or not artifact_status["ready_for_surrogate"]
+        ):
+            return JSONResponse(
+                {
+                    "status": "error",
+                    "message": "No compatible validated training artifact is available",
+                },
+                status_code=409,
+            )
         results_path = BASE_RESULTS_DIR / payoff_key / "results.json"
         if not results_path.exists():
             return JSONResponse(
@@ -230,9 +184,9 @@ def get_training_info(payoff_type: str):
             )
         data = json.loads(results_path.read_text())
         return {"status": "success", "training": data.get("training", data)}
-    except Exception as e:
+    except Exception:
         return JSONResponse(
-            {"status": "error", "message": str(e), "trace": traceback.format_exc()},
+            {"status": "error", "message": "training metadata unavailable"},
             status_code=500,
         )
 
@@ -248,20 +202,17 @@ def payoff_explanation(payoff_type: str):
             payload = {
                 "title": "Phoenix (Autocallable) payoff",
                 "summary": (
-                    "Imagine a simple money product you buy that promises to pay you a small extra amount (a 'coupon') "
-                    "if the stock does okay on certain check days. If the stock is high enough on any check day, the product "
-                    "ends early and pays you the coupon right away (this is called an 'autocall'). If it never ends early, "
-                    "what you get at the final date depends on whether the stock ever fell below a certain safety level ('knock-in'). "
-                    "If it did fall below that safety level at some point and the product didn't end early, your final payment "
-                    "might be based on how the stock did relative to where it started (you could get less than your original money). "
-                    "If it never fell below the safety level and didn't end early, you usually get back your money plus the coupon at the end."
+                    "Phoenix Single v1 pays a non-memory coupon on each observation date when the underlier is at or above "
+                    "the coupon barrier. It redeems principal early on the first observation at or above the autocall barrier. "
+                    "If it never autocalls, principal is protected unless the knock-in barrier was touched and the final level "
+                    "is below the initial level; in that case redemption is proportional to final performance."
                 ),
                 "latex": r"""
     	ext{Informal rules (not math):}
     \begin{itemize}
-      \item If the stock is above the autocall barrier on any observation day, the product stops and pays a coupon (early).
-      \item Else, if the stock ever breached the knock-in level during the life, the final payoff may be proportional to S_T/S_0 (could lose money).
-      \item Else, you receive the coupon (and your capital) at maturity.
+      \item Pay a coupon at each observation above the coupon barrier.
+      \item Redeem principal and terminate at the first observation above the autocall barrier.
+      \item Maturity loss occurs only if the knock-in was touched and S_T is below S_0.
     \end{itemize}
     """,
                 "notes": [
@@ -271,9 +222,9 @@ def payoff_explanation(payoff_type: str):
                     "- sigma: volatility — how jumpy the stock is. Larger sigma means the stock moves around more.",
                     "- T: time until the product ends (years).",
                     "- autocall_barrier_frac: the barrier expressed as a multiple of S0; e.g. 1.05 means 105% of S0 (the stock needs to be 5% up).",
-                    "- coupon_rate: the extra percentage paid if the product autocalls or at maturity (if not knocked-in).",
+                    "- coupon_rate: coupon per observation as a fraction of notional.",
                     "- knock_in_frac: a lower barrier (as multiple of S0); if the stock goes below this at any time it 'knocks in' and can change the final payout.",
-                    "- obs_count: how many check days there are (more checks = more chances to autocall).",
+                    "- obs_count: number of evenly spaced observation dates.",
                     "Simple example: S0=100, autocall at 105, coupon 2% — if at any check day the stock ≥105 you get ~2% and you're done early.",
                 ],
             }
@@ -341,9 +292,9 @@ def payoff_explanation(payoff_type: str):
                 status_code=404,
             )
         return {"status": "success", "explanation": payload}
-    except Exception as e:
+    except Exception:
         return JSONResponse(
-            {"status": "error", "message": str(e), "trace": traceback.format_exc()},
+            {"status": "error", "message": "payoff explanation unavailable"},
             status_code=500,
         )
 

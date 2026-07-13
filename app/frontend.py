@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import requests
-import json
 import math
 import os
 from typing import Any, Dict, Optional
@@ -33,7 +32,7 @@ st.set_page_config(
 
 st.title("ML Pricer")
 st.markdown(
-    "Compare ML model predictions vs Monte Carlo baseline. Configure a test case on the left and press **Run Pricing**."
+    "Price the validated Phoenix Single v1 contract with a deterministic Monte Carlo reference engine."
 )
 
 
@@ -81,12 +80,6 @@ def as_float(x, default=float("nan")):
         return default
 
 
-def ensure_history_dir(path: str):
-    p = os.path.abspath(path)
-    d = os.path.dirname(p)
-    os.makedirs(d, exist_ok=True)
-
-
 def load_history(path: str) -> pd.DataFrame:
     if os.path.exists(path):
         try:
@@ -96,22 +89,12 @@ def load_history(path: str) -> pd.DataFrame:
     return pd.DataFrame()
 
 
-def append_history(path: str, row: dict):
-    ensure_history_dir(path)
-    df = load_history(path)
-    df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
-    df.to_csv(path, index=False)
-
-
 # ---- Sidebar controls ----
-payoff_type = st.sidebar.selectbox(
-    "Payoff Type", ["Phoenix", "Accumulator", "Barrier", "Decumulator"]
-)
+payoff_type = st.sidebar.selectbox("Payoff Type", ["Phoenix"])
 st.sidebar.markdown("### Advanced settings")
 n_paths = st.sidebar.selectbox("Monte Carlo Paths", [500, 2000, 8000], index=1)
-model_name = st.sidebar.selectbox("Model", ["LightGBM (default)"], index=0)
+model_name = st.sidebar.selectbox("Method", ["Monte Carlo reference"], index=0)
 learn_mode = st.sidebar.checkbox("Show payoff explanation", value=True)
-save_history = st.sidebar.checkbox("Save run to server history", value=True)
 
 st.markdown(f"### Selected payoff: **{payoff_type}**")
 
@@ -253,9 +236,8 @@ if run_clicked:
         "payoff_type": payoff_type,
         "params": params,
         "n_paths": n_paths,
-        "use_log_target": True,
     }
-    with st.spinner("Running model and Monte Carlo benchmark..."):
+    with st.spinner("Running deterministic Monte Carlo reference pricing..."):
         try:
             res = requests.post(f"{API_URL}/price/", json=payload, timeout=120)
             res.raise_for_status()
@@ -305,15 +287,16 @@ if run_clicked:
         )
         st.stop()
 
-    # Try to robustly extract MC and Model entries
-    mc_entry = safe_get(entry, "MC", "Monte Carlo", "mc")
+    reference_entry = safe_get(entry, "Reference", "reference")
+    reference_only = reference_entry is not None
+    mc_entry = reference_entry or safe_get(entry, "MC", "Monte Carlo", "mc")
     model_entry = safe_get(entry, "Model", "model", "Model")
     if mc_entry is None:
         for k, v in entry.items():
             if k.lower().startswith("m") and isinstance(v, dict) and "price" in v:
                 mc_entry = v
                 break
-    if model_entry is None:
+    if model_entry is None and not reference_only:
         for k, v in entry.items():
             if (
                 k not in ("MC", "Monte Carlo", "mc")
@@ -323,7 +306,7 @@ if run_clicked:
                 model_entry = v
                 break
 
-    if mc_entry is None or model_entry is None:
+    if mc_entry is None or (model_entry is None and not reference_only):
         st.warning(
             "MC or Model entry missing — showing raw per_npaths entry for debugging."
         )
@@ -332,27 +315,41 @@ if run_clicked:
 
     mc_price = as_float(safe_get(mc_entry, "price", "mean", "value"), default=math.nan)
     mc_time = as_float(
-        safe_get(mc_entry, "time", "elapsed", "timing"), default=math.nan
+        safe_get(mc_entry, "time_s", "time", "elapsed", "timing"), default=math.nan
     )
-    mc_std = as_float(safe_get(mc_entry, "std", "stddev", "var"), default=math.nan)
+    mc_std = as_float(
+        safe_get(mc_entry, "payoff_std", "std", "stddev", "var"), default=math.nan
+    )
 
-    model_price = as_float(
-        safe_get(model_entry, "price", "model_price", "value"), default=math.nan
-    )
-    model_time = as_float(
-        safe_get(model_entry, "time", "model_time", "elapsed", "timing"),
-        default=math.nan,
-    )
-    abs_error = as_float(
-        safe_get(model_entry, "abs_error", "abs_err", "abs"), default=math.nan
-    )
-    rel_error = as_float(
-        safe_get(model_entry, "rel_error", "rel_err", "rel"), default=math.nan
-    )
-    speedup = as_float(
-        safe_get(model_entry, "speedup", "speed_up"),
-        default=(mc_time / model_time if (model_time and model_time > 0) else math.nan),
-    )
+    standard_error = as_float(safe_get(mc_entry, "standard_error"), default=math.nan)
+    confidence_interval = safe_get(mc_entry, "confidence_interval", default=[])
+
+    if reference_only:
+        model_price = math.nan
+        model_time = math.nan
+        abs_error = math.nan
+        rel_error = math.nan
+        speedup = math.nan
+    else:
+        model_price = as_float(
+            safe_get(model_entry, "price", "model_price", "value"), default=math.nan
+        )
+        model_time = as_float(
+            safe_get(model_entry, "time", "model_time", "elapsed", "timing"),
+            default=math.nan,
+        )
+        abs_error = as_float(
+            safe_get(model_entry, "abs_error", "abs_err", "abs"), default=math.nan
+        )
+        rel_error = as_float(
+            safe_get(model_entry, "rel_error", "rel_err", "rel"), default=math.nan
+        )
+        speedup = as_float(
+            safe_get(model_entry, "speedup", "speed_up"),
+            default=(
+                mc_time / model_time if (model_time and model_time > 0) else math.nan
+            ),
+        )
 
     # Summarize a row for history
     now = datetime.utcnow().isoformat()
@@ -367,21 +364,6 @@ if run_clicked:
         "model_time_s": model_time,
         "mc_time_s": mc_time,
     }
-
-    # Save history server-side (backend) if available and requested
-    if save_history:
-        try:
-            hres = requests.post(
-                f"{API_URL}/history/append", json=history_row, timeout=10
-            )
-            if not (hres.status_code == 200 or hres.status_code == 201):
-                # fallback to local save if server rejected
-                append_history(LOCAL_HISTORY_PATH, history_row)
-        except Exception:
-            append_history(LOCAL_HISTORY_PATH, history_row)
-    else:
-        # still keep a local record for session usage (optional)
-        append_history(LOCAL_HISTORY_PATH, history_row)
 
     # Show success / toast if available
     try:
@@ -399,52 +381,50 @@ if run_clicked:
     )
 
     with tab_dashboard:
-        a, b, c = st.columns([1, 1, 1])
-        a.metric("Model price", f"{model_price:.6f}")
-        b.metric("Monte Carlo", f"{mc_price:.6f}")
-        c.metric("Speedup (x)", f"{speedup:.2f}")
-
-        price_df = pd.DataFrame(
-            {"source": ["Model", "Monte Carlo"], "price": [model_price, mc_price]}
-        )
-
-        price_fig = px.bar(
-            price_df,
-            x="source",
-            y="price",
-            text="price",
-            title=f"Model vs Monte Carlo (n_paths={history_row['n_paths']})",
-        )
-        price_fig.update_traces(texttemplate="%{text:.6f}", textposition="outside")
-        price_fig.update_layout(margin=dict(l=20, r=20, t=40, b=20))
-        st.plotly_chart(
-            price_fig, use_container_width=True, config=plotly_config, height=340
-        )
-
-        err_df = pd.DataFrame(
-            {
-                "metric": ["Abs Error", "Rel Error (%)"],
-                "value": [
-                    abs_error if not math.isnan(abs_error) else 0.0,
-                    (rel_error * 100) if not math.isnan(rel_error) else 0.0,
-                ],
-            }
-        )
-        err_fig = px.bar(
-            err_df, x="metric", y="value", text="value", title="Error metrics"
-        )
-        err_fig.update_traces(texttemplate="%{text:.4f}", textposition="outside")
-        err_fig.update_layout(margin=dict(l=20, r=20, t=30, b=20))
-        st.plotly_chart(
-            err_fig, use_container_width=True, config=plotly_config, height=320
-        )
-
-        time_df = pd.DataFrame(
-            {
-                "component": ["Model Time (s)", "MC Time (s)"],
-                "time": [model_time, mc_time],
-            }
-        )
+        if reference_only:
+            a, b, c = st.columns([1, 1, 1])
+            a.metric("Reference price", f"{mc_price:.6f}")
+            b.metric("Standard error", f"{standard_error:.6f}")
+            ci_text = (
+                f"{float(confidence_interval[0]):.6f} - "
+                f"{float(confidence_interval[1]):.6f}"
+                if isinstance(confidence_interval, list)
+                and len(confidence_interval) == 2
+                else "N/A"
+            )
+            c.metric("95% confidence interval", ci_text)
+            time_df = pd.DataFrame(
+                {"component": ["Reference MC Time (s)"], "time": [mc_time]}
+            )
+        else:
+            a, b, c = st.columns([1, 1, 1])
+            a.metric("Model price", f"{model_price:.6f}")
+            b.metric("Monte Carlo", f"{mc_price:.6f}")
+            c.metric("Speedup (x)", f"{speedup:.2f}")
+            price_df = pd.DataFrame(
+                {"source": ["Model", "Monte Carlo"], "price": [model_price, mc_price]}
+            )
+            price_fig = px.bar(
+                price_df,
+                x="source",
+                y="price",
+                text="price",
+                title=f"Model vs Monte Carlo (n_paths={history_row['n_paths']})",
+            )
+            price_fig.update_traces(texttemplate="%{text:.6f}", textposition="outside")
+            price_fig.update_layout(margin=dict(l=20, r=20, t=40, b=20))
+            st.plotly_chart(
+                price_fig,
+                use_container_width=True,
+                config=plotly_config,
+                height=340,
+            )
+            time_df = pd.DataFrame(
+                {
+                    "component": ["Model Time (s)", "MC Time (s)"],
+                    "time": [model_time, mc_time],
+                }
+            )
         timing_fig = px.bar(
             time_df, x="component", y="time", text="time", title="Timing (seconds)"
         )

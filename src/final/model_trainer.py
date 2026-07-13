@@ -13,6 +13,25 @@ from lightgbm import LGBMRegressor
 import optuna
 
 
+def split_train_validation_test(
+    X: np.ndarray,
+    y: np.ndarray,
+    test_size: float,
+    random_state: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Create disjoint train, validation, and untouched test partitions."""
+    X_train_val, X_test, y_train_val, y_test = train_test_split(
+        X, y, test_size=test_size, random_state=random_state
+    )
+    X_train, X_val, y_train, y_val = train_test_split(
+        X_train_val,
+        y_train_val,
+        test_size=test_size,
+        random_state=random_state + 1,
+    )
+    return X_train, X_val, X_test, y_train, y_val, y_test
+
+
 class ModelTrainer:
     """Train LightGBM models with Optuna tuning."""
 
@@ -47,9 +66,14 @@ class ModelTrainer:
 
         self.feature_names = feature_names
 
-        X_train, X_val, y_train, y_val = train_test_split(
-            X, y, test_size=self.test_size, random_state=self.random_state
+        X_train, X_val, X_test, y_train, y_val, y_test = split_train_validation_test(
+            X,
+            y,
+            test_size=self.test_size,
+            random_state=self.random_state,
         )
+        X_train_val = np.vstack([X_train, X_val])
+        y_train_val = np.concatenate([y_train, y_val])
 
         if self.use_log_target:
             y_train_t = np.log1p(y_train)
@@ -89,6 +113,10 @@ class ModelTrainer:
                     lgb.log_evaluation(period=0),
                 ],
             )
+            trial.set_user_attr(
+                "best_iteration",
+                int(model.best_iteration_ or params["n_estimators"]),
+            )
 
             pred_val = model.predict(X_val_s)
             if self.use_log_target:
@@ -113,20 +141,20 @@ class ModelTrainer:
         if self.verbose:
             print(f"  Best trial: RMSE={study.best_value:.6f}")
 
-        best_params = study.best_params
+        best_params = dict(study.best_params)
+        best_params["n_estimators"] = study.best_trial.user_attrs["best_iteration"]
+        best_params["random_state"] = self.random_state
+        best_params["n_jobs"] = 1
         self.model = LGBMRegressor(**best_params)
 
-        X_full_s = self.scaler.fit_transform(np.vstack([X_train, X_val]))
+        X_full_s = self.scaler.fit_transform(X_train_val)
         if self.use_log_target:
-            y_full_t = np.log1p(np.concatenate([y_train, y_val]))
+            y_full_t = np.log1p(y_train_val)
         else:
-            y_full_t = np.concatenate([y_train, y_val])
+            y_full_t = y_train_val
 
         self.model.fit(X_full_s, y_full_t, eval_metric="rmse")
 
-        X_train_all, X_test, y_train_all, y_test = train_test_split(
-            X, y, test_size=self.test_size, random_state=self.random_state + 1
-        )
         X_test_s = self.scaler.transform(X_test)
 
         pred_test = self.model.predict(X_test_s)
@@ -141,6 +169,8 @@ class ModelTrainer:
             "rmse": rmse_test,
             "mae": mae_test,
             "r2": r2_test,
+            "n_train": len(y_train_val),
+            "n_test": len(y_test),
         }
 
         elapsed = time.time() - start_time
@@ -170,7 +200,8 @@ class ModelTrainer:
             "metrics": self.train_metrics,
             "optuna_study": {
                 "best_value": study.best_value,
-                "best_params": study.best_params,
+                "best_params": best_params,
+                "tuned_params": study.best_params,
             },
             "feature_importance": feature_importance,
             "use_log_target": self.use_log_target,

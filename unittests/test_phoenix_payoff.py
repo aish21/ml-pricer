@@ -1,0 +1,124 @@
+import json
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from src.final.payoffs import PhoenixPayoff
+from src.final.reference_pricer import price_reference
+
+
+def phoenix_params(**overrides):
+    params = {
+        "S0": 100.0,
+        "r": 0.0,
+        "sigma": 0.2,
+        "T": 1.0,
+        "autocall_barrier_frac": 1.10,
+        "coupon_barrier_frac": 1.00,
+        "coupon_rate": 0.02,
+        "knock_in_frac": 0.70,
+        "obs_count": 2,
+    }
+    params.update(overrides)
+    return params
+
+
+def test_feature_order_contains_every_price_sensitive_term():
+    payoff = PhoenixPayoff()
+
+    assert payoff.contract_version == "phoenix-single-v1"
+    assert payoff.get_feature_order() == payoff.get_parameter_names()
+
+
+def test_periodic_non_memory_coupons_are_paid_while_note_is_active():
+    paths = np.array([[100.0, 100.0, 100.0]])
+
+    value = PhoenixPayoff().compute_payoff(paths, phoenix_params(), 0.0, 1.0)
+
+    assert value[0] == pytest.approx(1.04)
+
+
+def test_autocall_pays_current_coupon_and_stops_future_cashflows():
+    paths = np.array([[100.0, 106.0, 150.0]])
+    params = phoenix_params(autocall_barrier_frac=1.05)
+
+    value = PhoenixPayoff().compute_payoff(paths, params, 0.0, 1.0)
+
+    assert value[0] == pytest.approx(1.02)
+
+
+def test_coupon_barrier_changes_coupon_cashflows():
+    paths = np.array([[100.0, 95.0, 95.0]])
+    low_barrier = phoenix_params(coupon_barrier_frac=0.90)
+    high_barrier = phoenix_params(coupon_barrier_frac=1.00)
+
+    low_value = PhoenixPayoff().compute_payoff(paths, low_barrier, 0.0, 1.0)
+    high_value = PhoenixPayoff().compute_payoff(paths, high_barrier, 0.0, 1.0)
+
+    assert low_value[0] == pytest.approx(1.04)
+    assert high_value[0] == pytest.approx(1.00)
+
+
+def test_knock_in_causes_loss_only_when_final_level_is_below_initial():
+    paths = np.array(
+        [
+            [100.0, 60.0, 80.0],
+            [100.0, 60.0, 110.0],
+        ]
+    )
+    params = phoenix_params(
+        autocall_barrier_frac=2.0,
+        coupon_barrier_frac=2.0,
+    )
+
+    values = PhoenixPayoff().compute_payoff(paths, params, 0.0, 1.0)
+
+    assert values[0] == pytest.approx(0.80)
+    assert values[1] == pytest.approx(1.00)
+
+
+def test_payoff_is_invariant_to_underlier_price_scale():
+    paths = np.array([[100.0, 95.0, 80.0], [100.0, 106.0, 120.0]])
+    params = phoenix_params(autocall_barrier_frac=1.05)
+    scaled_params = {**params, "S0": 250.0}
+
+    base = PhoenixPayoff().compute_payoff(paths, params, 0.0, 1.0)
+    scaled = PhoenixPayoff().compute_payoff(paths * 2.5, scaled_params, 0.0, 1.0)
+
+    assert scaled == pytest.approx(base)
+
+
+def test_reference_pricing_is_seeded_and_reports_uncertainty():
+    params = phoenix_params(obs_count=6)
+
+    first = price_reference(PhoenixPayoff(), params, n_paths=500, seed=123)
+    second = price_reference(PhoenixPayoff(), params, n_paths=500, seed=123)
+
+    assert first["price"] == second["price"]
+    assert first["standard_error"] == second["standard_error"]
+    assert first["confidence_interval"][0] <= first["price"]
+    assert first["confidence_interval"][1] >= first["price"]
+
+
+def test_reference_pricing_matches_frozen_golden_case():
+    fixture_path = Path(__file__).parent / "golden" / "phoenix-single-v1.json"
+    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+    case = fixture["cases"][0]
+
+    result = price_reference(
+        PhoenixPayoff(),
+        case["params"],
+        n_paths=case["n_paths"],
+        n_steps=case["n_steps"],
+        seed=case["seed"],
+    )
+
+    assert PhoenixPayoff.contract_version == fixture["contract_version"]
+    assert result["price"] == pytest.approx(case["expected"]["price"], abs=1e-12)
+    assert result["payoff_std"] == pytest.approx(
+        case["expected"]["payoff_std"], abs=1e-12
+    )
+    assert result["standard_error"] == pytest.approx(
+        case["expected"]["standard_error"], abs=1e-12
+    )

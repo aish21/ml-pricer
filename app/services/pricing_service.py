@@ -1,14 +1,9 @@
+import math
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from src.final.evaluator import Evaluator
-
-from app.services.model_cache import (
-    ModelCacheArtifactError,
-    ModelCacheLoadError,
-    get_model_bundle,
-)
+from src.final.reference_pricer import DEFAULT_REFERENCE_SEED, price_reference
 from app.services.product_registry import (
     ProductField,
     get_bb_product_definitions,
@@ -28,8 +23,7 @@ class InvalidPricingInputError(PricingServiceError):
     pass
 
 
-class PricingArtifactError(PricingServiceError):
-    pass
+MAX_REFERENCE_PATHS = 20_000
 
 
 def get_bb_pricing_products() -> list[dict[str, str]]:
@@ -58,8 +52,12 @@ def _parse_float(params: Dict[str, Any], field: ProductField) -> float:
         raise InvalidPricingInputError(
             f"invalid numeric parameter: {field.name}"
         ) from exc
+    if not math.isfinite(value):
+        raise InvalidPricingInputError(f"{field.name} must be finite")
     if field.min_value is not None and value < field.min_value:
         raise InvalidPricingInputError(f"{field.name} must be >= {field.min_value}")
+    if field.max_value is not None and value > field.max_value:
+        raise InvalidPricingInputError(f"{field.name} must be <= {field.max_value}")
     return value
 
 
@@ -73,6 +71,8 @@ def _parse_int(params: Dict[str, Any], field: ProductField) -> int:
         ) from exc
     if field.min_value is not None and value < field.min_value:
         raise InvalidPricingInputError(f"{field.name} must be >= {field.min_value}")
+    if field.max_value is not None and value > field.max_value:
+        raise InvalidPricingInputError(f"{field.name} must be <= {field.max_value}")
     return value
 
 
@@ -92,16 +92,28 @@ def _parse_field(params: Dict[str, Any], field: ProductField) -> Any:
     return _parse_float(params, field)
 
 
-def normalize_pricing_params(product_key: str, params: Dict[str, Any]) -> Dict[str, Any]:
+def normalize_pricing_params(
+    product_key: str, params: Dict[str, Any]
+) -> Dict[str, Any]:
     product = get_product_definition(product_key)
     if product is None:
         raise UnsupportedProductError(f"unknown product: {product_key}")
-    if not product.enabled_for_bb:
+    if not product.validated_for_pricing:
         raise UnsupportedProductError(f"unsupported product: {product_key}")
 
     normalized: Dict[str, Any] = {}
     for field in product.bb_fields:
         normalized[field.name] = _parse_field(params, field)
+
+    if product.key == "phoenix":
+        knock_in = normalized["knock_in_frac"]
+        coupon_barrier = normalized["coupon_barrier_frac"]
+        autocall_barrier = normalized["autocall_barrier_frac"]
+        if not knock_in <= coupon_barrier <= autocall_barrier:
+            raise InvalidPricingInputError(
+                "barriers must satisfy knock_in_frac <= coupon_barrier_frac "
+                "<= autocall_barrier_frac"
+            )
 
     return normalized
 
@@ -111,57 +123,60 @@ def price_product(
     params: Dict[str, Any],
     n_paths: int = 500,
     results_dir: Optional[Path] = None,
-    use_log_target: bool = True,
+    seed: int = DEFAULT_REFERENCE_SEED,
 ) -> Dict[str, Any]:
+    # Kept for call compatibility during the Phase 1 migration. Reference
+    # pricing deliberately does not depend on a surrogate artifact directory.
+    _ = results_dir
     product = get_product_definition(product_key)
     if product is None:
         raise UnsupportedProductError(f"unknown product: {product_key}")
-    if not product.enabled_for_bb:
+    if not product.validated_for_pricing or not product.reference_pricing_enabled:
         raise UnsupportedProductError(f"unsupported product: {product_key}")
 
     try:
         n_paths_int = int(n_paths)
     except (TypeError, ValueError) as exc:
         raise InvalidPricingInputError("invalid Monte Carlo path count") from exc
-    if n_paths_int < 1:
-        raise InvalidPricingInputError("Monte Carlo path count must be positive")
+    if n_paths_int < 1 or n_paths_int > MAX_REFERENCE_PATHS:
+        raise InvalidPricingInputError(
+            f"Monte Carlo path count must be between 1 and {MAX_REFERENCE_PATHS}"
+        )
 
     normalized_params = normalize_pricing_params(product.key, params)
 
     start = time.perf_counter()
-    try:
-        bundle = get_model_bundle(product.key, results_dir=results_dir)
-    except (ModelCacheArtifactError, ModelCacheLoadError) as exc:
-        raise PricingArtifactError(str(exc)) from exc
-
-    evaluator = Evaluator(product.payoff_class(), verbose=False)
-    raw_result = evaluator.evaluate_case(
+    reference = price_reference(
+        payoff=product.payoff_class(),
         params=normalized_params,
-        model=bundle.model,
-        scaler=bundle.scaler,
-        n_paths_list=[n_paths_int],
-        use_log_target=use_log_target,
+        n_paths=n_paths_int,
+        seed=int(seed),
     )
     latency_ms = int(round((time.perf_counter() - start) * 1000))
-
-    entry = raw_result["per_npaths"][str(n_paths_int)]
-    model_result = entry["Model"]
-    mc_result = entry["MC"]
+    raw_result = {
+        "params": normalized_params,
+        "per_npaths": {str(n_paths_int): {"Reference": reference}},
+    }
 
     return {
         "product_key": product.key,
         "product_name": product.display_name,
         "params": normalized_params,
         "n_paths": n_paths_int,
-        "price": model_result.get("price"),
-        "mc_price": mc_result.get("price"),
-        "abs_error": model_result.get("abs_error"),
-        "rel_error": model_result.get("rel_error"),
-        "speedup": model_result.get("speedup"),
-        "model_time_s": model_result.get("time"),
-        "mc_time_s": mc_result.get("time"),
+        "price": reference["price"],
+        "mc_price": reference["price"],
+        "abs_error": None,
+        "rel_error": None,
+        "speedup": None,
+        "model_time_s": None,
+        "mc_time_s": reference["time_s"],
+        "standard_error": reference["standard_error"],
+        "confidence_interval": reference["confidence_interval"],
+        "seed": reference["seed"],
         "latency_ms": latency_ms,
-        "model": "LightGBM surrogate",
-        "model_version": product.artifact_dir,
+        "model": "Monte Carlo reference",
+        "pricing_method": "monte_carlo_reference",
+        "contract_version": product.contract_version,
+        "model_version": "gbm-flat-v1",
         "raw_result": raw_result,
     }

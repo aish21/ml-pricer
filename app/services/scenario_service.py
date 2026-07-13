@@ -1,5 +1,7 @@
 from typing import Any, Dict, Optional
 
+from src.final.reference_pricer import DEFAULT_REFERENCE_SEED
+
 from app.services.pricing_service import (
     InvalidPricingInputError,
     PricingServiceError,
@@ -54,9 +56,9 @@ def apply_shocks_to_params(
             raise InvalidScenarioInputError("shocked spot must be positive")
 
     if "vol_abs" in normalized_shocks:
-        shocked_params["sigma"] = float(shocked_params["sigma"]) + normalized_shocks[
-            "vol_abs"
-        ]
+        shocked_params["sigma"] = (
+            float(shocked_params["sigma"]) + normalized_shocks["vol_abs"]
+        )
         if shocked_params["sigma"] <= 0:
             raise InvalidScenarioInputError("shocked volatility must be positive")
 
@@ -64,8 +66,6 @@ def apply_shocks_to_params(
         shocked_params["r"] = float(shocked_params["r"]) + (
             normalized_shocks["rate_bps"] / 10000.0
         )
-        if shocked_params["r"] < 0:
-            raise InvalidScenarioInputError("shocked rate cannot be negative")
 
     return shocked_params, normalized_shocks
 
@@ -79,7 +79,9 @@ def _float_or_none(value: Any) -> Optional[float]:
         return None
 
 
-def _pct_change(base_price: Optional[float], price_change: Optional[float]) -> Optional[float]:
+def _pct_change(
+    base_price: Optional[float], price_change: Optional[float]
+) -> Optional[float]:
     if base_price in (None, 0) or price_change is None:
         return None
     return (price_change / abs(base_price)) * 100.0
@@ -128,14 +130,12 @@ def run_scenario(
 
     shocked_params, normalized_shocks = apply_shocks_to_params(base_params, shocks)
     n_paths = base_request.get("n_paths", 500)
-    use_log_target = bool(base_request.get("use_log_target", True))
-
     try:
         shocked_result = price_product(
             product_key=product_key,
             params=shocked_params,
             n_paths=n_paths,
-            use_log_target=use_log_target,
+            seed=int(base_request.get("seed", DEFAULT_REFERENCE_SEED)),
         )
     except (PricingServiceError, InvalidPricingInputError) as exc:
         raise InvalidScenarioInputError(str(exc)) from exc
