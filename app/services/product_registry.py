@@ -4,6 +4,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from src.final.market import (
+    EQUITY_GBM_FLAT_MODEL_VERSION,
+    EQUITY_MARKET_SNAPSHOT_VERSION,
+)
 from src.final.inherited_payoffs import ReverseAccumulatorPayoff, StepDownPhoenixPayoff
 from src.final.payoffs import (
     AccumulatorPayoff,
@@ -45,10 +49,15 @@ class ProductDefinition:
 
 PHOENIX_FIELDS: tuple[ProductField, ...] = (
     ProductField(
-        "S0", "Spot", "float", 100.0, min_value=0.000001, max_value=1_000_000.0
+        "S0",
+        "Spot",
+        "float",
+        100.0,
+        min_value=0.000001,
+        max_value=1_000_000_000.0,
     ),
-    ProductField("sigma", "Vol", "float", 0.2, min_value=0.000001, max_value=3.0),
-    ProductField("r", "Rate", "float", 0.03, min_value=-0.1, max_value=0.25),
+    ProductField("sigma", "Vol", "float", 0.2, min_value=0.000001, max_value=5.0),
+    ProductField("r", "Rate", "float", 0.03, min_value=-0.25, max_value=1.0),
     ProductField("T", "Mat", "float", 1.0, min_value=0.000001, max_value=30.0),
     ProductField(
         "autocall_barrier_frac",
@@ -260,6 +269,16 @@ def build_product_status(
         "legacy_price_route_enabled": product.legacy_price_route_enabled,
         "validated_for_pricing": product.validated_for_pricing,
         "reference_pricing_available": product.reference_pricing_enabled,
+        "market_snapshot_versions": (
+            [EQUITY_MARKET_SNAPSHOT_VERSION]
+            if product.reference_pricing_enabled
+            else []
+        ),
+        "market_model_versions": (
+            ["gbm-flat-v1", EQUITY_GBM_FLAT_MODEL_VERSION]
+            if product.reference_pricing_enabled
+            else []
+        ),
         "enabled_for_bb": product.enabled_for_bb,
         "bb_fields": [
             {
@@ -304,6 +323,8 @@ def get_model_info(results_dir: Optional[Path] = None) -> Dict[str, Any]:
         "service": "ml-pricer",
         "api": "online",
         "model_family": "Monte Carlo reference",
+        "market_snapshot_versions": [EQUITY_MARKET_SNAPSHOT_VERSION],
+        "market_model_versions": ["gbm-flat-v1", EQUITY_GBM_FLAT_MODEL_VERSION],
         "monte_carlo_fallback": "available_via_backend_evaluator",
         "supported_product_keys": [
             product["key"] for product in products if product["validated_for_pricing"]

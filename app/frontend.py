@@ -6,7 +6,7 @@ import math
 import os
 from typing import Any, Dict, Optional
 from io import StringIO
-from datetime import datetime
+from datetime import datetime, timezone
 
 # API endpoint (container-friendly default)
 API_URL = os.getenv("API_URL", "https://aish-ml-pricer-backend.up.railway.app")
@@ -32,7 +32,7 @@ st.set_page_config(
 
 st.title("ML Pricer")
 st.markdown(
-    "Price the validated Phoenix Single v1 contract with a deterministic Monte Carlo reference engine."
+    "Price Phoenix Single v1 for an equity, ETF, or equity index from a dated market snapshot."
 )
 
 
@@ -103,17 +103,42 @@ col1, col2 = st.columns(2)
 
 if payoff_type == "Phoenix":
     with col1:
+        symbol = st.text_input("Underlier symbol", value="SPY", max_chars=64)
+        underlier_type = st.selectbox("Underlier type", ["ETF", "Equity", "Index"])
+        currency = st.text_input("Currency", value="USD", max_chars=3)
         S0 = st.number_input(
-            "Initial Spot (S₀)", value=100.0, min_value=0.0, step=0.1, format="%.4f"
+            "Spot", value=100.0, min_value=0.000001, step=0.1, format="%.4f"
         )
         r = st.number_input(
-            "Interest Rate (r)", value=0.03, min_value=0.0, step=0.0001, format="%.6f"
+            "Flat discount rate",
+            value=0.03,
+            min_value=-0.25,
+            max_value=1.0,
+            step=0.0001,
+            format="%.6f",
+        )
+        dividend_yield = st.number_input(
+            "Flat dividend yield",
+            value=0.0,
+            min_value=-0.25,
+            max_value=1.0,
+            step=0.0001,
+            format="%.6f",
         )
         sigma = st.number_input(
-            "Volatility (σ)", value=0.2, min_value=0.0, step=0.001, format="%.6f"
+            "Flat volatility",
+            value=0.2,
+            min_value=0.000001,
+            max_value=5.0,
+            step=0.001,
+            format="%.6f",
         )
         T = st.number_input(
-            "Tenor (T)", value=1.0, min_value=0.0, step=0.1, format="%.4f"
+            "Maturity (years)",
+            value=1.0,
+            min_value=0.000001,
+            step=0.1,
+            format="%.4f",
         )
     with col2:
         autocall = st.number_input(
@@ -135,11 +160,10 @@ if payoff_type == "Phoenix":
         obs = st.number_input(
             "Observation Count", value=6, min_value=1, step=1, format="%d"
         )
-    params = {
-        "S0": S0,
-        "r": r,
-        "sigma": sigma,
-        "T": T,
+        calendar = st.text_input("Calendar", value="XNYS", max_chars=32)
+        day_count = st.text_input("Day count", value="ACT/365F", max_chars=16)
+    phoenix_terms = {
+        "maturity_years": T,
         "autocall_barrier_frac": autocall,
         "coupon_barrier_frac": coupon_b,
         "coupon_rate": coupon_rate,
@@ -232,17 +256,41 @@ container_feature = st.container()
 container_json = st.container()
 
 if run_clicked:
-    payload = {
-        "payoff_type": payoff_type,
-        "params": params,
-        "n_paths": n_paths,
-    }
+    if payoff_type == "Phoenix":
+        snapshot_time = datetime.now(timezone.utc).isoformat()
+        payload = {
+            "market": {
+                "schema_version": "equity-market-snapshot-v1",
+                "symbol": symbol,
+                "underlier_type": underlier_type.lower(),
+                "currency": currency,
+                "valuation_time": snapshot_time,
+                "market_data_time": snapshot_time,
+                "spot": S0,
+                "risk_free_rate": r,
+                "dividend_yield": dividend_yield,
+                "volatility": sigma,
+                "calendar": calendar,
+                "day_count": day_count,
+                "source": "streamlit-manual",
+            },
+            "terms": phoenix_terms,
+            "n_paths": n_paths,
+        }
+        pricing_url = f"{API_URL}/api/v1/products/phoenix/price"
+    else:
+        payload = {
+            "payoff_type": payoff_type,
+            "params": params,
+            "n_paths": n_paths,
+        }
+        pricing_url = f"{API_URL}/price/"
     with st.spinner("Running deterministic Monte Carlo reference pricing..."):
         try:
-            res = requests.post(f"{API_URL}/price/", json=payload, timeout=120)
+            res = requests.post(pricing_url, json=payload, timeout=120)
             res.raise_for_status()
         except Exception as e:
-            st.error(f"Failed to contact backend at {API_URL}/price/: {e}")
+            st.error(f"Failed to contact backend at {pricing_url}: {e}")
             st.stop()
 
         try:
@@ -352,7 +400,7 @@ if run_clicked:
         )
 
     # Summarize a row for history
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     history_row = {
         "timestamp_utc": now,
         "payoff_type": payoff_type,
@@ -381,6 +429,14 @@ if run_clicked:
     )
 
     with tab_dashboard:
+        market_snapshot = result.get("market_snapshot", {})
+        if market_snapshot:
+            st.caption(
+                f"{market_snapshot.get('symbol')} | "
+                f"{market_snapshot.get('underlier_type')} | "
+                f"as of {market_snapshot.get('market_data_time')} | "
+                f"source: {market_snapshot.get('source')}"
+            )
         if reference_only:
             a, b, c = st.columns([1, 1, 1])
             a.metric("Reference price", f"{mc_price:.6f}")

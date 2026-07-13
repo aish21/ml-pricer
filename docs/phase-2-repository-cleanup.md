@@ -89,10 +89,10 @@ History rewriting is not required to stop future repository growth. If it is
 eventually chosen to reduce clone size, it should be a coordinated maintenance
 operation with a backup tag and explicit instructions for every collaborator.
 
-## Next implementation slice
+## Subsequent market-data slice
 
-The next slice should introduce a dated equity-like market snapshot with a
-symbol, valuation timestamp, spot, discount/forward inputs, volatility input,
-calendar, and provenance. The pricer should accept that snapshot independently
-of the Phoenix terms. This preserves support for arbitrary equity/ETF/index
-underliers while keeping asset-class-specific market models explicit.
+The dated equity-like snapshot described by the original next step is now
+implemented as `equity-market-snapshot-v1`, independently of Phoenix terms. See
+[`equity-market-snapshot-v1.md`](equity-market-snapshot-v1.md). The remaining
+step is a server-side provider adapter with credentials, licensing, symbol
+mapping, trading-session-aware freshness checks, and attested provenance.

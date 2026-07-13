@@ -7,6 +7,10 @@ from fastapi.responses import JSONResponse
 import csv
 from datetime import datetime, timezone
 
+from src.final.market import (
+    EQUITY_GBM_FLAT_MODEL_VERSION,
+    EQUITY_MARKET_SNAPSHOT_VERSION,
+)
 from app.api.bb import router as bb_api_router
 from app.api.v1 import PricingRequest, execute_pricing_request
 from app.api.v1 import router as api_v1_router
@@ -23,7 +27,7 @@ from app.services.product_registry import (
     get_results_dir,
 )
 
-app = FastAPI(title="Neural Pricer API", version="0.2.0")
+app = FastAPI(title="Neural Pricer API", version="0.3.0")
 app.include_router(bb_api_router)
 app.include_router(api_v1_router)
 app.include_router(blackberry_router)
@@ -308,4 +312,6 @@ def health_ready():
         "status": "ready",
         "pricing_method": "monte_carlo_reference",
         "contract_version": product.contract_version if product else "unavailable",
+        "market_snapshot_version": EQUITY_MARKET_SNAPSHOT_VERSION,
+        "market_model_version": EQUITY_GBM_FLAT_MODEL_VERSION,
     }

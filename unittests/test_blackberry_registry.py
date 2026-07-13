@@ -18,8 +18,13 @@ EXPECTED_VALIDATED_KEYS = {"phoenix"}
 
 
 def test_product_registry_returns_expected_supported_keys():
-    keys = {product["key"] for product in list_products()}
+    products = list_products()
+    keys = {product["key"] for product in products}
     assert EXPECTED_PRODUCT_KEYS.issubset(keys)
+
+    phoenix = next(product for product in products if product["key"] == "phoenix")
+    assert phoenix["market_snapshot_versions"] == ["equity-market-snapshot-v1"]
+    assert "equity-gbm-flat-v2" in phoenix["market_model_versions"]
 
 
 def test_bb_enabled_products_have_terminal_fields():

@@ -17,10 +17,12 @@ dependency.
   initial and final points.
 - Coupons are non-memory: a missed coupon is not recovered later.
 
-The current reference model is a single-factor risk-neutral GBM with constant
-rate and volatility. Dividend/forward curves and volatility surfaces are
-deliberately deferred to the market-data phase and must be versioned as a new
-pricing-model specification when introduced.
+The product contract is independent of the market model. The original
+`gbm-flat-v1` reference uses a constant rate and volatility with zero dividend
+yield. The dated [`equity-market-snapshot-v1`](equity-market-snapshot-v1.md)
+path uses `equity-gbm-flat-v2`, adding a constant dividend yield to the
+risk-neutral drift. Forward curves and volatility surfaces remain future,
+separately versioned market-model upgrades.
 
 ## Cashflow rules
 

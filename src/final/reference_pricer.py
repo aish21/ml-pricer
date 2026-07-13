@@ -17,6 +17,7 @@ def price_reference(
     n_paths: int,
     n_steps: int = DEFAULT_REFERENCE_STEPS,
     seed: Optional[int] = DEFAULT_REFERENCE_SEED,
+    dividend_yield: float = 0.0,
 ) -> Dict[str, Any]:
     """Price one contract with deterministic Monte Carlo and uncertainty data."""
     started = time.perf_counter()
@@ -28,6 +29,7 @@ def price_reference(
         n_steps=n_steps,
         n_paths=n_paths,
         seed=seed,
+        dividend_yield=dividend_yield,
     )
     discounted_payoffs = payoff.compute_payoff(
         paths,
@@ -51,5 +53,6 @@ def price_reference(
         "n_paths": n_paths,
         "n_steps": n_steps,
         "seed": seed,
+        "dividend_yield": dividend_yield,
         "time_s": elapsed,
     }

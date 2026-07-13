@@ -15,8 +15,9 @@ def simulate_gbm_paths(
     n_steps: int,
     n_paths: int,
     seed: Optional[int] = None,
+    dividend_yield: float = 0.0,
 ) -> np.ndarray:
-    """Simulate log-GBM paths."""
+    """Simulate log-GBM paths with a continuous flat dividend yield."""
     if seed is not None:
         rng = np.random.RandomState(seed)
         Z = rng.randn(n_paths, n_steps)
@@ -24,7 +25,7 @@ def simulate_gbm_paths(
         Z = np.random.randn(n_paths, n_steps)
 
     dt = T / n_steps
-    drift = (r - 0.5 * sigma**2) * dt
+    drift = (r - dividend_yield - 0.5 * sigma**2) * dt
     diffusion = sigma * math.sqrt(dt)
     increments = drift + diffusion * Z
 

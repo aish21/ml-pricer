@@ -18,6 +18,9 @@ __all__ = [
     "Evaluator",
     "PricingPipeline",
     "price_reference",
+    "EquityMarketSnapshot",
+    "EquityMarketDataProvider",
+    "MarketDataValidationError",
 ]
 
 _EXPORTS: Dict[str, Tuple[str, str]] = {
@@ -31,6 +34,9 @@ _EXPORTS: Dict[str, Tuple[str, str]] = {
     "Evaluator": (".evaluator", "Evaluator"),
     "PricingPipeline": (".pipeline", "PricingPipeline"),
     "price_reference": (".reference_pricer", "price_reference"),
+    "EquityMarketSnapshot": (".market", "EquityMarketSnapshot"),
+    "EquityMarketDataProvider": (".market", "EquityMarketDataProvider"),
+    "MarketDataValidationError": (".market", "MarketDataValidationError"),
 }
 
 

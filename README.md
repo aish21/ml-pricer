@@ -3,11 +3,12 @@
 ML-powered exotic derivatives pricing with a retro BlackBerry quant terminal.
 
 Neural Pricer is an experimental pricing platform for exotic and structured
-derivatives. Phase 1 currently exposes a versioned, single-underlier Phoenix
-contract priced by deterministic Monte Carlo through a FastAPI backend, a
-Streamlit frontend, and a local BlackBerry Bold 9780-compatible terminal.
-Existing LightGBM artifacts are retained as research outputs but are not served
-because they predate the validated contract and feature schema.
+derivatives. The current product path exposes a versioned, single-underlier
+Phoenix contract priced by deterministic Monte Carlo through a FastAPI backend,
+a Streamlit frontend, and a local BlackBerry Bold 9780-compatible terminal. A
+dated market snapshot separates arbitrary equity-like symbols from product
+terms. Existing LightGBM artifacts are retained as research outputs but are not
+served because they predate the validated contract and feature schema.
 
 This is an educational/demo system. It is not production trading
 infrastructure, financial advice, or a risk system suitable for live capital
@@ -18,6 +19,8 @@ allocation.
 - Prices the validated `phoenix-single-v1` contract per unit notional.
 - Reports a deterministic Monte Carlo price, standard error, and 95% confidence
   interval.
+- Accepts immutable dated market snapshots for arbitrary equity, ETF, and
+  equity-index symbols through the product-focused API.
 - Serves pricing through FastAPI.
 - Provides a Streamlit UI for desktop experimentation.
 - Provides a plain HTML BlackBerry terminal at `/bb`.
@@ -83,6 +86,7 @@ data/
 docs/
   blackberry-terminal.md  BlackBerry terminal details and testing guide
   phoenix-single-v1.md    Versioned payoff and cashflow specification
+  equity-market-snapshot-v1.md  Dated market-data and flat-GBM v2 specification
 
 clients/
   blackberry-legacy/      Optional Java ME native thin-client spike
@@ -260,7 +264,8 @@ BlackBerry terminal:
 
 Versioned API v1:
 
-- `POST /api/v1/price`
+- `POST /api/v1/products/phoenix/price` (preferred)
+- `POST /api/v1/price` (deprecated generic envelope)
 - `GET /api/v1/products`
 - `GET /api/v1/model-info`
 
@@ -290,8 +295,10 @@ Legacy routes kept for compatibility:
 - There is no authentication or PIN enforcement yet.
 - The optional Java ME MIDlet is a source-level spike; it has not yet been built
   or sideloaded from this checkout.
-- The Phase 1 market model is flat-rate, constant-volatility GBM without a
-  dividend/forward curve or volatility surface.
+- The product-focused API supports a flat rate, flat dividend yield, and
+  constant volatility. It does not yet consume curves or a volatility surface.
+- Market snapshots are currently supplied by the caller; no server-attested
+  live vendor adapter is connected yet.
 - Observation dates are evenly spaced and knock-in monitoring is discrete on
   simulated path steps.
 - Legacy model/scaler artifacts remain committed but fail contract/feature
@@ -303,8 +310,9 @@ Legacy routes kept for compatibility:
 ## Future Roadmap
 
 - Add JSON `POST /api/v1/scenario` and product-specific request schemas.
-- Add dated market snapshots, forward/discount curves, and an implied-volatility
-  surface for arbitrary equity-like underlier symbols.
+- Connect a licensed live provider with freshness checks and server-attested
+  provenance, then add forward/discount curves and an implied-volatility
+  surface.
 - Train and validate a replacement surrogate against the frozen Phoenix
   contract and an untouched test set.
 - Improve payoff explanations and risk summaries.
