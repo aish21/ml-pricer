@@ -4,12 +4,11 @@ services:
       context: .
       dockerfile: Dockerfile.backend
     image: ml-pricer-backend:latest
-    container_name: ml-pricer-backend
     environment:
-      - MODEL_RESULTS_DIR=/app/final/results
-      - MODEL_HISTORY_FILE=/srv/app/data/pricing_history.csv
+      MODEL_RESULTS_DIR: /srv/app/final/results
+      MODEL_HISTORY_FILE: /srv/app/data/pricing_history.csv
     volumes:
-      - ./final/results:/app/final/results:ro
+      - ./final/results:/srv/app/final/results:ro
       - ./data:/srv/app/data:rw
     ports:
       - "8000:8000"
@@ -20,11 +19,11 @@ services:
       context: .
       dockerfile: Dockerfile.frontend
     image: ml-pricer-frontend:latest
-    container_name: ml-pricer-frontend
     environment:
-      - API_URL=https://aish-ml-pricer-backend.up.railway.app
+      API_URL: http://backend:8000
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
       - "8501:8501"
     restart: unless-stopped

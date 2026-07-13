@@ -1,4 +1,7 @@
 __pycache__/
+.git/
+.github/
+.logs/
 .pytest_cache/
 .venv/
 env/
@@ -9,7 +12,10 @@ venv/
 *.swp
 .ipynb_checkpoints
 data/
+docs/
+final/results/
 notebooks/
+unittests/
 *.h5
 *.keras
 models/

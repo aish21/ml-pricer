@@ -42,6 +42,25 @@ def test_pricing_api_returns_versioned_reference_result():
     assert len(result["confidence_interval"]) == 2
 
 
+def test_v1_pricing_api_returns_versioned_reference_result():
+    response = client.post("/api/v1/price", json=VALID_REQUEST)
+
+    assert response.status_code == 200
+    result = response.json()["result"]
+    assert result["contract_version"] == "phoenix-single-v1"
+    assert result["pricing_method"] == "monte_carlo_reference"
+
+
+def test_health_endpoints_are_available():
+    live = client.get("/health/live")
+    ready = client.get("/health/ready")
+
+    assert live.status_code == 200
+    assert live.json() == {"status": "alive"}
+    assert ready.status_code == 200
+    assert ready.json()["contract_version"] == "phoenix-single-v1"
+
+
 def test_pricing_api_rejects_client_controlled_target_transform():
     payload = {**VALID_REQUEST, "use_log_target": False}
 

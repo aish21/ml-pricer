@@ -19,14 +19,12 @@ docker compose version
 
 If these commands print versions, Docker is available.
 
-3. Prepare requirements
+3. Dependency definitions
 
-Make sure `requirements.txt` contains required runtime packages. If you maintain a venv and want to export your environment:
-
-```powershell
-# in your activated venv
-pip freeze > requirements.txt
-```
+Dependency groups and pins live in `pyproject.toml`. `requirements.txt` is only
+a compatibility entry point for installing the complete development stack.
+Do not replace it with `pip freeze`; Docker installs the scoped `api` and
+`frontend` groups directly.
 
 4. Run the project's compose setup
 

@@ -1,5 +1,4 @@
 from fastapi import FastAPI
-from pydantic import BaseModel, ConfigDict, Field
 from typing import Dict, Any
 from pathlib import Path
 import os
@@ -9,13 +8,13 @@ import csv
 from datetime import datetime, timezone
 
 from app.api.bb import router as bb_api_router
+from app.api.v1 import PricingRequest, execute_pricing_request
 from app.api.v1 import router as api_v1_router
 from app.bb.routes import router as blackberry_router
 from app.services.pricing_service import (
     InvalidPricingInputError,
     PricingServiceError,
     UnsupportedProductError,
-    price_product,
 )
 from app.services.product_registry import (
     REPO_ROOT,
@@ -24,7 +23,7 @@ from app.services.product_registry import (
     get_results_dir,
 )
 
-app = FastAPI(title="ML Pricer API", version="1.0")
+app = FastAPI(title="Neural Pricer API", version="0.2.0")
 app.include_router(bb_api_router)
 app.include_router(api_v1_router)
 app.include_router(blackberry_router)
@@ -39,14 +38,6 @@ HISTORY_FILE = Path(
 HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 
-class PricingRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    payoff_type: str
-    params: Dict[str, Any]
-    n_paths: int = Field(default=2000, ge=1, le=20_000)
-
-
 @app.post("/price/")
 def price_instrument(req: PricingRequest):
     """
@@ -54,11 +45,7 @@ def price_instrument(req: PricingRequest):
     Returns {"status": "success", "result": ...} on success.
     """
     try:
-        result = price_product(
-            product_key=req.payoff_type,
-            params=req.params,
-            n_paths=req.n_paths,
-        )
+        result = execute_pricing_request(req)
 
         # Also append to server-side history CSV (best-effort, non-blocking)
         try:
@@ -301,4 +288,24 @@ def payoff_explanation(payoff_type: str):
 
 @app.get("/")
 def root():
-    return {"message": "ML Pricer API is live!"}
+    return {
+        "service": "neural-pricer",
+        "status": "online",
+        "version": app.version,
+        "docs": "/docs",
+    }
+
+
+@app.get("/health/live", include_in_schema=False)
+def health_live():
+    return {"status": "alive"}
+
+
+@app.get("/health/ready", include_in_schema=False)
+def health_ready():
+    product = get_product_definition("phoenix")
+    return {
+        "status": "ready",
+        "pricing_method": "monte_carlo_reference",
+        "contract_version": product.contract_version if product else "unavailable",
+    }

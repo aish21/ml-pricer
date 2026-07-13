@@ -34,10 +34,17 @@ wheels/
 *.pth
 *.pt
 
-# Data files (uncomment if you don't want to commit data)
-# data/
+# Generated data and local runtime state. Existing tracked research files are
+# migrated separately after they have durable external storage and checksums.
+data/data/
+data/raw/
+data/processed/
+data/pricing_history.csv
 data/*.sqlite3
 data/*.sqlite3-*
+
+# Generated model artifacts
+final/results/
 
 # Model checkpoints
 *.ckpt
@@ -48,6 +55,7 @@ data/*.sqlite3-*
 # Logs
 *.log
 logs/
+.logs/
 
 # IDE
 .vscode/

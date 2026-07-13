@@ -57,7 +57,7 @@ def test_model_cache_loads_once_and_reuses_bundle(monkeypatch, tmp_path):
         calls.append((model_path, scaler_path))
         return model, scaler
 
-    monkeypatch.setattr("app.services.model_cache.ModelTrainer.load", fake_load)
+    monkeypatch.setattr("app.services.model_cache._load_model_artifacts", fake_load)
 
     first = get_model_bundle("phoenix", results_dir=tmp_path)
     second = get_model_bundle("phoenix", results_dir=tmp_path)
@@ -72,7 +72,7 @@ def test_model_cache_loads_once_and_reuses_bundle(monkeypatch, tmp_path):
 def test_clear_model_cache_removes_cached_status(monkeypatch, tmp_path):
     make_artifact_dir(tmp_path)
     monkeypatch.setattr(
-        "app.services.model_cache.ModelTrainer.load",
+        "app.services.model_cache._load_model_artifacts",
         lambda model_path, scaler_path: (object(), object()),
     )
 

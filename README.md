@@ -58,7 +58,7 @@ but it is still only a thin client. It is not a native pricing engine.
 app/
   backend.py              FastAPI app and legacy routes
   frontend.py             Streamlit desktop frontend
-  api/v1.py               Read-only product/model status API
+  api/v1.py               Versioned pricing and product/model status API
   bb/routes.py            BlackBerry terminal routes
   bb/rendering.py         Terminal HTML/formatting helpers
   services/               Product registry, pricing, scenario, run storage
@@ -100,11 +100,20 @@ python -m venv venv
 .\venv\Scripts\Activate.ps1
 ```
 
-Install dependencies:
+Install the complete local development environment:
 
 ```powershell
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
+```
+
+The dependency groups are defined and pinned in `pyproject.toml`. For a smaller
+environment, install only what you need:
+
+```powershell
+python -m pip install -e ".[api,test]"       # reference-pricer API
+python -m pip install -e ".[frontend]"       # Streamlit UI
+python -m pip install -e ".[training,test]"  # surrogate training
 ```
 
 Run tests:
@@ -249,10 +258,16 @@ BlackBerry terminal:
 - `GET /bb/recent-runs`
 - `GET /bb/model-status`
 
-Read-only API v1:
+Versioned API v1:
 
+- `POST /api/v1/price`
 - `GET /api/v1/products`
 - `GET /api/v1/model-info`
+
+Operations:
+
+- `GET /health/live`
+- `GET /health/ready`
 
 Java ME plain-text API:
 
@@ -287,7 +302,7 @@ Legacy routes kept for compatibility:
 
 ## Future Roadmap
 
-- Add JSON `POST /api/v1/price` and `POST /api/v1/scenario`.
+- Add JSON `POST /api/v1/scenario` and product-specific request schemas.
 - Add dated market snapshots, forward/discount curves, and an implied-volatility
   surface for arbitrary equity-like underlier symbols.
 - Train and validate a replacement surrogate against the frozen Phoenix
@@ -306,6 +321,10 @@ Build and run backend/frontend containers:
 ```powershell
 docker compose up --build
 ```
+
+The API and frontend images install separate dependency groups. The API image
+contains the NumPy reference runtime but not LightGBM, Optuna, XGBoost, or
+CatBoost. Compose waits for `/health/ready` before starting the frontend.
 
 Backend:
 
@@ -329,3 +348,6 @@ Docker notes.
 - Keep BlackBerry pages plain and local-network friendly.
 - Do not put secrets on the BlackBerry.
 - Prefer small service-layer changes over route-level pricing logic.
+- Keep generated datasets and model binaries out of new commits. Follow
+  [the Phase 2 cleanup plan](docs/phase-2-repository-cleanup.md) before removing
+  the currently tracked copies.
