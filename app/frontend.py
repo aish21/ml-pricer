@@ -102,13 +102,25 @@ st.markdown(f"### Selected payoff: **{payoff_type}**")
 col1, col2 = st.columns(2)
 
 if payoff_type == "Phoenix":
+    market_mode = st.radio(
+        "Market source",
+        ["Manual snapshot", "Yahoo latest bar (research)"],
+        horizontal=True,
+    )
+    use_market_quote = market_mode == "Yahoo latest bar (research)"
     with col1:
         symbol = st.text_input("Underlier symbol", value="SPY", max_chars=64)
         underlier_type = st.selectbox("Underlier type", ["ETF", "Equity", "Index"])
-        currency = st.text_input("Currency", value="USD", max_chars=3)
-        S0 = st.number_input(
-            "Spot", value=100.0, min_value=0.000001, step=0.1, format="%.4f"
-        )
+        if use_market_quote:
+            st.caption(
+                "Spot and metadata use yfinance's latest regular-session one-minute bar. "
+                "Research/personal use only; data may be delayed."
+            )
+        else:
+            currency = st.text_input("Currency", value="USD", max_chars=3)
+            S0 = st.number_input(
+                "Spot", value=100.0, min_value=0.000001, step=0.1, format="%.4f"
+            )
         r = st.number_input(
             "Flat discount rate",
             value=0.03,
@@ -160,7 +172,8 @@ if payoff_type == "Phoenix":
         obs = st.number_input(
             "Observation Count", value=6, min_value=1, step=1, format="%d"
         )
-        calendar = st.text_input("Calendar", value="XNYS", max_chars=32)
+        if not use_market_quote:
+            calendar = st.text_input("Calendar", value="XNYS", max_chars=32)
         day_count = st.text_input("Day count", value="ACT/365F", max_chars=16)
     phoenix_terms = {
         "maturity_years": T,
@@ -257,27 +270,42 @@ container_json = st.container()
 
 if run_clicked:
     if payoff_type == "Phoenix":
-        snapshot_time = datetime.now(timezone.utc).isoformat()
-        payload = {
-            "market": {
-                "schema_version": "equity-market-snapshot-v1",
-                "symbol": symbol,
-                "underlier_type": underlier_type.lower(),
-                "currency": currency,
-                "valuation_time": snapshot_time,
-                "market_data_time": snapshot_time,
-                "spot": S0,
-                "risk_free_rate": r,
-                "dividend_yield": dividend_yield,
-                "volatility": sigma,
-                "calendar": calendar,
-                "day_count": day_count,
-                "source": "streamlit-manual",
-            },
-            "terms": phoenix_terms,
-            "n_paths": n_paths,
-        }
-        pricing_url = f"{API_URL}/api/v1/products/phoenix/price"
+        if use_market_quote:
+            payload = {
+                "market": {
+                    "symbol": symbol,
+                    "underlier_type": underlier_type.lower(),
+                    "risk_free_rate": r,
+                    "dividend_yield": dividend_yield,
+                    "volatility": sigma,
+                    "day_count": day_count,
+                },
+                "terms": phoenix_terms,
+                "n_paths": n_paths,
+            }
+            pricing_url = f"{API_URL}/api/v1/products/phoenix/price/market"
+        else:
+            snapshot_time = datetime.now(timezone.utc).isoformat()
+            payload = {
+                "market": {
+                    "schema_version": "equity-market-snapshot-v1",
+                    "symbol": symbol,
+                    "underlier_type": underlier_type.lower(),
+                    "currency": currency,
+                    "valuation_time": snapshot_time,
+                    "market_data_time": snapshot_time,
+                    "spot": S0,
+                    "risk_free_rate": r,
+                    "dividend_yield": dividend_yield,
+                    "volatility": sigma,
+                    "calendar": calendar,
+                    "day_count": day_count,
+                    "source": "streamlit-manual",
+                },
+                "terms": phoenix_terms,
+                "n_paths": n_paths,
+            }
+            pricing_url = f"{API_URL}/api/v1/products/phoenix/price"
     else:
         payload = {
             "payoff_type": payoff_type,
@@ -288,8 +316,7 @@ if run_clicked:
     with st.spinner("Running deterministic Monte Carlo reference pricing..."):
         try:
             res = requests.post(pricing_url, json=payload, timeout=120)
-            res.raise_for_status()
-        except Exception as e:
+        except requests.RequestException as e:
             st.error(f"Failed to contact backend at {pricing_url}: {e}")
             st.stop()
 
@@ -298,6 +325,15 @@ if run_clicked:
         except Exception:
             st.error("Backend did not return JSON. See raw response below.")
             st.text(res.text)
+            st.stop()
+
+        if not res.ok:
+            message = (
+                result_raw.get("message", f"Backend returned HTTP {res.status_code}")
+                if isinstance(result_raw, dict)
+                else f"Backend returned HTTP {res.status_code}"
+            )
+            st.error(message)
             st.stop()
 
     # Normalize response structure

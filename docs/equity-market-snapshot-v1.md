@@ -6,8 +6,9 @@ snapshot: an equity, ETF, or equity index. The symbol is provider-neutral
 metadata rather than an input to the payoff formula.
 
 This schema does not make client-supplied data live or authoritative. It makes
-the data dated, attributable, reproducible, and ready for a server-side live
-provider adapter.
+the data dated, attributable, and reproducible. The yfinance research adapter
+constructs the same schema from a server-fetched one-minute bar; see
+[`live-market-data.md`](live-market-data.md).
 
 ## Fields
 
@@ -81,16 +82,23 @@ Phoenix terms:
 }
 ```
 
-## Live-provider boundary
+## Provider boundary
 
-A live adapter implements `EquityMarketDataProvider.get_snapshot(symbol,
-valuation_time)`. The adapter—not the payoff—owns:
+The provider layer implements the market-data boundary. The research
+integration uses a yfinance adapter plus `LiveMarketDataService`; a future full
+market provider can implement `EquityMarketDataProvider` directly. The provider
+layer—not the payoff—owns:
 
-- vendor authentication and symbol mapping;
+- provider symbol mapping;
 - exchange calendar and currency metadata;
 - timestamp normalization and freshness policy;
 - spot, curve, dividend/forward, and volatility retrieval;
-- caching, rate limits, retries, licensing, and source attestation.
+- caching, rate limits, retries, usage constraints, and source provenance.
+
+The first adapter supplies spot and quote metadata. Rate, dividend yield, and
+volatility remain request assumptions and are identified as such in the market
+pricing response. A later calibrated-market version must replace those inputs
+with server-side curves and surfaces.
 
 The next model upgrade should replace flat `r`, `q`, and `sigma` with dated
 discount/forward curves and a volatility surface while retaining an immutable

@@ -94,5 +94,7 @@ operation with a backup tag and explicit instructions for every collaborator.
 The dated equity-like snapshot described by the original next step is now
 implemented as `equity-market-snapshot-v1`, independently of Phoenix terms. See
 [`equity-market-snapshot-v1.md`](equity-market-snapshot-v1.md). The remaining
-step is a server-side provider adapter with credentials, licensing, symbol
-mapping, trading-session-aware freshness checks, and attested provenance.
+provider step now has a credential-free yfinance research adapter with bounded
+caching/retries, freshness checks, and normalized provenance. See
+[`live-market-data.md`](live-market-data.md). Server-sourced curves and
+volatility surfaces remain future work.

@@ -1,8 +1,17 @@
 import os
 import tempfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+
+from src.final.market import EquityMarketSnapshot
+from app.services.live_market_data import (
+    LiveEquityQuote,
+    LiveSnapshotResult,
+    MarketDataRateLimitError,
+    QuoteFetchResult,
+)
 
 os.environ.setdefault(
     "MODEL_HISTORY_FILE",
@@ -56,6 +65,74 @@ SNAPSHOT_REQUEST = {
     },
     "n_paths": 20,
 }
+
+MARKET_REQUEST = {
+    "market": {
+        "symbol": "SPY",
+        "underlier_type": "etf",
+        "risk_free_rate": 0.04,
+        "dividend_yield": 0.012,
+        "volatility": 0.2,
+        "day_count": "ACT/365F",
+    },
+    "terms": SNAPSHOT_REQUEST["terms"],
+    "n_paths": 20,
+}
+
+
+def make_market_results():
+    valuation_time = datetime(2026, 7, 13, 12, 0, 2, tzinfo=timezone.utc)
+    market_data_time = valuation_time - timedelta(seconds=2)
+    quote = LiveEquityQuote(
+        provider_name="yfinance",
+        symbol="SPY",
+        spot=620.25,
+        currency="USD",
+        market_data_time=market_data_time,
+        exchange="NYSE ARCA",
+        mic_code="ARCX",
+        instrument_type="ETF",
+        underlier_type="etf",
+        provider_spot=620.25,
+        provider_currency="USD",
+        unit_conversion_factor=1.0,
+        bar_interval="1m",
+        data_delay_seconds=0,
+    )
+    snapshot = EquityMarketSnapshot(
+        symbol="SPY",
+        underlier_type="etf",
+        currency="USD",
+        valuation_time=valuation_time,
+        market_data_time=market_data_time,
+        spot=620.25,
+        risk_free_rate=0.04,
+        dividend_yield=0.012,
+        volatility=0.2,
+        calendar="ARCX",
+        day_count="ACT/365F",
+        source="yfinance:1m-close+request-model-inputs",
+    )
+    return quote, LiveSnapshotResult(
+        snapshot=snapshot,
+        quote=quote,
+        cache_hit=False,
+        quote_age_seconds=2.0,
+    )
+
+
+class FakeMarketDataService:
+    def __init__(self):
+        self.quote, self.snapshot = make_market_results()
+
+    def get_quote(self, symbol):
+        assert symbol == "SPY"
+        return QuoteFetchResult(self.quote, cache_hit=True), 2.0
+
+    def get_snapshot(self, **kwargs):
+        assert kwargs["symbol"] == "SPY"
+        assert kwargs["underlier_type"] == "etf"
+        return self.snapshot
 
 
 def test_pricing_api_returns_versioned_reference_result():
@@ -125,6 +202,68 @@ def test_product_focused_api_rejects_non_equity_like_underlier():
     response = client.post("/api/v1/products/phoenix/price", json=payload)
 
     assert response.status_code == 422
+
+
+def test_market_quote_endpoint_returns_normalized_cached_quote(monkeypatch):
+    monkeypatch.setattr(
+        "app.api.v1.get_live_market_data_service", FakeMarketDataService
+    )
+
+    response = client.get("/api/v1/market-data/quote", params={"symbol": "SPY"})
+
+    assert response.status_code == 200
+    quote = response.json()["quote"]
+    assert quote["spot"] == 620.25
+    assert quote["currency"] == "USD"
+    assert quote["cache_hit"] is True
+    assert quote["quote_age_seconds"] == 2.0
+    assert quote["research_only"] is True
+
+
+def test_market_phoenix_endpoint_prices_provider_snapshot(monkeypatch):
+    monkeypatch.setattr(
+        "app.api.v1.get_live_market_data_service", FakeMarketDataService
+    )
+
+    response = client.post("/api/v1/products/phoenix/price/market", json=MARKET_REQUEST)
+
+    assert response.status_code == 200
+    result = response.json()["result"]
+    assert result["market_snapshot"]["spot"] == 620.25
+    assert result["market_snapshot"]["source"].startswith("yfinance")
+    assert result["market_data"]["provider"] == "yfinance"
+    assert result["market_data"]["research_only"] is True
+    assert result["market_data"]["input_sources"]["volatility"] == "request"
+    assert result["model_version"] == "equity-gbm-flat-v2"
+
+
+def test_market_data_failure_is_sanitized(monkeypatch):
+    def rate_limited():
+        raise MarketDataRateLimitError("market data provider rate limit reached")
+
+    monkeypatch.setattr("app.api.v1.get_live_market_data_service", rate_limited)
+
+    response = client.get("/api/v1/market-data/quote", params={"symbol": "SPY"})
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "status": "error",
+        "message": "market data provider rate limit reached",
+    }
+
+
+def test_market_data_status_reports_credential_free_research_provider():
+    response = client.get("/api/v1/market-data/status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["market_data"] == {
+        "enabled": True,
+        "configured": True,
+        "provider": "yfinance",
+        "credentials_required": False,
+        "research_only": True,
+    }
 
 
 def test_pricing_api_rejects_client_controlled_target_transform():

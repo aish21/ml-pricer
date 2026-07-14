@@ -21,6 +21,8 @@ allocation.
   interval.
 - Accepts immutable dated market snapshots for arbitrary equity, ETF, and
   equity-index symbols through the product-focused API.
+- Fetches credential-free research quotes through yfinance with bounded
+  retries, caching, and freshness checks.
 - Serves pricing through FastAPI.
 - Provides a Streamlit UI for desktop experimentation.
 - Provides a plain HTML BlackBerry terminal at `/bb`.
@@ -43,6 +45,7 @@ scenario analysis, validation, and storage.
 BlackBerry Bold 9780
   -> local HTTP over Wi-Fi
   -> FastAPI backend
+  -> yfinance research quote adapter
   -> versioned payoff + Monte Carlo reference layer
   -> SQLite run store
   -> compact terminal result page
@@ -65,6 +68,7 @@ app/
   bb/routes.py            BlackBerry terminal routes
   bb/rendering.py         Terminal HTML/formatting helpers
   services/               Product registry, pricing, scenario, run storage
+  services/live_market_data.py  Normalized yfinance research-data adapter
 
 src/final/
   payoffs.py              Core payoff implementations
@@ -87,6 +91,7 @@ docs/
   blackberry-terminal.md  BlackBerry terminal details and testing guide
   phoenix-single-v1.md    Versioned payoff and cashflow specification
   equity-market-snapshot-v1.md  Dated market-data and flat-GBM v2 specification
+  live-market-data.md      Research-provider behavior and usage boundary
 
 clients/
   blackberry-legacy/      Optional Java ME native thin-client spike
@@ -265,6 +270,9 @@ BlackBerry terminal:
 Versioned API v1:
 
 - `POST /api/v1/products/phoenix/price` (preferred)
+- `POST /api/v1/products/phoenix/price/market`
+- `GET /api/v1/market-data/status`
+- `GET /api/v1/market-data/quote`
 - `POST /api/v1/price` (deprecated generic envelope)
 - `GET /api/v1/products`
 - `GET /api/v1/model-info`
@@ -297,8 +305,11 @@ Legacy routes kept for compatibility:
   or sideloaded from this checkout.
 - The product-focused API supports a flat rate, flat dividend yield, and
   constant volatility. It does not yet consume curves or a volatility surface.
-- Market snapshots are currently supplied by the caller; no server-attested
-  live vendor adapter is connected yet.
+- The research-data adapter supplies a recent regular-session one-minute close
+  and quote metadata only. Flat rate, dividend yield, and volatility remain
+  explicit request assumptions.
+- yfinance and Yahoo Finance data are intended for personal research use; this
+  is not an authoritative or commercial redistribution feed.
 - Observation dates are evenly spaced and knock-in monitoring is discrete on
   simulated path steps.
 - Legacy model/scaler artifacts remain committed but fail contract/feature
@@ -310,9 +321,8 @@ Legacy routes kept for compatibility:
 ## Future Roadmap
 
 - Add JSON `POST /api/v1/scenario` and product-specific request schemas.
-- Connect a licensed live provider with freshness checks and server-attested
-  provenance, then add forward/discount curves and an implied-volatility
-  surface.
+- Add server-sourced forward/discount curves, dividend forecasts, and an
+  implied-volatility surface with field-level provenance.
 - Train and validate a replacement surrogate against the frozen Phoenix
   contract and an untouched test set.
 - Improve payoff explanations and risk summaries.
@@ -329,6 +339,10 @@ Build and run backend/frontend containers:
 ```powershell
 docker compose up --build
 ```
+
+Research market data works without credentials or configuration. See
+[docs/live-market-data.md](docs/live-market-data.md) for data-quality and usage
+limits.
 
 The API and frontend images install separate dependency groups. The API image
 contains the NumPy reference runtime but not LightGBM, Optuna, XGBoost, or

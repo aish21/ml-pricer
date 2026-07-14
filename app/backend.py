@@ -20,6 +20,7 @@ from app.services.pricing_service import (
     PricingServiceError,
     UnsupportedProductError,
 )
+from app.services.live_market_data import get_live_market_data_status
 from app.services.product_registry import (
     REPO_ROOT,
     build_artifact_status,
@@ -27,7 +28,7 @@ from app.services.product_registry import (
     get_results_dir,
 )
 
-app = FastAPI(title="Neural Pricer API", version="0.3.0")
+app = FastAPI(title="Neural Pricer API", version="0.4.0")
 app.include_router(bb_api_router)
 app.include_router(api_v1_router)
 app.include_router(blackberry_router)
@@ -314,4 +315,5 @@ def health_ready():
         "contract_version": product.contract_version if product else "unavailable",
         "market_snapshot_version": EQUITY_MARKET_SNAPSHOT_VERSION,
         "market_model_version": EQUITY_GBM_FLAT_MODEL_VERSION,
+        "market_data": get_live_market_data_status(),
     }

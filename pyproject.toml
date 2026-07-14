@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "neural-pricer"
-version = "0.3.0"
+version = "0.4.0"
 description = "Versioned reference pricing and research tooling for structured products"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
@@ -18,13 +18,16 @@ Repository = "https://github.com/aish21/neural-pricer"
 [project.optional-dependencies]
 api = [
     "fastapi==0.110.2",
+    "pandas==2.2.2",
     "pydantic==2.6.4",
+    "requests==2.34.2",
     "uvicorn[standard]==0.30.0",
+    "yfinance==1.5.1",
 ]
 frontend = [
     "pandas==2.2.2",
     "plotly==5.19.0",
-    "requests==2.31.0",
+    "requests==2.34.2",
     "streamlit==1.33.0",
 ]
 surrogate = [
