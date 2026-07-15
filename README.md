@@ -23,6 +23,9 @@ allocation.
   equity-index symbols through the product-focused API.
 - Prices Phoenix with versioned piecewise rate, dividend, and volatility term
   structures while preserving flat-model compatibility.
+- Builds a credential-free USD equity/ETF research term structure from official
+  Treasury par yields, trailing distributions, and near-ATM yfinance option
+  chains, with field-level provenance.
 - Fetches credential-free research quotes through yfinance with bounded
   retries, caching, and freshness checks.
 - Serves pricing through FastAPI.
@@ -71,6 +74,7 @@ app/
   bb/rendering.py         Terminal HTML/formatting helpers
   services/               Product registry, pricing, scenario, run storage
   services/live_market_data.py  Normalized yfinance research-data adapter
+  services/research_market_data.py  Treasury/options research calibration
 
 src/final/
   payoffs.py              Core payoff implementations
@@ -94,6 +98,7 @@ docs/
   phoenix-single-v1.md    Versioned payoff and cashflow specification
   equity-market-snapshot-v1.md  Dated market-data and flat-GBM v2 specification
   equity-market-term-structure-v1.md  Piecewise carry/volatility specification
+  equity-research-market-v1.md  Server-built USD research calibration
   live-market-data.md      Research-provider behavior and usage boundary
 
 clients/
@@ -275,6 +280,8 @@ Versioned API v1:
 - `POST /api/v1/products/phoenix/price` (preferred)
 - `POST /api/v1/products/phoenix/price/term-structure`
 - `POST /api/v1/products/phoenix/price/market`
+- `POST /api/v1/products/phoenix/price/research-market`
+- `POST /api/v1/market-data/research-term-structure`
 - `GET /api/v1/market-data/status`
 - `GET /api/v1/market-data/quote`
 - `POST /api/v1/price` (deprecated generic envelope)
@@ -307,12 +314,12 @@ Legacy routes kept for compatibility:
 - There is no authentication or PIN enforcement yet.
 - The optional Java ME MIDlet is a source-level spike; it has not yet been built
   or sideloaded from this checkout.
-- The product-focused API supports a flat rate, flat dividend yield, and
-  constant volatility, or a caller-supplied deterministic piecewise term
-  structure. It does not yet calibrate curves or a volatility surface.
-- The research-data adapter supplies a recent regular-session one-minute close
-  and quote metadata only. Flat rate, dividend yield, and volatility remain
-  explicit request assumptions.
+- The Phase 6 research builder uses Treasury par yields as explicitly labelled
+  zero-rate proxies and near-ATM Yahoo option quotes for carry and implied
+  volatility. It is not a bootstrapped OIS curve or a volatility surface.
+- The older `/price/market` route still combines a live spot with explicit
+  request assumptions; use `/price/research-market` for the server-built
+  research term structure.
 - yfinance and Yahoo Finance data are intended for personal research use; this
   is not an authoritative or commercial redistribution feed.
 - Observation dates are evenly spaced and knock-in monitoring is discrete on
@@ -326,8 +333,8 @@ Legacy routes kept for compatibility:
 ## Future Roadmap
 
 - Add JSON `POST /api/v1/scenario` and product-specific request schemas.
-- Calibrate the piecewise market contract from validated discount curves,
-  dividend forecasts, and implied volatility data with field-level provenance.
+- Replace the research par-yield proxy with a bootstrapped collateral curve and
+  fit an arbitrage-controlled volatility surface from a licensed feed.
 - Train and validate a replacement surrogate against the frozen Phoenix
   contract and an untouched test set.
 - Improve payoff explanations and risk summaries.

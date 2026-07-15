@@ -102,8 +102,10 @@ with server-side curves and surfaces.
 
 The deterministic term-structure upgrade is specified in
 [`equity-market-term-structure-v1.md`](equity-market-term-structure-v1.md).
-Provider-backed calibration and strike-dependent volatility remain future
-work.
+The credential-free Phase 6 research calibration is documented in
+[`equity-research-market-v1.md`](equity-research-market-v1.md). A bootstrapped
+collateral curve and strike-dependent arbitrage-controlled volatility surface
+remain future work.
 
 ## Asset-class boundary
 

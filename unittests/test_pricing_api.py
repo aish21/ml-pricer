@@ -5,12 +5,20 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from src.final.market import EquityMarketSnapshot
+from src.final.market import (
+    EquityMarketSegment,
+    EquityMarketSnapshot,
+    EquityMarketTermStructure,
+)
 from app.services.live_market_data import (
     LiveEquityQuote,
     LiveSnapshotResult,
     MarketDataRateLimitError,
     QuoteFetchResult,
+)
+from app.services.research_market_data import (
+    ResearchMarketBuildResult,
+    ResearchMarketUnsupportedError,
 )
 
 os.environ.setdefault(
@@ -110,6 +118,16 @@ MARKET_REQUEST = {
     "n_paths": 20,
 }
 
+RESEARCH_MARKET_REQUEST = {
+    "market": {
+        "symbol": "SPY",
+        "underlier_type": "etf",
+        "currency": "USD",
+    },
+    "terms": SNAPSHOT_REQUEST["terms"],
+    "n_paths": 20,
+}
+
 
 def make_market_results():
     valuation_time = datetime(2026, 7, 13, 12, 0, 2, tzinfo=timezone.utc)
@@ -164,6 +182,50 @@ class FakeMarketDataService:
         assert kwargs["symbol"] == "SPY"
         assert kwargs["underlier_type"] == "etf"
         return self.snapshot
+
+
+def make_research_market_result():
+    market = EquityMarketTermStructure(
+        symbol="SPY",
+        underlier_type="etf",
+        currency="USD",
+        valuation_time=datetime(2026, 7, 13, 12, 0, 2, tzinfo=timezone.utc),
+        market_data_time=datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc),
+        spot=620.25,
+        segments=(
+            EquityMarketSegment(0.5, 0.035, 0.012, 0.18),
+            EquityMarketSegment(1.0, 0.04, 0.013, 0.21),
+        ),
+        calendar="ARCX",
+        day_count="ACT/365F",
+        source="research-api-test",
+    )
+    return ResearchMarketBuildResult(
+        market=market,
+        calibration={
+            "calibration_version": "equity-research-market-v1",
+            "calibration_id": "sha256:test-calibration",
+            "term_structure_id": market.term_structure_id,
+            "research_only": True,
+            "methods": {
+                "risk_free_rate": "treasury-cmt-continuous-zero-proxy-v1",
+                "dividend_yield": "yfinance-trailing-cash-distribution-yield-v1",
+                "volatility": "yfinance-atm-forward-variance-v1",
+            },
+            "warnings": ["test research warning"],
+        },
+    )
+
+
+class FakeResearchMarketDataService:
+    def __init__(self):
+        self.result = make_research_market_result()
+
+    def build_term_structure(self, symbol, underlier_type, maturity_years):
+        assert symbol == "SPY"
+        assert underlier_type == "etf"
+        assert maturity_years == 1.0
+        return self.result
 
 
 def test_pricing_api_returns_versioned_reference_result():
@@ -307,6 +369,71 @@ def test_market_phoenix_endpoint_prices_provider_snapshot(monkeypatch):
     assert result["model_version"] == "equity-gbm-flat-v2"
 
 
+def test_research_market_build_endpoint_returns_calibrated_structure(monkeypatch):
+    monkeypatch.setattr(
+        "app.api.v1.get_research_market_data_service",
+        FakeResearchMarketDataService,
+    )
+    payload = {
+        "market": RESEARCH_MARKET_REQUEST["market"],
+        "maturity_years": 1.0,
+    }
+
+    response = client.post("/api/v1/market-data/research-term-structure", json=payload)
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["market_term_structure"]["schema_version"] == (
+        "equity-market-term-structure-v1"
+    )
+    assert result["market_calibration"]["calibration_version"] == (
+        "equity-research-market-v1"
+    )
+    assert result["market_calibration"]["research_only"] is True
+
+
+def test_research_market_phoenix_endpoint_prices_calibrated_structure(monkeypatch):
+    monkeypatch.setattr(
+        "app.api.v1.get_research_market_data_service",
+        FakeResearchMarketDataService,
+    )
+
+    response = client.post(
+        "/api/v1/products/phoenix/price/research-market",
+        json=RESEARCH_MARKET_REQUEST,
+    )
+
+    assert response.status_code == 200
+    result = response.json()["result"]
+    assert result["model_version"] == "equity-gbm-piecewise-v1"
+    assert result["market_calibration_version"] == "equity-research-market-v1"
+    assert result["market_calibration"]["calibration_id"] == ("sha256:test-calibration")
+    assert result["market_term_structure"]["spot"] == 620.25
+
+
+def test_research_market_endpoint_rejects_unsupported_calibration(monkeypatch):
+    class UnsupportedResearchMarketDataService:
+        def build_term_structure(self, **kwargs):
+            raise ResearchMarketUnsupportedError(
+                "research calibration currently supports USD underliers only"
+            )
+
+    monkeypatch.setattr(
+        "app.api.v1.get_research_market_data_service",
+        UnsupportedResearchMarketDataService,
+    )
+
+    response = client.post(
+        "/api/v1/products/phoenix/price/research-market",
+        json=RESEARCH_MARKET_REQUEST,
+    )
+
+    assert response.status_code == 422
+    assert response.json()["message"] == (
+        "research calibration currently supports USD underliers only"
+    )
+
+
 def test_market_data_failure_is_sanitized(monkeypatch):
     def rate_limited():
         raise MarketDataRateLimitError("market data provider rate limit reached")
@@ -331,6 +458,16 @@ def test_market_data_status_reports_credential_free_research_provider():
         "enabled": True,
         "configured": True,
         "provider": "yfinance",
+        "credentials_required": False,
+        "research_only": True,
+    }
+    assert payload["research_market"] == {
+        "enabled": True,
+        "configured": True,
+        "calibration_version": "equity-research-market-v1",
+        "currency": "USD",
+        "underlier_types": ["equity", "etf"],
+        "sources": ["U.S. Department of the Treasury", "yfinance"],
         "credentials_required": False,
         "research_only": True,
     }

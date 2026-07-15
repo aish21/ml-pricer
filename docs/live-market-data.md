@@ -42,7 +42,7 @@ and model conventions.
 ## Honest model scope
 
 yfinance supplies the price, bar time, currency, exchange, and available type
-metadata. The request still supplies:
+metadata. The `/price/market` request still supplies:
 
 - flat discount rate;
 - flat dividend yield; and
@@ -50,11 +50,12 @@ metadata. The request still supplies:
 
 The response records field-level provenance under `market_data.input_sources`.
 This is therefore research pricing from a recent market bar, not a calibrated
-live market. Curves, dividends/forwards, and a volatility surface need separate
-sources and validation. The server can already price a manually supplied
-piecewise contract described in
-[`equity-market-term-structure-v1.md`](equity-market-term-structure-v1.md);
-yfinance does not populate those segments.
+live market. The Phase 6
+[`equity-research-market-v1`](equity-research-market-v1.md) builder is a separate
+composition layer: it combines the normalized quote with an official Treasury
+par-yield proxy, trailing equity/ETF cash distributions, and near-ATM yfinance
+option volatility estimates. It remains research-only and does not claim to be
+an OIS curve, forward dividend forecast, or full volatility surface.
 
 ## Endpoints
 
@@ -74,6 +75,13 @@ Price Phoenix from a server-fetched market bar:
 
 ```text
 POST /api/v1/products/phoenix/price/market
+```
+
+Build or price with the Phase 6 research term structure:
+
+```text
+POST /api/v1/market-data/research-term-structure
+POST /api/v1/products/phoenix/price/research-market
 ```
 
 Example body:

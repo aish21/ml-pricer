@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from src.final.market import (
     EQUITY_MARKET_SNAPSHOT_VERSION,
     EQUITY_MARKET_TERM_STRUCTURE_VERSION,
+    EQUITY_RESEARCH_MARKET_VERSION,
     EquityMarketSegment,
     EquityMarketSnapshot,
     EquityMarketTermStructure,
@@ -35,6 +36,10 @@ from app.services.pricing_service import (
     price_product,
 )
 from app.services.product_registry import get_model_info, list_products
+from app.services.research_market_data import (
+    get_research_market_data_service,
+    get_research_market_data_status,
+)
 
 
 router = APIRouter(prefix="/api/v1", tags=["api-v1"])
@@ -174,6 +179,29 @@ class SourcedPhoenixSingleV1PricingRequest(BaseModel):
     n_paths: int = Field(default=2000, ge=1, le=20_000)
 
 
+class ResearchEquityMarketRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    symbol: str = Field(min_length=1, max_length=64)
+    underlier_type: Literal["equity", "etf"]
+    currency: Literal["USD"] = "USD"
+
+
+class ResearchTermStructureBuildRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    market: ResearchEquityMarketRequest
+    maturity_years: float = Field(gt=0.0, le=30.0)
+
+
+class ResearchPhoenixSingleV1PricingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    market: ResearchEquityMarketRequest
+    terms: PhoenixSingleV1TermsRequest
+    n_paths: int = Field(default=2000, ge=1, le=20_000)
+
+
 def _market_data_error_response(exc: LiveMarketDataError) -> JSONResponse:
     if isinstance(exc, MarketDataNotFoundError):
         status_code = 404
@@ -268,7 +296,11 @@ def price_phoenix_term_structure(
 
 @router.get("/market-data/status")
 def market_data_status():
-    return {"status": "success", "market_data": get_live_market_data_status()}
+    return {
+        "status": "success",
+        "market_data": get_live_market_data_status(),
+        "research_market": get_research_market_data_status(),
+    }
 
 
 @router.get("/market-data/quote")
@@ -324,6 +356,59 @@ def price_phoenix_market(req: SourcedPhoenixSingleV1PricingRequest):
     except Exception:
         return JSONResponse(
             {"status": "error", "message": "market-data pricing failed"},
+            status_code=500,
+        )
+
+
+@router.post("/market-data/research-term-structure")
+def build_research_term_structure(req: ResearchTermStructureBuildRequest):
+    try:
+        built = get_research_market_data_service().build_term_structure(
+            symbol=req.market.symbol,
+            underlier_type=req.market.underlier_type,
+            maturity_years=req.maturity_years,
+        )
+        return {
+            "status": "success",
+            "market_term_structure": built.market.to_dict(),
+            "market_calibration": built.calibration,
+        }
+    except LiveMarketDataError as exc:
+        return _market_data_error_response(exc)
+    except MarketDataValidationError as exc:
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=422)
+    except Exception:
+        return JSONResponse(
+            {"status": "error", "message": "research market build failed"},
+            status_code=500,
+        )
+
+
+@router.post("/products/phoenix/price/research-market")
+def price_phoenix_research_market(req: ResearchPhoenixSingleV1PricingRequest):
+    try:
+        built = get_research_market_data_service().build_term_structure(
+            symbol=req.market.symbol,
+            underlier_type=req.market.underlier_type,
+            maturity_years=req.terms.maturity_years,
+        )
+        result = price_phoenix_with_term_structure(
+            market=built.market,
+            terms=req.terms.model_dump(),
+            n_paths=req.n_paths,
+        )
+        result["market_calibration"] = built.calibration
+        result["market_calibration_version"] = EQUITY_RESEARCH_MARKET_VERSION
+        return {"status": "success", "result": result}
+    except LiveMarketDataError as exc:
+        return _market_data_error_response(exc)
+    except (InvalidPricingInputError, MarketDataValidationError) as exc:
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=422)
+    except PricingServiceError as exc:
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=503)
+    except Exception:
+        return JSONResponse(
+            {"status": "error", "message": "research market pricing failed"},
             status_code=500,
         )
 

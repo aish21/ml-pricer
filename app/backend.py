@@ -12,6 +12,7 @@ from src.final.market import (
     EQUITY_GBM_PIECEWISE_MODEL_VERSION,
     EQUITY_MARKET_SNAPSHOT_VERSION,
     EQUITY_MARKET_TERM_STRUCTURE_VERSION,
+    EQUITY_RESEARCH_MARKET_VERSION,
 )
 from app.api.bb import router as bb_api_router
 from app.api.v1 import PricingRequest, execute_pricing_request
@@ -23,6 +24,7 @@ from app.services.pricing_service import (
     UnsupportedProductError,
 )
 from app.services.live_market_data import get_live_market_data_status
+from app.services.research_market_data import get_research_market_data_status
 from app.services.product_registry import (
     REPO_ROOT,
     build_artifact_status,
@@ -317,10 +319,12 @@ def health_ready():
         "contract_version": product.contract_version if product else "unavailable",
         "market_snapshot_version": EQUITY_MARKET_SNAPSHOT_VERSION,
         "market_term_structure_version": EQUITY_MARKET_TERM_STRUCTURE_VERSION,
+        "research_market_version": EQUITY_RESEARCH_MARKET_VERSION,
         "market_model_version": EQUITY_GBM_FLAT_MODEL_VERSION,
         "market_model_versions": [
             EQUITY_GBM_FLAT_MODEL_VERSION,
             EQUITY_GBM_PIECEWISE_MODEL_VERSION,
         ],
         "market_data": get_live_market_data_status(),
+        "research_market": get_research_market_data_status(),
     }

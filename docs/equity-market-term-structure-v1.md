@@ -128,7 +128,8 @@ The schema fingerprints all identity, timestamp, spot, segment, convention, and
 source fields into `term_structure_id`. This makes a pricing run attributable
 and reproducible.
 
-Phase 5 accepts a caller-supplied research term structure. It does not claim
-that yfinance supplies discount curves, dividend forecasts, or implied
-volatility. A later calibration layer should build this schema from separately
-validated sources while preserving field-level provenance.
+Phase 5 accepts a caller-supplied research term structure. Phase 6 can build the
+same immutable schema through the explicitly approximate, credential-free
+[`equity-research-market-v1`](equity-research-market-v1.md) contract. It uses
+separately attributed Treasury and option inputs while preserving the manual
+route for fully controlled experiments.
