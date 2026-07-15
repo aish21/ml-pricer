@@ -100,9 +100,10 @@ volatility remain request assumptions and are identified as such in the market
 pricing response. A later calibrated-market version must replace those inputs
 with server-side curves and surfaces.
 
-The next model upgrade should replace flat `r`, `q`, and `sigma` with dated
-discount/forward curves and a volatility surface while retaining an immutable
-snapshot identifier.
+The deterministic term-structure upgrade is specified in
+[`equity-market-term-structure-v1.md`](equity-market-term-structure-v1.md).
+Provider-backed calibration and strike-dependent volatility remain future
+work.
 
 ## Asset-class boundary
 

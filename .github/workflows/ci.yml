@@ -40,3 +40,7 @@ jobs:
         run: docker compose config --quiet
       - name: Build production images
         run: docker compose build
+      - name: Verify backend market-data runtime
+        run: >-
+          docker compose run --rm --no-deps backend
+          python -c "import scipy; import yfinance"

@@ -6,7 +6,9 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from src.final.market import (
     EQUITY_GBM_FLAT_MODEL_VERSION,
+    EQUITY_GBM_PIECEWISE_MODEL_VERSION,
     EQUITY_MARKET_SNAPSHOT_VERSION,
+    EQUITY_MARKET_TERM_STRUCTURE_VERSION,
 )
 from src.final.inherited_payoffs import ReverseAccumulatorPayoff, StepDownPhoenixPayoff
 from src.final.payoffs import (
@@ -274,8 +276,17 @@ def build_product_status(
             if product.reference_pricing_enabled
             else []
         ),
+        "market_term_structure_versions": (
+            [EQUITY_MARKET_TERM_STRUCTURE_VERSION]
+            if product.reference_pricing_enabled
+            else []
+        ),
         "market_model_versions": (
-            ["gbm-flat-v1", EQUITY_GBM_FLAT_MODEL_VERSION]
+            [
+                "gbm-flat-v1",
+                EQUITY_GBM_FLAT_MODEL_VERSION,
+                EQUITY_GBM_PIECEWISE_MODEL_VERSION,
+            ]
             if product.reference_pricing_enabled
             else []
         ),
@@ -324,7 +335,12 @@ def get_model_info(results_dir: Optional[Path] = None) -> Dict[str, Any]:
         "api": "online",
         "model_family": "Monte Carlo reference",
         "market_snapshot_versions": [EQUITY_MARKET_SNAPSHOT_VERSION],
-        "market_model_versions": ["gbm-flat-v1", EQUITY_GBM_FLAT_MODEL_VERSION],
+        "market_term_structure_versions": [EQUITY_MARKET_TERM_STRUCTURE_VERSION],
+        "market_model_versions": [
+            "gbm-flat-v1",
+            EQUITY_GBM_FLAT_MODEL_VERSION,
+            EQUITY_GBM_PIECEWISE_MODEL_VERSION,
+        ],
         "monte_carlo_fallback": "available_via_backend_evaluator",
         "supported_product_keys": [
             product["key"] for product in products if product["validated_for_pricing"]

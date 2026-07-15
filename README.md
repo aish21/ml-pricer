@@ -21,6 +21,8 @@ allocation.
   interval.
 - Accepts immutable dated market snapshots for arbitrary equity, ETF, and
   equity-index symbols through the product-focused API.
+- Prices Phoenix with versioned piecewise rate, dividend, and volatility term
+  structures while preserving flat-model compatibility.
 - Fetches credential-free research quotes through yfinance with bounded
   retries, caching, and freshness checks.
 - Serves pricing through FastAPI.
@@ -91,6 +93,7 @@ docs/
   blackberry-terminal.md  BlackBerry terminal details and testing guide
   phoenix-single-v1.md    Versioned payoff and cashflow specification
   equity-market-snapshot-v1.md  Dated market-data and flat-GBM v2 specification
+  equity-market-term-structure-v1.md  Piecewise carry/volatility specification
   live-market-data.md      Research-provider behavior and usage boundary
 
 clients/
@@ -270,6 +273,7 @@ BlackBerry terminal:
 Versioned API v1:
 
 - `POST /api/v1/products/phoenix/price` (preferred)
+- `POST /api/v1/products/phoenix/price/term-structure`
 - `POST /api/v1/products/phoenix/price/market`
 - `GET /api/v1/market-data/status`
 - `GET /api/v1/market-data/quote`
@@ -304,7 +308,8 @@ Legacy routes kept for compatibility:
 - The optional Java ME MIDlet is a source-level spike; it has not yet been built
   or sideloaded from this checkout.
 - The product-focused API supports a flat rate, flat dividend yield, and
-  constant volatility. It does not yet consume curves or a volatility surface.
+  constant volatility, or a caller-supplied deterministic piecewise term
+  structure. It does not yet calibrate curves or a volatility surface.
 - The research-data adapter supplies a recent regular-session one-minute close
   and quote metadata only. Flat rate, dividend yield, and volatility remain
   explicit request assumptions.
@@ -321,8 +326,8 @@ Legacy routes kept for compatibility:
 ## Future Roadmap
 
 - Add JSON `POST /api/v1/scenario` and product-specific request schemas.
-- Add server-sourced forward/discount curves, dividend forecasts, and an
-  implied-volatility surface with field-level provenance.
+- Calibrate the piecewise market contract from validated discount curves,
+  dividend forecasts, and implied volatility data with field-level provenance.
 - Train and validate a replacement surrogate against the frozen Phoenix
   contract and an untouched test set.
 - Improve payoff explanations and risk summaries.

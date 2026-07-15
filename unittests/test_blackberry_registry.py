@@ -24,7 +24,11 @@ def test_product_registry_returns_expected_supported_keys():
 
     phoenix = next(product for product in products if product["key"] == "phoenix")
     assert phoenix["market_snapshot_versions"] == ["equity-market-snapshot-v1"]
+    assert phoenix["market_term_structure_versions"] == [
+        "equity-market-term-structure-v1"
+    ]
     assert "equity-gbm-flat-v2" in phoenix["market_model_versions"]
+    assert "equity-gbm-piecewise-v1" in phoenix["market_model_versions"]
 
 
 def test_bb_enabled_products_have_terminal_fields():

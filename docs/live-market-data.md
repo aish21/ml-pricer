@@ -5,7 +5,9 @@ data. The adapter remains behind `LiveMarketDataService`; payoff and Monte Carlo
 modules never import yfinance or call Yahoo Finance directly.
 
 No account, API key, `.env` file, or provider selection is required. Installing
-the API dependency group installs the pinned yfinance version.
+the API dependency group installs the pinned yfinance version and SciPy, which
+yfinance uses when its enabled price-repair path checks for sporadic currency
+unit errors.
 
 Official references:
 
@@ -49,7 +51,10 @@ metadata. The request still supplies:
 The response records field-level provenance under `market_data.input_sources`.
 This is therefore research pricing from a recent market bar, not a calibrated
 live market. Curves, dividends/forwards, and a volatility surface need separate
-sources and validation.
+sources and validation. The server can already price a manually supplied
+piecewise contract described in
+[`equity-market-term-structure-v1.md`](equity-market-term-structure-v1.md);
+yfinance does not populate those segments.
 
 ## Endpoints
 

@@ -66,6 +66,37 @@ SNAPSHOT_REQUEST = {
     "n_paths": 20,
 }
 
+TERM_STRUCTURE_REQUEST = {
+    "market": {
+        "schema_version": "equity-market-term-structure-v1",
+        "symbol": "SPY",
+        "underlier_type": "etf",
+        "currency": "USD",
+        "valuation_time": "2026-07-13T12:00:00Z",
+        "market_data_time": "2026-07-13T11:59:58Z",
+        "spot": 620.0,
+        "segments": [
+            {
+                "end_time_years": 0.5,
+                "risk_free_rate": 0.035,
+                "dividend_yield": 0.012,
+                "volatility": 0.18,
+            },
+            {
+                "end_time_years": 1.0,
+                "risk_free_rate": 0.04,
+                "dividend_yield": 0.013,
+                "volatility": 0.21,
+            },
+        ],
+        "calendar": "XNYS",
+        "day_count": "ACT/365F",
+        "source": "test-term-structure",
+    },
+    "terms": SNAPSHOT_REQUEST["terms"],
+    "n_paths": 20,
+}
+
 MARKET_REQUEST = {
     "market": {
         "symbol": "SPY",
@@ -202,6 +233,45 @@ def test_product_focused_api_rejects_non_equity_like_underlier():
     response = client.post("/api/v1/products/phoenix/price", json=payload)
 
     assert response.status_code == 422
+
+
+def test_term_structure_api_returns_versioned_piecewise_result():
+    response = client.post(
+        "/api/v1/products/phoenix/price/term-structure",
+        json=TERM_STRUCTURE_REQUEST,
+    )
+
+    assert response.status_code == 200
+    result = response.json()["result"]
+    assert result["model_version"] == "equity-gbm-piecewise-v1"
+    assert result["market_data_version"] == "equity-market-term-structure-v1"
+    assert result["market_term_structure"]["segments"][1]["volatility"] == 0.21
+
+
+def test_term_structure_api_rejects_unsorted_or_short_segments():
+    unsorted = {
+        **TERM_STRUCTURE_REQUEST,
+        "market": {
+            **TERM_STRUCTURE_REQUEST["market"],
+            "segments": list(reversed(TERM_STRUCTURE_REQUEST["market"]["segments"])),
+        },
+    }
+    response = client.post(
+        "/api/v1/products/phoenix/price/term-structure", json=unsorted
+    )
+    assert response.status_code == 422
+    assert "strictly increasing" in response.json()["message"]
+
+    short = {
+        **TERM_STRUCTURE_REQUEST,
+        "market": {
+            **TERM_STRUCTURE_REQUEST["market"],
+            "segments": TERM_STRUCTURE_REQUEST["market"]["segments"][:1],
+        },
+    }
+    response = client.post("/api/v1/products/phoenix/price/term-structure", json=short)
+    assert response.status_code == 422
+    assert "does not cover" in response.json()["message"]
 
 
 def test_market_quote_endpoint_returns_normalized_cached_quote(monkeypatch):

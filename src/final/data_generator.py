@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 import numpy as np
 
+from .market import EquityMarketTermStructure, MarketDataValidationError
 from .payoffs import BasePayoff
 
 
@@ -34,6 +35,67 @@ def simulate_gbm_paths(
     log_paths[:, 1:] = np.log(s0) + np.cumsum(increments, axis=1)
     paths = np.exp(log_paths)
     return paths
+
+
+def simulate_piecewise_gbm_paths(
+    market: EquityMarketTermStructure,
+    T: float,
+    n_steps: int,
+    n_paths: int,
+    seed: Optional[int] = None,
+) -> np.ndarray:
+    """Simulate GBM using exactly integrated piecewise carry and variance."""
+    if not isinstance(market, EquityMarketTermStructure):
+        raise MarketDataValidationError("invalid equity market term structure")
+    if isinstance(T, bool):
+        raise MarketDataValidationError("T must be numeric")
+    try:
+        maturity = float(T)
+    except (TypeError, ValueError) as exc:
+        raise MarketDataValidationError("T must be numeric") from exc
+    if not math.isfinite(maturity) or maturity <= 0:
+        raise MarketDataValidationError("T must be finite and > 0")
+    if maturity > market.max_time_years + 1e-12:
+        raise MarketDataValidationError(
+            "term structure does not cover the product maturity"
+        )
+    if not isinstance(n_steps, int) or isinstance(n_steps, bool) or n_steps < 1:
+        raise MarketDataValidationError("n_steps must be a positive integer")
+    if not isinstance(n_paths, int) or isinstance(n_paths, bool) or n_paths < 1:
+        raise MarketDataValidationError("n_paths must be a positive integer")
+
+    if seed is not None:
+        rng = np.random.RandomState(seed)
+        shocks = rng.randn(n_paths, n_steps)
+    else:
+        shocks = np.random.randn(n_paths, n_steps)
+
+    times = np.linspace(0.0, maturity, n_steps + 1)
+    integrated_rates = np.array(
+        [
+            market.integrated_risk_free_rate(start, end)
+            for start, end in zip(times[:-1], times[1:])
+        ]
+    )
+    integrated_dividends = np.array(
+        [
+            market.integrated_dividend_yield(start, end)
+            for start, end in zip(times[:-1], times[1:])
+        ]
+    )
+    integrated_variances = np.array(
+        [
+            market.integrated_variance(start, end)
+            for start, end in zip(times[:-1], times[1:])
+        ]
+    )
+    drift = integrated_rates - integrated_dividends - 0.5 * integrated_variances
+    increments = drift + np.sqrt(integrated_variances) * shocks
+
+    log_paths = np.zeros((n_paths, n_steps + 1), dtype=np.float64)
+    log_paths[:, 0] = np.log(market.spot)
+    log_paths[:, 1:] = np.log(market.spot) + np.cumsum(increments, axis=1)
+    return np.exp(log_paths)
 
 
 def sample_parameters(

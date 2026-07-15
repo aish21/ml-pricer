@@ -1,6 +1,6 @@
 import math
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List, Tuple
+from typing import Any, Callable, Dict, List, Tuple
 import numpy as np
 
 
@@ -87,6 +87,21 @@ class PhoenixPayoff(BasePayoff):
         the final level is below the initial level, in which case redemption is
         ``S_T / S0``.
         """
+        return self.compute_payoff_with_discount_curve(
+            paths=paths,
+            params=params,
+            T=T,
+            discount_factor=lambda time_years: math.exp(-r * time_years),
+        )
+
+    def compute_payoff_with_discount_curve(
+        self,
+        paths: np.ndarray,
+        params: Dict[str, Any],
+        T: float,
+        discount_factor: Callable[[float], float],
+    ) -> np.ndarray:
+        """Return Phoenix PVs using a caller-supplied deterministic curve."""
         n_paths, n_points = paths.shape
         n_steps = n_points - 1
         obs_count = int(params.get("obs_count", 6))
@@ -105,14 +120,14 @@ class PhoenixPayoff(BasePayoff):
 
         for idx in obs_idx:
             observation_time = (idx / n_steps) * T
-            discount_factor = math.exp(-r * observation_time)
+            observation_discount = float(discount_factor(observation_time))
             levels = paths[:, idx]
 
             coupon_due = active & (levels >= coupon_b)
-            present_values[coupon_due] += coupon_rate * discount_factor
+            present_values[coupon_due] += coupon_rate * observation_discount
 
             called = active & (levels >= autocall_b)
-            present_values[called] += discount_factor
+            present_values[called] += observation_discount
             active[called] = False
 
         if np.any(active):
@@ -121,7 +136,7 @@ class PhoenixPayoff(BasePayoff):
             capital_loss = knocked_in & (final_levels < s0)
             redemption = np.ones(n_paths, dtype=np.float64)
             redemption[capital_loss] = final_levels[capital_loss] / s0
-            present_values[active] += redemption[active] * math.exp(-r * T)
+            present_values[active] += redemption[active] * float(discount_factor(T))
 
         return present_values
 

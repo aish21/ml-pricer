@@ -5,9 +5,16 @@ from typing import Any, Dict, Optional
 
 from src.final.market import (
     EQUITY_GBM_FLAT_MODEL_VERSION,
+    EQUITY_GBM_PIECEWISE_MODEL_VERSION,
     EquityMarketSnapshot,
+    EquityMarketTermStructure,
+    MarketDataValidationError,
 )
-from src.final.reference_pricer import DEFAULT_REFERENCE_SEED, price_reference
+from src.final.reference_pricer import (
+    DEFAULT_REFERENCE_SEED,
+    price_phoenix_piecewise_reference,
+    price_reference,
+)
 from app.services.product_registry import (
     ProductField,
     ProductDefinition,
@@ -165,12 +172,39 @@ def _price_normalized_product(
         dividend_yield=dividend_yield,
     )
     latency_ms = int(round((time.perf_counter() - start) * 1000))
+    return _build_pricing_result(
+        product=product,
+        normalized_params=normalized_params,
+        n_paths=n_paths,
+        model_version=model_version,
+        reference=reference,
+        latency_ms=latency_ms,
+        market_snapshot=market_snapshot,
+        terms=terms,
+    )
+
+
+def _build_pricing_result(
+    product: ProductDefinition,
+    normalized_params: Dict[str, Any],
+    n_paths: int,
+    model_version: str,
+    reference: Dict[str, Any],
+    latency_ms: int,
+    market_snapshot: Optional[EquityMarketSnapshot] = None,
+    market_term_structure: Optional[EquityMarketTermStructure] = None,
+    terms: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    if market_snapshot is not None and market_term_structure is not None:
+        raise PricingServiceError("pricing result received multiple market inputs")
     raw_result: Dict[str, Any] = {
         "params": normalized_params,
         "per_npaths": {str(n_paths): {"Reference": reference}},
     }
     if market_snapshot is not None:
         raw_result["market_snapshot"] = market_snapshot.to_dict()
+    if market_term_structure is not None:
+        raw_result["market_term_structure"] = market_term_structure.to_dict()
 
     result = {
         "product_key": product.key,
@@ -207,7 +241,62 @@ def _price_normalized_product(
                 "terms": terms or {},
             }
         )
+    if market_term_structure is not None:
+        result.update(
+            {
+                "underlier": {
+                    "symbol": market_term_structure.symbol,
+                    "type": market_term_structure.underlier_type,
+                    "currency": market_term_structure.currency,
+                },
+                "market_term_structure": market_term_structure.to_dict(),
+                "market_data_version": market_term_structure.schema_version,
+                "terms": terms or {},
+            }
+        )
     return result
+
+
+def _normalize_phoenix_market_terms(
+    spot: float,
+    risk_free_rate: float,
+    volatility: float,
+    terms: Dict[str, Any],
+) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    if not isinstance(terms, dict):
+        raise InvalidPricingInputError("Phoenix terms must be an object")
+
+    supplied_names = set(terms)
+    missing = sorted(PHOENIX_SNAPSHOT_TERM_NAMES - supplied_names)
+    extra = sorted(supplied_names - PHOENIX_SNAPSHOT_TERM_NAMES)
+    if missing:
+        raise InvalidPricingInputError(
+            f"missing required Phoenix terms: {', '.join(missing)}"
+        )
+    if extra:
+        raise InvalidPricingInputError(f"unknown Phoenix terms: {', '.join(extra)}")
+
+    raw_params = {
+        "S0": spot,
+        "r": risk_free_rate,
+        "sigma": volatility,
+        "T": terms["maturity_years"],
+        "autocall_barrier_frac": terms["autocall_barrier_frac"],
+        "coupon_barrier_frac": terms["coupon_barrier_frac"],
+        "coupon_rate": terms["coupon_rate"],
+        "knock_in_frac": terms["knock_in_frac"],
+        "obs_count": terms["obs_count"],
+    }
+    normalized_params = normalize_pricing_params("phoenix", raw_params)
+    normalized_terms = {
+        "maturity_years": normalized_params["T"],
+        "autocall_barrier_frac": normalized_params["autocall_barrier_frac"],
+        "coupon_barrier_frac": normalized_params["coupon_barrier_frac"],
+        "coupon_rate": normalized_params["coupon_rate"],
+        "knock_in_frac": normalized_params["knock_in_frac"],
+        "obs_count": normalized_params["obs_count"],
+    }
+    return normalized_params, normalized_terms
 
 
 def price_product(
@@ -246,39 +335,12 @@ def price_phoenix_with_market_snapshot(
     """Price Phoenix Single v1 from distinct product terms and market data."""
     if not isinstance(market_snapshot, EquityMarketSnapshot):
         raise InvalidPricingInputError("invalid equity market snapshot")
-    if not isinstance(terms, dict):
-        raise InvalidPricingInputError("Phoenix terms must be an object")
-
-    supplied_names = set(terms)
-    missing = sorted(PHOENIX_SNAPSHOT_TERM_NAMES - supplied_names)
-    extra = sorted(supplied_names - PHOENIX_SNAPSHOT_TERM_NAMES)
-    if missing:
-        raise InvalidPricingInputError(
-            f"missing required Phoenix terms: {', '.join(missing)}"
-        )
-    if extra:
-        raise InvalidPricingInputError(f"unknown Phoenix terms: {', '.join(extra)}")
-
-    raw_params = {
-        "S0": market_snapshot.spot,
-        "r": market_snapshot.risk_free_rate,
-        "sigma": market_snapshot.volatility,
-        "T": terms["maturity_years"],
-        "autocall_barrier_frac": terms["autocall_barrier_frac"],
-        "coupon_barrier_frac": terms["coupon_barrier_frac"],
-        "coupon_rate": terms["coupon_rate"],
-        "knock_in_frac": terms["knock_in_frac"],
-        "obs_count": terms["obs_count"],
-    }
-    normalized_params = normalize_pricing_params("phoenix", raw_params)
-    normalized_terms = {
-        "maturity_years": normalized_params["T"],
-        "autocall_barrier_frac": normalized_params["autocall_barrier_frac"],
-        "coupon_barrier_frac": normalized_params["coupon_barrier_frac"],
-        "coupon_rate": normalized_params["coupon_rate"],
-        "knock_in_frac": normalized_params["knock_in_frac"],
-        "obs_count": normalized_params["obs_count"],
-    }
+    normalized_params, normalized_terms = _normalize_phoenix_market_terms(
+        spot=market_snapshot.spot,
+        risk_free_rate=market_snapshot.risk_free_rate,
+        volatility=market_snapshot.volatility,
+        terms=terms,
+    )
     product = get_product_definition("phoenix")
     if product is None or not product.reference_pricing_enabled:
         raise UnsupportedProductError("unsupported product: phoenix")
@@ -291,5 +353,53 @@ def price_phoenix_with_market_snapshot(
         model_version=EQUITY_GBM_FLAT_MODEL_VERSION,
         dividend_yield=market_snapshot.dividend_yield,
         market_snapshot=market_snapshot,
+        terms=normalized_terms,
+    )
+
+
+def price_phoenix_with_term_structure(
+    market: EquityMarketTermStructure,
+    terms: Dict[str, Any],
+    n_paths: int = 500,
+    seed: int = DEFAULT_REFERENCE_SEED,
+) -> Dict[str, Any]:
+    """Price Phoenix Single v1 with deterministic piecewise market inputs."""
+    if not isinstance(market, EquityMarketTermStructure):
+        raise InvalidPricingInputError("invalid equity market term structure")
+    normalized_params, normalized_terms = _normalize_phoenix_market_terms(
+        spot=market.spot,
+        risk_free_rate=0.0,
+        volatility=1.0,
+        terms=terms,
+    )
+    try:
+        maturity = normalized_params["T"]
+        equivalent = market.equivalent_flat_parameters(maturity)
+    except MarketDataValidationError as exc:
+        raise InvalidPricingInputError(str(exc)) from exc
+    normalized_params["r"] = equivalent["risk_free_rate"]
+    normalized_params["sigma"] = equivalent["volatility"]
+    product = get_product_definition("phoenix")
+    if product is None or not product.reference_pricing_enabled:
+        raise UnsupportedProductError("unsupported product: phoenix")
+
+    validated_paths = _validate_path_count(n_paths)
+    started = time.perf_counter()
+    reference = price_phoenix_piecewise_reference(
+        payoff=product.payoff_class(),
+        params=normalized_params,
+        market=market,
+        n_paths=validated_paths,
+        seed=int(seed),
+    )
+    latency_ms = int(round((time.perf_counter() - started) * 1000))
+    return _build_pricing_result(
+        product=product,
+        normalized_params=normalized_params,
+        n_paths=validated_paths,
+        model_version=EQUITY_GBM_PIECEWISE_MODEL_VERSION,
+        reference=reference,
+        latency_ms=latency_ms,
+        market_term_structure=market,
         terms=normalized_terms,
     )

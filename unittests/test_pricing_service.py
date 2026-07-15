@@ -2,12 +2,17 @@ from datetime import datetime, timezone
 
 import pytest
 
-from src.final.market import EquityMarketSnapshot
+from src.final.market import (
+    EquityMarketSegment,
+    EquityMarketSnapshot,
+    EquityMarketTermStructure,
+)
 from app.services.model_cache import clear_model_cache
 from app.services.pricing_service import (
     InvalidPricingInputError,
     UnsupportedProductError,
     normalize_pricing_params,
+    price_phoenix_with_term_structure,
     price_phoenix_with_market_snapshot,
     price_product,
 )
@@ -48,6 +53,32 @@ def make_market_snapshot(dividend_yield=0.0, symbol="SPY"):
         risk_free_rate=0.03,
         dividend_yield=dividend_yield,
         volatility=0.2,
+        calendar="XNYS",
+        day_count="ACT/365F",
+        source="test-fixture",
+    )
+
+
+def make_term_structure(segments=None):
+    timestamp = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    return EquityMarketTermStructure(
+        symbol="SPY",
+        underlier_type="etf",
+        currency="USD",
+        valuation_time=timestamp,
+        market_data_time=timestamp,
+        spot=100.0,
+        segments=tuple(
+            segments
+            or [
+                EquityMarketSegment(
+                    end_time_years=1.0,
+                    risk_free_rate=0.03,
+                    dividend_yield=0.0,
+                    volatility=0.2,
+                )
+            ]
+        ),
         calendar="XNYS",
         day_count="ACT/365F",
         source="test-fixture",
@@ -188,3 +219,57 @@ def test_snapshot_pricing_rejects_unknown_terms():
 
     with pytest.raises(InvalidPricingInputError, match="unknown Phoenix terms"):
         price_phoenix_with_market_snapshot(make_market_snapshot(), terms, n_paths=5)
+
+
+def test_term_structure_pricing_is_versioned_and_attributable():
+    result = price_phoenix_with_term_structure(
+        make_term_structure(), VALID_PHOENIX_TERMS, n_paths=100
+    )
+
+    assert result["model_version"] == "equity-gbm-piecewise-v1"
+    assert result["market_data_version"] == "equity-market-term-structure-v1"
+    assert result["market_term_structure"]["term_structure_id"].startswith("sha256:")
+    assert result["underlier"] == {
+        "symbol": "SPY",
+        "type": "etf",
+        "currency": "USD",
+    }
+
+
+def test_one_segment_term_structure_matches_flat_snapshot_numerics():
+    flat = price_phoenix_with_market_snapshot(
+        make_market_snapshot(), VALID_PHOENIX_TERMS, n_paths=500
+    )
+    piecewise = price_phoenix_with_term_structure(
+        make_term_structure(), VALID_PHOENIX_TERMS, n_paths=500
+    )
+
+    assert piecewise["price"] == pytest.approx(flat["price"], abs=1e-14)
+    assert piecewise["standard_error"] == pytest.approx(
+        flat["standard_error"], abs=1e-14
+    )
+
+
+def test_term_structure_pricing_uses_curve_and_volatility_shape():
+    shaped_market = make_term_structure(
+        [
+            EquityMarketSegment(0.5, 0.01, 0.0, 0.1),
+            EquityMarketSegment(1.0, 0.05, 0.02, 0.3),
+        ]
+    )
+
+    flat = price_phoenix_with_term_structure(
+        make_term_structure(), VALID_PHOENIX_TERMS, n_paths=500
+    )
+    shaped = price_phoenix_with_term_structure(
+        shaped_market, VALID_PHOENIX_TERMS, n_paths=500
+    )
+
+    assert shaped["price"] != flat["price"]
+
+
+def test_term_structure_pricing_rejects_insufficient_coverage():
+    short_market = make_term_structure([EquityMarketSegment(0.5, 0.03, 0.0, 0.2)])
+
+    with pytest.raises(InvalidPricingInputError, match="does not cover"):
+        price_phoenix_with_term_structure(short_market, VALID_PHOENIX_TERMS, n_paths=5)

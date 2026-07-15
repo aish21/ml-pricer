@@ -1,5 +1,10 @@
 import subprocess
 import sys
+import tomllib
+from pathlib import Path
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_api_import_does_not_eagerly_load_training_stack():
@@ -15,3 +20,10 @@ if forbidden:
 """
 
     subprocess.run([sys.executable, "-c", script], check=True)
+
+
+def test_api_extra_declares_yfinance_repair_dependencies():
+    project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text("utf-8"))
+    api_dependencies = set(project["project"]["optional-dependencies"]["api"])
+
+    assert {"scipy==1.13.0", "yfinance==1.5.1"} <= api_dependencies

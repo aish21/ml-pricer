@@ -9,7 +9,9 @@ from datetime import datetime, timezone
 
 from src.final.market import (
     EQUITY_GBM_FLAT_MODEL_VERSION,
+    EQUITY_GBM_PIECEWISE_MODEL_VERSION,
     EQUITY_MARKET_SNAPSHOT_VERSION,
+    EQUITY_MARKET_TERM_STRUCTURE_VERSION,
 )
 from app.api.bb import router as bb_api_router
 from app.api.v1 import PricingRequest, execute_pricing_request
@@ -314,6 +316,11 @@ def health_ready():
         "pricing_method": "monte_carlo_reference",
         "contract_version": product.contract_version if product else "unavailable",
         "market_snapshot_version": EQUITY_MARKET_SNAPSHOT_VERSION,
+        "market_term_structure_version": EQUITY_MARKET_TERM_STRUCTURE_VERSION,
         "market_model_version": EQUITY_GBM_FLAT_MODEL_VERSION,
+        "market_model_versions": [
+            EQUITY_GBM_FLAT_MODEL_VERSION,
+            EQUITY_GBM_PIECEWISE_MODEL_VERSION,
+        ],
         "market_data": get_live_market_data_status(),
     }

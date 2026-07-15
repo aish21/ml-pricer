@@ -7,7 +7,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from src.final.market import (
     EQUITY_MARKET_SNAPSHOT_VERSION,
+    EQUITY_MARKET_TERM_STRUCTURE_VERSION,
+    EquityMarketSegment,
     EquityMarketSnapshot,
+    EquityMarketTermStructure,
     MarketDataValidationError,
 )
 from app.services.live_market_data import (
@@ -27,6 +30,7 @@ from app.services.pricing_service import (
     InvalidPricingInputError,
     PricingServiceError,
     UnsupportedProductError,
+    price_phoenix_with_term_structure,
     price_phoenix_with_market_snapshot,
     price_product,
 )
@@ -95,6 +99,58 @@ class PhoenixSingleV1PricingRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     market: EquityMarketSnapshotRequest
+    terms: PhoenixSingleV1TermsRequest
+    n_paths: int = Field(default=2000, ge=1, le=20_000)
+
+
+class EquityMarketSegmentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    end_time_years: float = Field(gt=0.0, le=50.0)
+    risk_free_rate: float = Field(ge=-0.25, le=1.0)
+    dividend_yield: float = Field(ge=-0.25, le=1.0)
+    volatility: float = Field(gt=0.0, le=5.0)
+
+    def to_domain(self) -> EquityMarketSegment:
+        return EquityMarketSegment(**self.model_dump())
+
+
+class EquityMarketTermStructureRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["equity-market-term-structure-v1"] = (
+        EQUITY_MARKET_TERM_STRUCTURE_VERSION
+    )
+    symbol: str = Field(min_length=1, max_length=64)
+    underlier_type: Literal["equity", "etf", "index"]
+    currency: str = Field(min_length=3, max_length=3)
+    valuation_time: datetime
+    market_data_time: datetime
+    spot: float = Field(gt=0.0, le=1_000_000_000.0)
+    segments: list[EquityMarketSegmentRequest] = Field(min_length=1, max_length=252)
+    calendar: str = Field(min_length=1, max_length=32)
+    day_count: str = Field(min_length=1, max_length=16)
+    source: str = Field(min_length=1, max_length=128)
+
+    def to_domain(self) -> EquityMarketTermStructure:
+        return EquityMarketTermStructure(
+            symbol=self.symbol,
+            underlier_type=self.underlier_type,
+            currency=self.currency,
+            valuation_time=self.valuation_time,
+            market_data_time=self.market_data_time,
+            spot=self.spot,
+            segments=tuple(segment.to_domain() for segment in self.segments),
+            calendar=self.calendar,
+            day_count=self.day_count,
+            source=self.source,
+        )
+
+
+class PhoenixSingleV1TermStructurePricingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    market: EquityMarketTermStructureRequest
     terms: PhoenixSingleV1TermsRequest
     n_paths: int = Field(default=2000, ge=1, le=20_000)
 
@@ -183,6 +239,30 @@ def price_phoenix(req: PhoenixSingleV1PricingRequest):
     except Exception:
         return JSONResponse(
             {"status": "error", "message": "pricing failed"}, status_code=500
+        )
+
+
+@router.post("/products/phoenix/price/term-structure")
+def price_phoenix_term_structure(
+    req: PhoenixSingleV1TermStructurePricingRequest,
+):
+    try:
+        result = price_phoenix_with_term_structure(
+            market=req.market.to_domain(),
+            terms=req.terms.model_dump(),
+            n_paths=req.n_paths,
+        )
+        return {"status": "success", "result": result}
+    except (InvalidPricingInputError, MarketDataValidationError) as exc:
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=422)
+    except UnsupportedProductError as exc:
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=400)
+    except PricingServiceError as exc:
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=503)
+    except Exception:
+        return JSONResponse(
+            {"status": "error", "message": "term-structure pricing failed"},
+            status_code=500,
         )
 
 

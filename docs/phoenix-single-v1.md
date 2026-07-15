@@ -21,8 +21,11 @@ The product contract is independent of the market model. The original
 `gbm-flat-v1` reference uses a constant rate and volatility with zero dividend
 yield. The dated [`equity-market-snapshot-v1`](equity-market-snapshot-v1.md)
 path uses `equity-gbm-flat-v2`, adding a constant dividend yield to the
-risk-neutral drift. Forward curves and volatility surfaces remain future,
-separately versioned market-model upgrades.
+risk-neutral drift. The
+[`equity-market-term-structure-v1`](equity-market-term-structure-v1.md) path uses
+`equity-gbm-piecewise-v1` for deterministic piecewise rates, dividend yields,
+and volatility. Strike-dependent volatility surfaces remain a future,
+separately versioned upgrade.
 
 ## Cashflow rules
 
@@ -39,7 +42,8 @@ If the note has not autocalled, redeem at maturity:
   above `S0`; or
 - `S_T / S0` if the barrier was touched and the final level is below `S0`.
 
-Every cashflow is discounted from its payment time using `exp(-r * t)`.
+Every cashflow is discounted from its payment time using either `exp(-r * t)`
+for the flat model or the term-structure discount factor `D(0,t)`.
 
 ## Valid term relationships
 
@@ -58,7 +62,8 @@ it does not belong in the numerical payoff formula.
 - Memory coupons, step-down barriers, guaranteed coupons, or settlement lags.
 - Business-day calendars and explicit irregular observation schedules.
 - Continuous barrier monitoring.
-- Local-volatility, stochastic-volatility, jump, or multi-curve dynamics.
+- Local-volatility, stochastic-volatility, jump, strike-smile, or
+  stochastic-rate dynamics.
 
 Those features require separate contract and pricing-model versions rather
 than silent changes to this definition.
