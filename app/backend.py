@@ -11,8 +11,10 @@ from src.final.market import (
     EQUITY_GBM_FLAT_MODEL_VERSION,
     EQUITY_GBM_PIECEWISE_MODEL_VERSION,
     EQUITY_MARKET_SNAPSHOT_VERSION,
+    EQUITY_MARKET_SCENARIO_VERSION,
     EQUITY_MARKET_TERM_STRUCTURE_VERSION,
     EQUITY_RESEARCH_MARKET_VERSION,
+    EQUITY_RISK_ANALYTICS_VERSION,
 )
 from app.api.bb import router as bb_api_router
 from app.api.v1 import PricingRequest, execute_pricing_request
@@ -320,6 +322,8 @@ def health_ready():
         "market_snapshot_version": EQUITY_MARKET_SNAPSHOT_VERSION,
         "market_term_structure_version": EQUITY_MARKET_TERM_STRUCTURE_VERSION,
         "research_market_version": EQUITY_RESEARCH_MARKET_VERSION,
+        "scenario_version": EQUITY_MARKET_SCENARIO_VERSION,
+        "risk_analytics_version": EQUITY_RISK_ANALYTICS_VERSION,
         "market_model_version": EQUITY_GBM_FLAT_MODEL_VERSION,
         "market_model_versions": [
             EQUITY_GBM_FLAT_MODEL_VERSION,

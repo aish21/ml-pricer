@@ -11,6 +11,8 @@ EQUITY_GBM_FLAT_MODEL_VERSION = "equity-gbm-flat-v2"
 EQUITY_MARKET_TERM_STRUCTURE_VERSION = "equity-market-term-structure-v1"
 EQUITY_GBM_PIECEWISE_MODEL_VERSION = "equity-gbm-piecewise-v1"
 EQUITY_RESEARCH_MARKET_VERSION = "equity-research-market-v1"
+EQUITY_MARKET_SCENARIO_VERSION = "equity-market-scenario-v1"
+EQUITY_RISK_ANALYTICS_VERSION = "equity-risk-analytics-v1"
 EQUITY_LIKE_UNDERLIER_TYPES = frozenset({"equity", "etf", "index"})
 
 

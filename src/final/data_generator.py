@@ -43,6 +43,7 @@ def simulate_piecewise_gbm_paths(
     n_steps: int,
     n_paths: int,
     seed: Optional[int] = None,
+    standard_normal_shocks: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     """Simulate GBM using exactly integrated piecewise carry and variance."""
     if not isinstance(market, EquityMarketTermStructure):
@@ -64,7 +65,17 @@ def simulate_piecewise_gbm_paths(
     if not isinstance(n_paths, int) or isinstance(n_paths, bool) or n_paths < 1:
         raise MarketDataValidationError("n_paths must be a positive integer")
 
-    if seed is not None:
+    if standard_normal_shocks is not None:
+        shocks = np.asarray(standard_normal_shocks, dtype=np.float64)
+        if shocks.shape != (n_paths, n_steps):
+            raise MarketDataValidationError(
+                "standard_normal_shocks must have shape (n_paths, n_steps)"
+            )
+        if not np.all(np.isfinite(shocks)):
+            raise MarketDataValidationError(
+                "standard_normal_shocks must contain only finite values"
+            )
+    elif seed is not None:
         rng = np.random.RandomState(seed)
         shocks = rng.randn(n_paths, n_steps)
     else:

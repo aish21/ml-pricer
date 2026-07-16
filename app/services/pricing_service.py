@@ -141,7 +141,7 @@ def normalize_pricing_params(
     return normalized
 
 
-def _validate_path_count(n_paths: Any) -> int:
+def validate_reference_path_count(n_paths: Any) -> int:
     try:
         n_paths_int = int(n_paths)
     except (TypeError, ValueError) as exc:
@@ -257,7 +257,7 @@ def _build_pricing_result(
     return result
 
 
-def _normalize_phoenix_market_terms(
+def normalize_phoenix_market_terms(
     spot: float,
     risk_free_rate: float,
     volatility: float,
@@ -315,7 +315,7 @@ def price_product(
     if not product.validated_for_pricing or not product.reference_pricing_enabled:
         raise UnsupportedProductError(f"unsupported product: {product_key}")
 
-    n_paths_int = _validate_path_count(n_paths)
+    n_paths_int = validate_reference_path_count(n_paths)
     normalized_params = normalize_pricing_params(product.key, params)
     return _price_normalized_product(
         product=product,
@@ -335,7 +335,7 @@ def price_phoenix_with_market_snapshot(
     """Price Phoenix Single v1 from distinct product terms and market data."""
     if not isinstance(market_snapshot, EquityMarketSnapshot):
         raise InvalidPricingInputError("invalid equity market snapshot")
-    normalized_params, normalized_terms = _normalize_phoenix_market_terms(
+    normalized_params, normalized_terms = normalize_phoenix_market_terms(
         spot=market_snapshot.spot,
         risk_free_rate=market_snapshot.risk_free_rate,
         volatility=market_snapshot.volatility,
@@ -348,7 +348,7 @@ def price_phoenix_with_market_snapshot(
     return _price_normalized_product(
         product=product,
         normalized_params=normalized_params,
-        n_paths=_validate_path_count(n_paths),
+        n_paths=validate_reference_path_count(n_paths),
         seed=seed,
         model_version=EQUITY_GBM_FLAT_MODEL_VERSION,
         dividend_yield=market_snapshot.dividend_yield,
@@ -366,7 +366,7 @@ def price_phoenix_with_term_structure(
     """Price Phoenix Single v1 with deterministic piecewise market inputs."""
     if not isinstance(market, EquityMarketTermStructure):
         raise InvalidPricingInputError("invalid equity market term structure")
-    normalized_params, normalized_terms = _normalize_phoenix_market_terms(
+    normalized_params, normalized_terms = normalize_phoenix_market_terms(
         spot=market.spot,
         risk_free_rate=0.0,
         volatility=1.0,
@@ -383,7 +383,7 @@ def price_phoenix_with_term_structure(
     if product is None or not product.reference_pricing_enabled:
         raise UnsupportedProductError("unsupported product: phoenix")
 
-    validated_paths = _validate_path_count(n_paths)
+    validated_paths = validate_reference_path_count(n_paths)
     started = time.perf_counter()
     reference = price_phoenix_piecewise_reference(
         payoff=product.payoff_class(),

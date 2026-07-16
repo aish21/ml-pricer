@@ -128,6 +128,27 @@ RESEARCH_MARKET_REQUEST = {
     "n_paths": 20,
 }
 
+SCENARIO_REQUEST = {
+    **TERM_STRUCTURE_REQUEST,
+    "shock": {
+        "spot_pct": -10.0,
+        "rate_parallel_bps": 25.0,
+        "segment_shocks": [{"segment_index": 1, "volatility_abs": 0.02}],
+    },
+    "seed": 42,
+}
+
+RISK_REQUEST = {
+    **TERM_STRUCTURE_REQUEST,
+    "bumps": {
+        "spot_relative": 0.01,
+        "volatility_absolute": 0.01,
+        "rate_bps": 10.0,
+        "dividend_bps": 10.0,
+    },
+    "seed": 42,
+}
+
 
 def make_market_results():
     valuation_time = datetime(2026, 7, 13, 12, 0, 2, tzinfo=timezone.utc)
@@ -432,6 +453,128 @@ def test_research_market_endpoint_rejects_unsupported_calibration(monkeypatch):
     assert response.json()["message"] == (
         "research calibration currently supports USD underliers only"
     )
+
+
+def test_term_structure_scenario_api_persists_paired_result(monkeypatch):
+    monkeypatch.setattr("app.api.v1.save_run", lambda **kwargs: "run_scenario_test")
+
+    response = client.post(
+        "/api/v1/products/phoenix/scenario/term-structure",
+        json=SCENARIO_REQUEST,
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    result = payload["result"]
+    assert payload["run_id"] == "run_scenario_test"
+    assert result["scenario_version"] == "equity-market-scenario-v1"
+    assert result["provenance"]["common_random_numbers"] is True
+    assert result["provenance"]["contract_reference_spot"] == 620.0
+    assert result["shocked_market"]["spot"] == 558.0
+    assert result["shock"]["segment_shocks"][0]["segment_index"] == 1
+    assert len(result["pnl"]["confidence_interval"]) == 2
+
+
+def test_term_structure_risk_api_returns_greeks_and_provenance(monkeypatch):
+    monkeypatch.setattr("app.api.v1.save_run", lambda **kwargs: "run_risk_test")
+
+    response = client.post(
+        "/api/v1/products/phoenix/risk/term-structure", json=RISK_REQUEST
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    result = payload["result"]
+    assert payload["run_id"] == "run_risk_test"
+    assert result["risk_version"] == "equity-risk-analytics-v1"
+    assert set(result["sensitivities"]) == {
+        "delta",
+        "gamma",
+        "vega",
+        "rho",
+        "dividend_rho",
+    }
+    assert result["provenance"]["model_version"] == "equity-gbm-piecewise-v1"
+    assert result["provenance"]["seed"] == 42
+
+
+def test_research_scenario_and_risk_apis_preserve_calibration(monkeypatch):
+    monkeypatch.setattr(
+        "app.api.v1.get_research_market_data_service",
+        FakeResearchMarketDataService,
+    )
+    monkeypatch.setattr("app.api.v1.save_run", lambda **kwargs: "run_research_test")
+    scenario_payload = {
+        **RESEARCH_MARKET_REQUEST,
+        "shock": {"volatility_parallel_abs": 0.02},
+        "seed": 7,
+    }
+    risk_payload = {
+        **RESEARCH_MARKET_REQUEST,
+        "bumps": RISK_REQUEST["bumps"],
+        "seed": 7,
+    }
+
+    scenario = client.post(
+        "/api/v1/products/phoenix/scenario/research-market",
+        json=scenario_payload,
+    )
+    risk = client.post(
+        "/api/v1/products/phoenix/risk/research-market", json=risk_payload
+    )
+
+    assert scenario.status_code == 200
+    assert risk.status_code == 200
+    assert scenario.json()["result"]["provenance"]["market_calibration_id"] == (
+        "sha256:test-calibration"
+    )
+    assert risk.json()["result"]["provenance"]["market_calibration_id"] == (
+        "sha256:test-calibration"
+    )
+
+
+def test_scenario_api_rejects_empty_or_invalid_shocks(monkeypatch):
+    monkeypatch.setattr("app.api.v1.save_run", lambda **kwargs: "not-saved")
+    empty = {**SCENARIO_REQUEST, "shock": {}}
+    invalid = {
+        **SCENARIO_REQUEST,
+        "shock": {"segment_shocks": [{"segment_index": 9, "rate_bps": 1}]},
+    }
+
+    empty_response = client.post(
+        "/api/v1/products/phoenix/scenario/term-structure", json=empty
+    )
+    invalid_response = client.post(
+        "/api/v1/products/phoenix/scenario/term-structure", json=invalid
+    )
+
+    assert empty_response.status_code == 422
+    assert "at least one" in empty_response.json()["message"]
+    assert invalid_response.status_code == 422
+    assert "outside" in invalid_response.json()["message"]
+
+
+def test_analysis_run_json_endpoints_round_trip(tmp_path, monkeypatch):
+    store = tmp_path / "api-runs.sqlite3"
+    monkeypatch.setenv("MODEL_RUN_STORE_FILE", str(store))
+
+    response = client.post(
+        "/api/v1/products/phoenix/scenario/term-structure",
+        json=SCENARIO_REQUEST,
+    )
+    assert response.status_code == 200
+    run_id = response.json()["run_id"]
+
+    fetched = client.get(f"/api/v1/runs/{run_id}")
+    recent = client.get("/api/v1/runs", params={"limit": 1})
+
+    assert fetched.status_code == 200
+    assert fetched.json()["run"]["run_type"] == "scenario"
+    assert fetched.json()["run"]["result_payload"]["scenario_version"] == (
+        "equity-market-scenario-v1"
+    )
+    assert recent.status_code == 200
+    assert recent.json()["runs"][0]["run_id"] == run_id
 
 
 def test_market_data_failure_is_sanitized(monkeypatch):

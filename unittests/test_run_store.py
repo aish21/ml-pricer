@@ -53,3 +53,26 @@ def test_run_store_saves_and_fetches_scenario_metadata(tmp_path):
     scenario = get_run(scenario_id, db_path=db_path)
     assert scenario["run_type"] == "scenario"
     assert scenario["parent_run_id"] == base_id
+
+
+def test_run_store_saves_risk_provenance(tmp_path):
+    db_path = tmp_path / "runs.sqlite3"
+    risk_id = save_run(
+        "phoenix",
+        {"seed": 42},
+        {
+            "risk_version": "equity-risk-analytics-v1",
+            "provenance": {
+                "model_version": "equity-gbm-piecewise-v1",
+                "market_calibration_id": "sha256:test",
+            },
+        },
+        db_path=db_path,
+        run_type="risk",
+    )
+
+    risk = get_run(risk_id, db_path=db_path)
+    assert risk["run_type"] == "risk"
+    assert risk["result_payload"]["provenance"]["market_calibration_id"] == (
+        "sha256:test"
+    )

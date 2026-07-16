@@ -328,7 +328,7 @@ Each saved run stores:
 - compact result payload
 - pricing-method label
 - latency in milliseconds
-- `run_type` (`price` or `scenario`)
+- `run_type` (`price`, `scenario`, or API-only `risk`)
 - `parent_run_id` for scenario runs
 
 Storage was introduced before scenario shock because a scenario needs a stable
@@ -349,4 +349,5 @@ base pricing request/result to shock and reprice later.
 ## Future Phases
 
 - Compact payoff explanations and model-status polish.
-- Phase 7: optional native or sideloaded BlackBerry wrapper.
+- Extend the Phase 7 JSON risk contract to compact BlackBerry risk summaries.
+- Optionally verify and sideload the existing native BlackBerry wrapper spike.

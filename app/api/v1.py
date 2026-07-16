@@ -40,6 +40,13 @@ from app.services.research_market_data import (
     get_research_market_data_service,
     get_research_market_data_status,
 )
+from app.services.risk_service import (
+    InvalidRiskInputError,
+    RiskAnalyticsError,
+    calculate_phoenix_term_structure_risk,
+    run_phoenix_term_structure_scenario,
+)
+from app.services.run_store import get_run, list_recent_runs, save_run
 
 
 router = APIRouter(prefix="/api/v1", tags=["api-v1"])
@@ -202,6 +209,79 @@ class ResearchPhoenixSingleV1PricingRequest(BaseModel):
     n_paths: int = Field(default=2000, ge=1, le=20_000)
 
 
+class EquityMarketSegmentShockRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    segment_index: int = Field(ge=0, le=251)
+    rate_bps: float | None = Field(default=None, ge=-10_000.0, le=10_000.0)
+    dividend_bps: float | None = Field(default=None, ge=-10_000.0, le=10_000.0)
+    volatility_abs: float | None = Field(default=None, ge=-5.0, le=5.0)
+
+
+class EquityMarketShockRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    spot_pct: float | None = Field(default=None, gt=-100.0, le=1_000.0)
+    rate_parallel_bps: float | None = Field(default=None, ge=-10_000.0, le=10_000.0)
+    dividend_parallel_bps: float | None = Field(default=None, ge=-10_000.0, le=10_000.0)
+    volatility_parallel_abs: float | None = Field(default=None, ge=-5.0, le=5.0)
+    segment_shocks: list[EquityMarketSegmentShockRequest] = Field(
+        default_factory=list, max_length=252
+    )
+
+    def to_service(self) -> dict[str, Any]:
+        return self.model_dump(exclude_none=True)
+
+
+class PhoenixTermStructureScenarioRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    market: EquityMarketTermStructureRequest
+    terms: PhoenixSingleV1TermsRequest
+    shock: EquityMarketShockRequest
+    n_paths: int = Field(default=2000, ge=1, le=20_000)
+    seed: int = Field(default=42, ge=0, le=4_294_967_295)
+
+
+class ResearchPhoenixScenarioRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    market: ResearchEquityMarketRequest
+    terms: PhoenixSingleV1TermsRequest
+    shock: EquityMarketShockRequest
+    n_paths: int = Field(default=2000, ge=1, le=20_000)
+    seed: int = Field(default=42, ge=0, le=4_294_967_295)
+
+
+class RiskBumpRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    spot_relative: float = Field(default=0.01, gt=0.0, le=0.5)
+    volatility_absolute: float = Field(default=0.01, gt=0.0, le=1.0)
+    rate_bps: float = Field(default=10.0, gt=0.0, le=5_000.0)
+    dividend_bps: float = Field(default=10.0, gt=0.0, le=5_000.0)
+
+
+class PhoenixTermStructureRiskRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    market: EquityMarketTermStructureRequest
+    terms: PhoenixSingleV1TermsRequest
+    bumps: RiskBumpRequest = Field(default_factory=RiskBumpRequest)
+    n_paths: int = Field(default=2000, ge=1, le=20_000)
+    seed: int = Field(default=42, ge=0, le=4_294_967_295)
+
+
+class ResearchPhoenixRiskRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    market: ResearchEquityMarketRequest
+    terms: PhoenixSingleV1TermsRequest
+    bumps: RiskBumpRequest = Field(default_factory=RiskBumpRequest)
+    n_paths: int = Field(default=2000, ge=1, le=20_000)
+    seed: int = Field(default=42, ge=0, le=4_294_967_295)
+
+
 def _market_data_error_response(exc: LiveMarketDataError) -> JSONResponse:
     if isinstance(exc, MarketDataNotFoundError):
         status_code = 404
@@ -222,6 +302,27 @@ def _market_data_error_response(exc: LiveMarketDataError) -> JSONResponse:
         status_code = 503
     return JSONResponse(
         {"status": "error", "message": str(exc)}, status_code=status_code
+    )
+
+
+def _risk_error_response(exc: RiskAnalyticsError) -> JSONResponse:
+    status_code = 422 if isinstance(exc, InvalidRiskInputError) else 503
+    return JSONResponse(
+        {"status": "error", "message": str(exc)}, status_code=status_code
+    )
+
+
+def _save_analysis_run(
+    *,
+    request_payload: dict[str, Any],
+    result: dict[str, Any],
+    run_type: Literal["scenario", "risk"],
+) -> str:
+    return save_run(
+        product_key="phoenix",
+        request_payload=request_payload,
+        result_payload=result,
+        run_type=run_type,
     )
 
 
@@ -409,6 +510,167 @@ def price_phoenix_research_market(req: ResearchPhoenixSingleV1PricingRequest):
     except Exception:
         return JSONResponse(
             {"status": "error", "message": "research market pricing failed"},
+            status_code=500,
+        )
+
+
+@router.post("/products/phoenix/scenario/term-structure")
+def scenario_phoenix_term_structure(req: PhoenixTermStructureScenarioRequest):
+    try:
+        result = run_phoenix_term_structure_scenario(
+            market=req.market.to_domain(),
+            terms=req.terms.model_dump(),
+            shock=req.shock.to_service(),
+            n_paths=req.n_paths,
+            seed=req.seed,
+        )
+        run_id = _save_analysis_run(
+            request_payload=req.model_dump(mode="json", exclude_none=True),
+            result=result,
+            run_type="scenario",
+        )
+        return {"status": "success", "run_id": run_id, "result": result}
+    except RiskAnalyticsError as exc:
+        return _risk_error_response(exc)
+    except MarketDataValidationError as exc:
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=422)
+    except Exception:
+        return JSONResponse(
+            {"status": "error", "message": "scenario calculation failed"},
+            status_code=500,
+        )
+
+
+@router.post("/products/phoenix/scenario/research-market")
+def scenario_phoenix_research_market(req: ResearchPhoenixScenarioRequest):
+    try:
+        built = get_research_market_data_service().build_term_structure(
+            symbol=req.market.symbol,
+            underlier_type=req.market.underlier_type,
+            maturity_years=req.terms.maturity_years,
+        )
+        result = run_phoenix_term_structure_scenario(
+            market=built.market,
+            terms=req.terms.model_dump(),
+            shock=req.shock.to_service(),
+            n_paths=req.n_paths,
+            seed=req.seed,
+            market_calibration=built.calibration,
+        )
+        request_payload = req.model_dump(mode="json", exclude_none=True)
+        request_payload["frozen_market"] = built.market.to_dict()
+        request_payload["market_calibration_id"] = built.calibration.get(
+            "calibration_id"
+        )
+        run_id = _save_analysis_run(
+            request_payload=request_payload,
+            result=result,
+            run_type="scenario",
+        )
+        return {"status": "success", "run_id": run_id, "result": result}
+    except LiveMarketDataError as exc:
+        return _market_data_error_response(exc)
+    except RiskAnalyticsError as exc:
+        return _risk_error_response(exc)
+    except MarketDataValidationError as exc:
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=422)
+    except Exception:
+        return JSONResponse(
+            {"status": "error", "message": "research scenario calculation failed"},
+            status_code=500,
+        )
+
+
+@router.post("/products/phoenix/risk/term-structure")
+def risk_phoenix_term_structure(req: PhoenixTermStructureRiskRequest):
+    try:
+        result = calculate_phoenix_term_structure_risk(
+            market=req.market.to_domain(),
+            terms=req.terms.model_dump(),
+            bumps=req.bumps.model_dump(),
+            n_paths=req.n_paths,
+            seed=req.seed,
+        )
+        run_id = _save_analysis_run(
+            request_payload=req.model_dump(mode="json"),
+            result=result,
+            run_type="risk",
+        )
+        return {"status": "success", "run_id": run_id, "result": result}
+    except RiskAnalyticsError as exc:
+        return _risk_error_response(exc)
+    except MarketDataValidationError as exc:
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=422)
+    except Exception:
+        return JSONResponse(
+            {"status": "error", "message": "risk calculation failed"},
+            status_code=500,
+        )
+
+
+@router.post("/products/phoenix/risk/research-market")
+def risk_phoenix_research_market(req: ResearchPhoenixRiskRequest):
+    try:
+        built = get_research_market_data_service().build_term_structure(
+            symbol=req.market.symbol,
+            underlier_type=req.market.underlier_type,
+            maturity_years=req.terms.maturity_years,
+        )
+        result = calculate_phoenix_term_structure_risk(
+            market=built.market,
+            terms=req.terms.model_dump(),
+            bumps=req.bumps.model_dump(),
+            n_paths=req.n_paths,
+            seed=req.seed,
+            market_calibration=built.calibration,
+        )
+        request_payload = req.model_dump(mode="json")
+        request_payload["frozen_market"] = built.market.to_dict()
+        request_payload["market_calibration_id"] = built.calibration.get(
+            "calibration_id"
+        )
+        run_id = _save_analysis_run(
+            request_payload=request_payload,
+            result=result,
+            run_type="risk",
+        )
+        return {"status": "success", "run_id": run_id, "result": result}
+    except LiveMarketDataError as exc:
+        return _market_data_error_response(exc)
+    except RiskAnalyticsError as exc:
+        return _risk_error_response(exc)
+    except MarketDataValidationError as exc:
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=422)
+    except Exception:
+        return JSONResponse(
+            {"status": "error", "message": "research risk calculation failed"},
+            status_code=500,
+        )
+
+
+@router.get("/runs")
+def recent_analysis_runs(limit: int = Query(default=20, ge=1, le=100)):
+    try:
+        return {"status": "success", "runs": list_recent_runs(limit=limit)}
+    except Exception:
+        return JSONResponse(
+            {"status": "error", "message": "run history unavailable"},
+            status_code=500,
+        )
+
+
+@router.get("/runs/{run_id}")
+def analysis_run(run_id: str):
+    try:
+        stored = get_run(run_id)
+        if stored is None:
+            return JSONResponse(
+                {"status": "error", "message": "run not found"}, status_code=404
+            )
+        return {"status": "success", "run": stored}
+    except Exception:
+        return JSONResponse(
+            {"status": "error", "message": "run history unavailable"},
             status_code=500,
         )
 

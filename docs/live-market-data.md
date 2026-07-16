@@ -84,6 +84,11 @@ POST /api/v1/market-data/research-term-structure
 POST /api/v1/products/phoenix/price/research-market
 ```
 
+Phase 7 can freeze the calibrated structure for paired scenarios and
+finite-difference risk through the Phoenix `scenario/research-market` and
+`risk/research-market` endpoints. See
+[`equity-risk-analytics-v1`](equity-risk-analytics-v1.md).
+
 Example body:
 
 ```json

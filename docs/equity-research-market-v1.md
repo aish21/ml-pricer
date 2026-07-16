@@ -182,3 +182,7 @@ proxy with a bootstrapped collateral/OIS curve, use a licensed and timestamped
 option feed, fit an arbitrage-controlled volatility surface, incorporate
 settlement calendars, and validate the resulting model against independent
 prices.
+
+Phase 7 freezes this calibration while applying paired scenarios and
+finite-difference sensitivities. See
+[equity-risk-analytics-v1.md](equity-risk-analytics-v1.md).

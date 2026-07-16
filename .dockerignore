@@ -1,4 +1,7 @@
 __pycache__/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
 .git/
 .github/
 .logs/
@@ -6,8 +9,6 @@ __pycache__/
 .venv/
 env/
 venv/
-*.pyc
-*.pyo
 *.pyd
 *.swp
 .ipynb_checkpoints

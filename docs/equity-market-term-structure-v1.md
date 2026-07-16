@@ -133,3 +133,7 @@ same immutable schema through the explicitly approximate, credential-free
 [`equity-research-market-v1`](equity-research-market-v1.md) contract. It uses
 separately attributed Treasury and option inputs while preserving the manual
 route for fully controlled experiments.
+
+Phase 7 consumes the same immutable curve for frozen-market scenarios and
+finite-difference sensitivities under
+[`equity-risk-analytics-v1`](equity-risk-analytics-v1.md).

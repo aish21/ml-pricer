@@ -112,3 +112,36 @@ def price_phoenix_piecewise_reference(
         elapsed=elapsed,
         metadata={"term_structure_id": market.term_structure_id},
     )
+
+
+def phoenix_piecewise_discounted_payoffs(
+    payoff: PhoenixPayoff,
+    params: Dict[str, Any],
+    market: EquityMarketTermStructure,
+    n_paths: int,
+    n_steps: int = DEFAULT_REFERENCE_STEPS,
+    seed: Optional[int] = DEFAULT_REFERENCE_SEED,
+    standard_normal_shocks: Optional[np.ndarray] = None,
+) -> np.ndarray:
+    """Return pathwise Phoenix PVs for paired scenario and risk estimates.
+
+    When ``standard_normal_shocks`` is supplied, callers can value several
+    markets with exactly the same random draws.  ``params['S0']`` remains the
+    frozen contractual reference level while ``market.spot`` is the simulated
+    market spot.
+    """
+    maturity = float(params["T"])
+    paths = simulate_piecewise_gbm_paths(
+        market=market,
+        T=maturity,
+        n_steps=n_steps,
+        n_paths=n_paths,
+        seed=seed,
+        standard_normal_shocks=standard_normal_shocks,
+    )
+    return payoff.compute_payoff_with_discount_curve(
+        paths=paths,
+        params=params,
+        T=maturity,
+        discount_factor=market.discount_factor,
+    )

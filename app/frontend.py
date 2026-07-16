@@ -8,6 +8,11 @@ from typing import Any, Dict, Optional
 from io import StringIO
 from datetime import datetime, timezone
 
+from app.frontend_support import (
+    compact_nonzero_shock,
+    frozen_term_structure_from_pricing_result,
+)
+
 # API endpoint (container-friendly default)
 API_URL = os.getenv("API_URL", "https://aish-ml-pricer-backend.up.railway.app")
 
@@ -95,6 +100,15 @@ st.sidebar.markdown("### Advanced settings")
 n_paths = st.sidebar.selectbox("Monte Carlo Paths", [500, 2000, 8000], index=1)
 model_name = st.sidebar.selectbox("Method", ["Monte Carlo reference"], index=0)
 learn_mode = st.sidebar.checkbox("Show payoff explanation", value=True)
+analysis_mode = st.sidebar.selectbox(
+    "After pricing",
+    ["Price only", "Price + scenario", "Price + risk analytics"],
+)
+analysis_seed = int(
+    st.sidebar.number_input(
+        "Analysis random seed", min_value=0, max_value=4_294_967_295, value=42
+    )
+)
 
 st.markdown(f"### Selected payoff: **{payoff_type}**")
 
@@ -104,47 +118,61 @@ col1, col2 = st.columns(2)
 if payoff_type == "Phoenix":
     market_mode = st.radio(
         "Market source",
-        ["Manual snapshot", "Yahoo latest bar (research)"],
+        [
+            "Research term structure",
+            "Manual snapshot",
+            "Yahoo latest bar + manual assumptions",
+        ],
         horizontal=True,
     )
-    use_market_quote = market_mode == "Yahoo latest bar (research)"
+    use_research_market = market_mode == "Research term structure"
+    use_market_quote = market_mode == "Yahoo latest bar + manual assumptions"
     with col1:
         symbol = st.text_input("Underlier symbol", value="SPY", max_chars=64)
-        underlier_type = st.selectbox("Underlier type", ["ETF", "Equity", "Index"])
+        underlier_choices = ["ETF", "Equity"]
+        if not use_research_market:
+            underlier_choices.append("Index")
+        underlier_type = st.selectbox("Underlier type", underlier_choices)
+        if use_research_market:
+            st.caption(
+                "Server-built USD research curve from Treasury data, trailing "
+                "distributions, and near-ATM Yahoo option volatility."
+            )
         if use_market_quote:
             st.caption(
                 "Spot and metadata use yfinance's latest regular-session one-minute bar. "
                 "Research/personal use only; data may be delayed."
             )
-        else:
+        elif not use_research_market:
             currency = st.text_input("Currency", value="USD", max_chars=3)
             S0 = st.number_input(
                 "Spot", value=100.0, min_value=0.000001, step=0.1, format="%.4f"
             )
-        r = st.number_input(
-            "Flat discount rate",
-            value=0.03,
-            min_value=-0.25,
-            max_value=1.0,
-            step=0.0001,
-            format="%.6f",
-        )
-        dividend_yield = st.number_input(
-            "Flat dividend yield",
-            value=0.0,
-            min_value=-0.25,
-            max_value=1.0,
-            step=0.0001,
-            format="%.6f",
-        )
-        sigma = st.number_input(
-            "Flat volatility",
-            value=0.2,
-            min_value=0.000001,
-            max_value=5.0,
-            step=0.001,
-            format="%.6f",
-        )
+        if not use_research_market:
+            r = st.number_input(
+                "Flat discount rate",
+                value=0.03,
+                min_value=-0.25,
+                max_value=1.0,
+                step=0.0001,
+                format="%.6f",
+            )
+            dividend_yield = st.number_input(
+                "Flat dividend yield",
+                value=0.0,
+                min_value=-0.25,
+                max_value=1.0,
+                step=0.0001,
+                format="%.6f",
+            )
+            sigma = st.number_input(
+                "Flat volatility",
+                value=0.2,
+                min_value=0.000001,
+                max_value=5.0,
+                step=0.001,
+                format="%.6f",
+            )
         T = st.number_input(
             "Maturity (years)",
             value=1.0,
@@ -172,7 +200,7 @@ if payoff_type == "Phoenix":
         obs = st.number_input(
             "Observation Count", value=6, min_value=1, step=1, format="%d"
         )
-        if not use_market_quote:
+        if not use_market_quote and not use_research_market:
             calendar = st.text_input("Calendar", value="XNYS", max_chars=32)
         day_count = st.text_input("Day count", value="ACT/365F", max_chars=16)
     phoenix_terms = {
@@ -257,6 +285,96 @@ else:  # Barrier
         "option_type": option_type_val,
     }
 
+scenario_shock = {}
+risk_bumps = {}
+if analysis_mode == "Price + scenario":
+    with st.expander("Scenario shocks", expanded=True):
+        shock_col1, shock_col2 = st.columns(2)
+        with shock_col1:
+            scenario_spot_pct = st.number_input(
+                "Spot shock (%)", value=-10.0, min_value=-99.99, max_value=1000.0
+            )
+            scenario_rate_bps = st.number_input(
+                "Parallel rate shock (bp)",
+                value=0.0,
+                min_value=-10000.0,
+                max_value=10000.0,
+            )
+        with shock_col2:
+            scenario_vol_abs = st.number_input(
+                "Parallel volatility shock", value=0.0, min_value=-5.0, max_value=5.0
+            )
+            scenario_dividend_bps = st.number_input(
+                "Parallel dividend shock (bp)",
+                value=0.0,
+                min_value=-10000.0,
+                max_value=10000.0,
+            )
+        use_segment_shock = st.checkbox("Add one segment-specific shock", value=False)
+        segment_shock = None
+        if use_segment_shock:
+            bucket_col1, bucket_col2, bucket_col3, bucket_col4 = st.columns(4)
+            with bucket_col1:
+                segment_index = int(
+                    st.number_input(
+                        "Segment index", min_value=0, max_value=251, value=0
+                    )
+                )
+            with bucket_col2:
+                segment_rate_bps = st.number_input(
+                    "Segment rate (bp)",
+                    value=0.0,
+                    min_value=-10000.0,
+                    max_value=10000.0,
+                )
+            with bucket_col3:
+                segment_dividend_bps = st.number_input(
+                    "Segment dividend (bp)",
+                    value=0.0,
+                    min_value=-10000.0,
+                    max_value=10000.0,
+                )
+            with bucket_col4:
+                segment_vol_abs = st.number_input(
+                    "Segment volatility", value=0.01, min_value=-5.0, max_value=5.0
+                )
+            segment_shock = {
+                "segment_index": segment_index,
+                "rate_bps": segment_rate_bps,
+                "dividend_bps": segment_dividend_bps,
+                "volatility_abs": segment_vol_abs,
+            }
+        scenario_shock = compact_nonzero_shock(
+            spot_pct=scenario_spot_pct,
+            rate_parallel_bps=scenario_rate_bps,
+            dividend_parallel_bps=scenario_dividend_bps,
+            volatility_parallel_abs=scenario_vol_abs,
+            segment_shock=segment_shock,
+        )
+elif analysis_mode == "Price + risk analytics":
+    with st.expander("Finite-difference bump sizes", expanded=False):
+        bump_col1, bump_col2 = st.columns(2)
+        with bump_col1:
+            risk_spot_relative = st.number_input(
+                "Spot relative bump", value=0.01, min_value=0.000001, max_value=0.5
+            )
+            risk_rate_bps = st.number_input(
+                "Rate bump (bp)", value=10.0, min_value=0.000001, max_value=5000.0
+            )
+        with bump_col2:
+            risk_volatility_absolute = st.number_input(
+                "Volatility bump", value=0.01, min_value=0.000001, max_value=1.0
+            )
+            risk_dividend_bps = st.number_input(
+                "Dividend bump (bp)", value=10.0, min_value=0.000001, max_value=5000.0
+            )
+        risk_bumps = {
+            "spot_relative": risk_spot_relative,
+            "volatility_absolute": risk_volatility_absolute,
+            "rate_bps": risk_rate_bps,
+            "dividend_bps": risk_dividend_bps,
+        }
+
 st.markdown("---")
 
 # Run button (shows spinner)
@@ -270,7 +388,18 @@ container_json = st.container()
 
 if run_clicked:
     if payoff_type == "Phoenix":
-        if use_market_quote:
+        if use_research_market:
+            payload = {
+                "market": {
+                    "symbol": symbol,
+                    "underlier_type": underlier_type.lower(),
+                    "currency": "USD",
+                },
+                "terms": phoenix_terms,
+                "n_paths": n_paths,
+            }
+            pricing_url = f"{API_URL}/api/v1/products/phoenix/price/research-market"
+        elif use_market_quote:
             payload = {
                 "market": {
                     "symbol": symbol,
@@ -353,6 +482,46 @@ if run_clicked:
     # Display debug expander
     with st.expander("Debug: full backend response (collapsed)"):
         st.json(result_raw)
+
+    analysis_result_raw = None
+    analysis_result = None
+    analysis_error = None
+    if analysis_mode != "Price only":
+        frozen_market = frozen_term_structure_from_pricing_result(result, T)
+        if frozen_market is None:
+            analysis_error = "Pricing response did not contain reusable market data."
+        else:
+            analysis_payload = {
+                "market": frozen_market,
+                "terms": phoenix_terms,
+                "n_paths": n_paths,
+                "seed": analysis_seed,
+            }
+            if analysis_mode == "Price + scenario":
+                analysis_payload["shock"] = scenario_shock
+                analysis_url = (
+                    f"{API_URL}/api/v1/products/phoenix/scenario/term-structure"
+                )
+                analysis_label = "paired scenario"
+            else:
+                analysis_payload["bumps"] = risk_bumps
+                analysis_url = f"{API_URL}/api/v1/products/phoenix/risk/term-structure"
+                analysis_label = "risk analytics"
+            with st.spinner(f"Running {analysis_label} on the frozen market..."):
+                try:
+                    analysis_response = requests.post(
+                        analysis_url, json=analysis_payload, timeout=180
+                    )
+                    analysis_result_raw = analysis_response.json()
+                    if analysis_response.ok:
+                        analysis_result = analysis_result_raw.get("result")
+                    else:
+                        analysis_error = analysis_result_raw.get(
+                            "message",
+                            f"Analysis returned HTTP {analysis_response.status_code}",
+                        )
+                except (requests.RequestException, ValueError) as exc:
+                    analysis_error = f"Analysis request failed: {exc}"
 
     per_npaths = find_per_npaths(result)
     if per_npaths is None:
@@ -459,19 +628,23 @@ if run_clicked:
     except Exception:
         st.success("Pricing run complete")
 
-    # ----- Tabs: Dashboard, Diagnostics/Feature, Raw JSON, History -----
-    tab_dashboard, tab_feature, tab_json, tab_history = st.tabs(
-        ["Dashboard", "Feature Analysis / Explanation", "Raw JSON", "History"]
-    )
+    # ----- Tabs: Dashboard, Diagnostics/Feature, Raw JSON, History, Analysis -----
+    tab_names = ["Dashboard", "Feature Analysis / Explanation", "Raw JSON", "History"]
+    if analysis_mode != "Price only":
+        tab_names.append("Scenario" if analysis_mode == "Price + scenario" else "Risk")
+    tabs = st.tabs(tab_names)
+    tab_dashboard, tab_feature, tab_json, tab_history = tabs[:4]
+    tab_analysis = tabs[4] if len(tabs) > 4 else None
 
     with tab_dashboard:
         market_snapshot = result.get("market_snapshot", {})
-        if market_snapshot:
+        market_display = market_snapshot or result.get("market_term_structure", {})
+        if market_display:
             st.caption(
-                f"{market_snapshot.get('symbol')} | "
-                f"{market_snapshot.get('underlier_type')} | "
-                f"as of {market_snapshot.get('market_data_time')} | "
-                f"source: {market_snapshot.get('source')}"
+                f"{market_display.get('symbol')} | "
+                f"{market_display.get('underlier_type')} | "
+                f"as of {market_display.get('market_data_time')} | "
+                f"source: {market_display.get('source')}"
             )
         if reference_only:
             a, b, c = st.columns([1, 1, 1])
@@ -652,6 +825,79 @@ if run_clicked:
                 file_name="pricing_history.csv",
                 mime="text/csv",
             )
+
+    if tab_analysis is not None:
+        with tab_analysis:
+            if analysis_error:
+                st.error(analysis_error)
+                if analysis_result_raw is not None:
+                    st.json(analysis_result_raw)
+            elif analysis_result is None:
+                st.info("No analysis result was returned.")
+            elif analysis_mode == "Price + scenario":
+                base_value = analysis_result["base_valuation"]["price"]
+                shocked_value = analysis_result["shocked_valuation"]["price"]
+                pnl = analysis_result["pnl"]
+                metric1, metric2, metric3 = st.columns(3)
+                metric1.metric("Base value", f"{base_value:.6f}")
+                metric2.metric("Shocked value", f"{shocked_value:.6f}")
+                metric3.metric(
+                    "Scenario P&L",
+                    f"{pnl['value']:.6f}",
+                    delta=f"SE {pnl['standard_error']:.6f}",
+                )
+                st.caption(
+                    f"Run {analysis_result_raw.get('run_id')} | paired paths: "
+                    f"{analysis_result['provenance']['common_random_numbers']}"
+                )
+                scenario_frame = pd.DataFrame(
+                    [
+                        {"valuation": "Base", "price": base_value},
+                        {"valuation": "Shocked", "price": shocked_value},
+                    ]
+                )
+                st.plotly_chart(
+                    px.bar(
+                        scenario_frame,
+                        x="valuation",
+                        y="price",
+                        text="price",
+                        title="Base and shocked Phoenix value",
+                    ),
+                    use_container_width=True,
+                    config=plotly_config,
+                )
+                st.json(analysis_result)
+            else:
+                sensitivities = analysis_result["sensitivities"]
+                risk_rows = [
+                    {
+                        "risk": name,
+                        "value": item["value"],
+                        "standard_error": item["standard_error"],
+                        "resolved_95pct": item["statistically_resolved_95pct"],
+                        "units": item["units"],
+                    }
+                    for name, item in sensitivities.items()
+                ]
+                risk_frame = pd.DataFrame(risk_rows)
+                st.caption(
+                    f"Run {analysis_result_raw.get('run_id')} | common random numbers: "
+                    f"{analysis_result['provenance']['common_random_numbers']}"
+                )
+                st.dataframe(risk_frame, use_container_width=True)
+                st.plotly_chart(
+                    px.bar(
+                        risk_frame,
+                        x="risk",
+                        y="value",
+                        color="resolved_95pct",
+                        title="Finite-difference sensitivities",
+                    ),
+                    use_container_width=True,
+                    config=plotly_config,
+                )
+                st.json(analysis_result)
 
 # End run_clicked handling
 

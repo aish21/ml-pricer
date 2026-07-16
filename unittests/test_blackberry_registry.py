@@ -28,6 +28,8 @@ def test_product_registry_returns_expected_supported_keys():
         "equity-market-term-structure-v1"
     ]
     assert phoenix["research_market_versions"] == ["equity-research-market-v1"]
+    assert phoenix["scenario_versions"] == ["equity-market-scenario-v1"]
+    assert phoenix["risk_analytics_versions"] == ["equity-risk-analytics-v1"]
     assert "equity-gbm-flat-v2" in phoenix["market_model_versions"]
     assert "equity-gbm-piecewise-v1" in phoenix["market_model_versions"]
 

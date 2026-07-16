@@ -26,6 +26,10 @@ allocation.
 - Builds a credential-free USD equity/ETF research term structure from official
   Treasury par yields, trailing distributions, and near-ATM yfinance option
   chains, with field-level provenance.
+- Runs frozen-market spot, rate, dividend, volatility, and individual segment
+  scenarios with paired Monte Carlo P&L uncertainty.
+- Reports Delta, Gamma, Vega, Rho, and dividend rho with explicit units,
+  confidence intervals, and common-random-number diagnostics.
 - Fetches credential-free research quotes through yfinance with bounded
   retries, caching, and freshness checks.
 - Serves pricing through FastAPI.
@@ -37,7 +41,8 @@ allocation.
   - spot percentage shock
   - volatility absolute shock
   - rate basis-point shock
-- Stores pricing and scenario runs in SQLite.
+- Stores pricing, scenario, and risk runs in SQLite with calibration and model
+  provenance.
 - Shows recent runs and pricing-method status in a compact terminal UI.
 
 The BlackBerry is a thin client. It does not run the model locally. It sends
@@ -51,7 +56,9 @@ BlackBerry Bold 9780
   -> local HTTP over Wi-Fi
   -> FastAPI backend
   -> yfinance research quote adapter
+  -> Treasury/yfinance research calibration
   -> versioned payoff + Monte Carlo reference layer
+  -> paired scenario and finite-difference risk layer
   -> SQLite run store
   -> compact terminal result page
 ```
@@ -75,6 +82,7 @@ app/
   services/               Product registry, pricing, scenario, run storage
   services/live_market_data.py  Normalized yfinance research-data adapter
   services/research_market_data.py  Treasury/options research calibration
+  services/risk_service.py  Frozen-market scenarios and finite-difference risk
 
 src/final/
   payoffs.py              Core payoff implementations
@@ -99,6 +107,7 @@ docs/
   equity-market-snapshot-v1.md  Dated market-data and flat-GBM v2 specification
   equity-market-term-structure-v1.md  Piecewise carry/volatility specification
   equity-research-market-v1.md  Server-built USD research calibration
+  equity-risk-analytics-v1.md  Paired scenarios and risk analytics
   live-market-data.md      Research-provider behavior and usage boundary
 
 clients/
@@ -281,12 +290,18 @@ Versioned API v1:
 - `POST /api/v1/products/phoenix/price/term-structure`
 - `POST /api/v1/products/phoenix/price/market`
 - `POST /api/v1/products/phoenix/price/research-market`
+- `POST /api/v1/products/phoenix/scenario/term-structure`
+- `POST /api/v1/products/phoenix/scenario/research-market`
+- `POST /api/v1/products/phoenix/risk/term-structure`
+- `POST /api/v1/products/phoenix/risk/research-market`
 - `POST /api/v1/market-data/research-term-structure`
 - `GET /api/v1/market-data/status`
 - `GET /api/v1/market-data/quote`
 - `POST /api/v1/price` (deprecated generic envelope)
 - `GET /api/v1/products`
 - `GET /api/v1/model-info`
+- `GET /api/v1/runs`
+- `GET /api/v1/runs/{run_id}`
 
 Operations:
 
@@ -327,17 +342,19 @@ Legacy routes kept for compatibility:
 - Legacy model/scaler artifacts remain committed but fail contract/feature
   compatibility checks and are not used for pricing.
 - Scenario explanations are simple and rule-based.
+- Phase 7 Greeks are finite-difference research estimates. Discontinuous
+  barriers can produce noisy Gamma and bump sensitivity even with paired paths.
 - Old BlackBerry browser rendering may require further simplification after
   more device testing.
 
 ## Future Roadmap
 
-- Add JSON `POST /api/v1/scenario` and product-specific request schemas.
 - Replace the research par-yield proxy with a bootstrapped collateral curve and
   fit an arbitrage-controlled volatility surface from a licensed feed.
 - Train and validate a replacement surrogate against the frozen Phoenix
   contract and an untouched test set.
-- Improve payoff explanations and risk summaries.
+- Add theta with explicit calendar, fixing, accrual, and market-roll rules.
+- Add volatility-skew, credit/funding, and seasoned-trade state models.
 - Add optional PIN or gateway-based access control for non-local deployments.
 - Move datasets and model artifacts out of normal Git history and add a versioned
   artifact registry.
