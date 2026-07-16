@@ -7,8 +7,8 @@ derivatives. The current product path exposes a versioned, single-underlier
 Phoenix contract priced by deterministic Monte Carlo through a FastAPI backend,
 a Streamlit frontend, and a local BlackBerry Bold 9780-compatible terminal. A
 dated market snapshot separates arbitrary equity-like symbols from product
-terms. Existing LightGBM artifacts are retained as research outputs but are not
-served because they predate the validated contract and feature schema.
+terms. A payoff-aware Phoenix v3 surrogate can run in shadow mode against the
+reference price; legacy artifacts remain ineligible.
 
 This is an educational/demo system. It is not production trading
 infrastructure, financial advice, or a risk system suitable for live capital
@@ -30,6 +30,13 @@ allocation.
   scenarios with paired Monte Carlo P&L uncertainty.
 - Reports Delta, Gamma, Vega, Rho, and dividend rho with explicit units,
   confidence intervals, and common-random-number diagnostics.
+- Generates group-disjoint, barrier-focused Phoenix training data with
+  scrambled Sobol price, cashflow, and event labels plus Monte Carlo
+  uncertainty.
+- Selects direct-price versus payoff-aware multi-task MLPs on validation data,
+  then gates the winner once on an independently generated audit dataset.
+- Exports a checksum-verified pure-NumPy runtime; LightGBM remains an offline
+  research baseline.
 - Fetches credential-free research quotes through yfinance with bounded
   retries, caching, and freshness checks.
 - Serves pricing through FastAPI.
@@ -59,6 +66,7 @@ BlackBerry Bold 9780
   -> Treasury/yfinance research calibration
   -> versioned payoff + Monte Carlo reference layer
   -> paired scenario and finite-difference risk layer
+  -> optional checksum-verified surrogate shadow comparison
   -> SQLite run store
   -> compact terminal result page
 ```
@@ -83,6 +91,7 @@ app/
   services/live_market_data.py  Normalized yfinance research-data adapter
   services/research_market_data.py  Treasury/options research calibration
   services/risk_service.py  Frozen-market scenarios and finite-difference risk
+  services/surrogate_service.py  Fail-closed shadow artifact runtime
 
 src/final/
   payoffs.py              Core payoff implementations
@@ -91,6 +100,10 @@ src/final/
   model_trainer.py        LightGBM training and model loading
   evaluator.py            Model vs Monte Carlo evaluation
   reference_pricer.py     Deterministic reference price and uncertainty
+  surrogate_contract.py   Phoenix v3 feature/output/domain contract
+  surrogate_data.py       Group-disjoint Sobol-labelled dataset generator
+  surrogate_trainer.py    MLP/baseline evaluation and artifact promotion gates
+  surrogate_pipeline.py   Versioned generate/train command line entry point
   pipeline.py             Training/evaluation orchestration
 
 final/results/
@@ -108,6 +121,8 @@ docs/
   equity-market-term-structure-v1.md  Piecewise carry/volatility specification
   equity-research-market-v1.md  Server-built USD research calibration
   equity-risk-analytics-v1.md  Paired scenarios and risk analytics
+  phoenix-payoff-aware-v3.md  Finance/ML lecture and v3 operating specification
+  phoenix-surrogate-v2.md  Superseded v2 historical specification
   live-market-data.md      Research-provider behavior and usage boundary
 
 clients/
@@ -147,6 +162,16 @@ Run tests:
 ```powershell
 python -m pytest -q
 ```
+
+Run the Phoenix surrogate research pipeline:
+
+```powershell
+python -m src.final.surrogate_pipeline full
+```
+
+Generated datasets and artifacts are excluded from Git. See
+[docs/phoenix-payoff-aware-v3.md](docs/phoenix-payoff-aware-v3.md) before enabling
+shadow inference.
 
 Start the FastAPI backend locally:
 
@@ -341,6 +366,9 @@ Legacy routes kept for compatibility:
   simulated path steps.
 - Legacy model/scaler artifacts remain committed but fail contract/feature
   compatibility checks and are not used for pricing.
+- Phoenix surrogate v3 remains shadow-only and disabled by default. A training
+  run is loadable by default only when every price, region, auxiliary-output,
+  and Greek gate passes on its independent audit.
 - Scenario explanations are simple and rule-based.
 - Phase 7 Greeks are finite-difference research estimates. Discontinuous
   barriers can produce noisy Gamma and bump sensitivity even with paired paths.
@@ -351,8 +379,8 @@ Legacy routes kept for compatibility:
 
 - Replace the research par-yield proxy with a bootstrapped collateral curve and
   fit an arbitrage-controlled volatility surface from a licensed feed.
-- Train and validate a replacement surrogate against the frozen Phoenix
-  contract and an untouched test set.
+- Expand surrogate labels and shadow telemetry across denser barrier regions,
+  market regimes, and materially larger untouched datasets.
 - Add theta with explicit calendar, fixing, accrual, and market-roll rules.
 - Add volatility-skew, credit/funding, and seasoned-trade state models.
 - Add optional PIN or gateway-based access control for non-local deployments.
@@ -372,6 +400,11 @@ docker compose up --build
 Research market data works without credentials or configuration. See
 [docs/live-market-data.md](docs/live-market-data.md) for data-quality and usage
 limits.
+
+The optional surrogate shadow uses `PHOENIX_SURROGATE_SHADOW_ENABLED` and
+`PHOENIX_SURROGATE_DIR`. Unapproved artifacts remain blocked unless the
+research-only `PHOENIX_SURROGATE_ALLOW_UNAPPROVED` override is set. See
+[docs/phoenix-payoff-aware-v3.md](docs/phoenix-payoff-aware-v3.md).
 
 The API and frontend images install separate dependency groups. The API image
 contains the NumPy reference runtime but not LightGBM, Optuna, XGBoost, or

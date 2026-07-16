@@ -393,7 +393,7 @@ def price_phoenix_with_term_structure(
         seed=int(seed),
     )
     latency_ms = int(round((time.perf_counter() - started) * 1000))
-    return _build_pricing_result(
+    result = _build_pricing_result(
         product=product,
         normalized_params=normalized_params,
         n_paths=validated_paths,
@@ -403,3 +403,23 @@ def price_phoenix_with_term_structure(
         market_term_structure=market,
         terms=normalized_terms,
     )
+    try:
+        from app.services.surrogate_service import evaluate_surrogate_shadow
+
+        shadow = evaluate_surrogate_shadow(
+            market=market,
+            terms=normalized_terms,
+            contract_reference_spot=market.spot,
+            reference_price=result["price"],
+            reference_standard_error=result["standard_error"],
+        )
+        if shadow is not None:
+            result["surrogate_shadow"] = shadow
+    except Exception:
+        result["surrogate_shadow"] = {
+            "status": "error",
+            "mode": "shadow-only",
+            "used_for_price": False,
+            "reason": "surrogate shadow evaluation failed",
+        }
+    return result

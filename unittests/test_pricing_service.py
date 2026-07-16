@@ -236,6 +236,48 @@ def test_term_structure_pricing_is_versioned_and_attributable():
     }
 
 
+def test_term_structure_shadow_result_never_replaces_reference_price(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.surrogate_service.evaluate_surrogate_shadow",
+        lambda **kwargs: {
+            "status": "success",
+            "used_for_price": False,
+            "surrogate_price": kwargs["reference_price"] + 0.5,
+        },
+    )
+
+    result = price_phoenix_with_term_structure(
+        make_term_structure(), VALID_PHOENIX_TERMS, n_paths=100
+    )
+
+    assert result["price"] == result["mc_price"]
+    assert result["surrogate_shadow"]["surrogate_price"] == pytest.approx(
+        result["price"] + 0.5
+    )
+    assert result["surrogate_shadow"]["used_for_price"] is False
+
+
+def test_term_structure_shadow_failure_is_isolated(monkeypatch):
+    def fail_shadow(**_kwargs):
+        raise RuntimeError("artifact details must not leak")
+
+    monkeypatch.setattr(
+        "app.services.surrogate_service.evaluate_surrogate_shadow", fail_shadow
+    )
+
+    result = price_phoenix_with_term_structure(
+        make_term_structure(), VALID_PHOENIX_TERMS, n_paths=100
+    )
+
+    assert result["price"] == result["mc_price"]
+    assert result["surrogate_shadow"] == {
+        "status": "error",
+        "mode": "shadow-only",
+        "used_for_price": False,
+        "reason": "surrogate shadow evaluation failed",
+    }
+
+
 def test_one_segment_term_structure_matches_flat_snapshot_numerics():
     flat = price_phoenix_with_market_snapshot(
         make_market_snapshot(), VALID_PHOENIX_TERMS, n_paths=500

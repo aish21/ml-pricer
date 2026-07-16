@@ -7,6 +7,9 @@ services:
     environment:
       MODEL_RESULTS_DIR: /srv/app/final/results
       MODEL_HISTORY_FILE: /srv/app/data/pricing_history.csv
+      PHOENIX_SURROGATE_DIR: /srv/app/data/surrogates/phoenix-v3/artifacts
+      PHOENIX_SURROGATE_SHADOW_ENABLED: ${PHOENIX_SURROGATE_SHADOW_ENABLED:-false}
+      PHOENIX_SURROGATE_ALLOW_UNAPPROVED: ${PHOENIX_SURROGATE_ALLOW_UNAPPROVED:-false}
     volumes:
       - ./final/results:/srv/app/final/results:ro
       - ./data:/srv/app/data:rw

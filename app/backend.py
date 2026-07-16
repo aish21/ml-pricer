@@ -27,6 +27,7 @@ from app.services.pricing_service import (
 )
 from app.services.live_market_data import get_live_market_data_status
 from app.services.research_market_data import get_research_market_data_status
+from app.services.surrogate_service import get_surrogate_status
 from app.services.product_registry import (
     REPO_ROOT,
     build_artifact_status,
@@ -331,4 +332,5 @@ def health_ready():
         ],
         "market_data": get_live_market_data_status(),
         "research_market": get_research_market_data_status(),
+        "surrogate_shadow": get_surrogate_status(),
     }

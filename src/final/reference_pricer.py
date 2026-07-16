@@ -145,3 +145,30 @@ def phoenix_piecewise_discounted_payoffs(
         T=maturity,
         discount_factor=market.discount_factor,
     )
+
+
+def phoenix_piecewise_discounted_components(
+    payoff: PhoenixPayoff,
+    params: Dict[str, Any],
+    market: EquityMarketTermStructure,
+    n_paths: int,
+    n_steps: int = DEFAULT_REFERENCE_STEPS,
+    seed: Optional[int] = DEFAULT_REFERENCE_SEED,
+    standard_normal_shocks: Optional[np.ndarray] = None,
+) -> Dict[str, np.ndarray]:
+    """Return pathwise Phoenix cashflow components and event indicators."""
+    maturity = float(params["T"])
+    paths = simulate_piecewise_gbm_paths(
+        market=market,
+        T=maturity,
+        n_steps=n_steps,
+        n_paths=n_paths,
+        seed=seed,
+        standard_normal_shocks=standard_normal_shocks,
+    )
+    return payoff.compute_cashflow_components_with_discount_curve(
+        paths=paths,
+        params=params,
+        T=maturity,
+        discount_factor=market.discount_factor,
+    )

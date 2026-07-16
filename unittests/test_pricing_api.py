@@ -277,6 +277,13 @@ def test_health_endpoints_are_available():
     assert live.json() == {"status": "alive"}
     assert ready.status_code == 200
     assert ready.json()["contract_version"] == "phoenix-single-v1"
+    assert ready.json()["surrogate_shadow"] == {
+        "enabled": False,
+        "mode": "shadow-only",
+        "available": False,
+        "model_version": "phoenix-surrogate-payoff-aware-v3",
+        "reason": "disabled",
+    }
 
 
 def test_product_focused_phoenix_api_uses_dated_market_snapshot():

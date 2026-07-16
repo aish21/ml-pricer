@@ -125,6 +125,7 @@ def test_api_v1_model_info_returns_json():
     assert payload["status"] == "success"
     assert payload["model_info"]["api"] == "online"
     assert "phoenix" in payload["model_info"]["supported_product_keys"]
+    assert payload["model_info"]["surrogate_shadow"]["reason"] == "disabled"
 
 
 def test_blackberry_home_returns_terminal_style_html():

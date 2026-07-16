@@ -41,4 +41,4 @@ jobs:
       - name: Build production images
         run: docker compose build
       - name: Verify backend market-data runtime
-        run: docker compose run --rm --no-deps backend python -c "import scipy, yfinance; import app.services.research_market_data, app.services.risk_service"
+        run: docker compose run --rm --no-deps backend python -c "import scipy, yfinance; import app.services.research_market_data, app.services.risk_service, app.services.surrogate_service"

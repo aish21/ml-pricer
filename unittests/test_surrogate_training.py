@@ -1,0 +1,123 @@
+import json
+
+import numpy as np
+
+from src.final.surrogate_contract import (
+    DEFAULT_TRAINING_DOMAIN,
+    PHOENIX_SURROGATE_FEATURE_NAMES,
+    surrogate_contract_metadata,
+)
+from src.final.surrogate_data import PhoenixSurrogateDataset
+from src.final.surrogate_model import load_numpy_mlp_artifact
+from src.final.surrogate_trainer import (
+    PhoenixSurrogateTrainingConfig,
+    train_phoenix_surrogate,
+)
+
+
+def synthetic_dataset(*, role="development", seed=5):
+    rng = np.random.RandomState(seed)
+    X = rng.normal(size=(120, len(PHOENIX_SURROGATE_FEATURE_NAMES)))
+    y = 1.0 + 0.02 * X[:, 0] - 0.01 * X[:, 1] + 0.005 * X[:, 2] ** 2
+    split_names = (
+        np.asarray(["train"] * 80 + ["validation"] * 20 + ["test"] * 20)
+        if role == "development"
+        else np.asarray(["audit"] * 120)
+    )
+    auxiliary_targets = np.column_stack(
+        [
+            0.1 * y,
+            0.5 * y,
+            0.4 * y,
+            np.zeros_like(y),
+            np.clip(0.5 + 0.1 * X[:, 0], 0.0, 1.0),
+            np.clip(0.2 - 0.05 * X[:, 0], 0.0, 1.0),
+        ]
+    )
+    metadata = {
+        "dataset_schema_version": "phoenix-surrogate-dataset-v3",
+        "dataset_id": f"sha256:synthetic-{role}-{seed}",
+        "dataset_role": role,
+        "n_samples": 120,
+        "split_counts": (
+            {"train": 80, "validation": 20, "test": 20}
+            if role == "development"
+            else {"audit": 120}
+        ),
+        "split_group_counts": (
+            {"train": 80, "validation": 20, "test": 20}
+            if role == "development"
+            else {"audit": 120}
+        ),
+        "config": {
+            "synthetic": True,
+            "dataset_seed": seed,
+            "label_seed": seed + 100,
+        },
+        "generation_environment": {
+            "python": "test",
+            "numpy": "test",
+            "scipy": "test",
+        },
+        **surrogate_contract_metadata(),
+    }
+    metadata["training_domain"] = {
+        name: list(bounds) for name, bounds in DEFAULT_TRAINING_DOMAIN.items()
+    }
+    return PhoenixSurrogateDataset(
+        X=X,
+        y=y,
+        label_standard_error=np.full(120, 0.01),
+        payoff_standard_deviation=np.full(120, 0.1),
+        auxiliary_targets=auxiliary_targets,
+        auxiliary_standard_error=np.full((120, 6), 0.01),
+        group_ids=np.arange(120),
+        split_names=split_names,
+        regime_names=np.asarray(["normal"] * 120),
+        moneyness_region_names=np.asarray(["broad"] * 120),
+        metadata=metadata,
+    )
+
+
+def test_training_exports_versioned_checksum_numpy_artifact(tmp_path):
+    manifest = train_phoenix_surrogate(
+        dataset=synthetic_dataset(),
+        audit_dataset=synthetic_dataset(role="audit", seed=6),
+        output_root=tmp_path,
+        config=PhoenixSurrogateTrainingConfig(
+            hidden_layer_sizes=(16,),
+            max_iter=150,
+            train_lightgbm_baseline=False,
+            greek_validation_cases=0,
+            acceptance_audit_mae=10.0,
+            acceptance_audit_p95_absolute_error=10.0,
+            acceptance_audit_r2=-100.0,
+            acceptance_maximum_regime_mae=10.0,
+            acceptance_maximum_moneyness_region_mae=10.0,
+            acceptance_minimum_within_two_label_se=0.0,
+            acceptance_maximum_component_mae=10.0,
+            acceptance_maximum_event_mae=10.0,
+            acceptance_maximum_mean_output_boundary_violation=1.0,
+            acceptance_maximum_cashflow_reconstruction_mae=10.0,
+        ),
+        verbose=False,
+    )
+
+    pointer = json.loads((tmp_path / "current.json").read_text())
+    artifact_dir = tmp_path / pointer["directory"]
+    model = load_numpy_mlp_artifact(
+        artifact_dir / "weights.npz",
+        manifest["feature_names"],
+        manifest["output_names"],
+    )
+    predictions = model.predict(synthetic_dataset().X[:3])
+    assert manifest["deployment_status"] == "shadow_approved"
+    assert manifest["runtime_policy"] == "shadow-only"
+    assert manifest["dataset_id"] == "sha256:synthetic-development-5"
+    assert manifest["audit_dataset_id"] == "sha256:synthetic-audit-6"
+    assert manifest["selected_strategy"] in {"direct_price", "payoff_aware"}
+    assert manifest["acceptance"]["evaluation_dataset_id"] == (
+        "sha256:synthetic-audit-6"
+    )
+    assert predictions.shape == (3,)
+    assert np.all(np.isfinite(predictions))

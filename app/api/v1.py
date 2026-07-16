@@ -47,6 +47,7 @@ from app.services.risk_service import (
     run_phoenix_term_structure_scenario,
 )
 from app.services.run_store import get_run, list_recent_runs, save_run
+from app.services.surrogate_service import get_surrogate_status
 
 
 router = APIRouter(prefix="/api/v1", tags=["api-v1"])
@@ -685,7 +686,9 @@ def products():
 
 @router.get("/model-info")
 def model_info():
+    info = get_model_info()
+    info["surrogate_shadow"] = get_surrogate_status()
     return {
         "status": "success",
-        "model_info": get_model_info(),
+        "model_info": info,
     }

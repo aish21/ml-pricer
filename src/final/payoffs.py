@@ -140,6 +140,75 @@ class PhoenixPayoff(BasePayoff):
 
         return present_values
 
+    def compute_cashflow_components_with_discount_curve(
+        self,
+        paths: np.ndarray,
+        params: Dict[str, Any],
+        T: float,
+        discount_factor: Callable[[float], float],
+    ) -> Dict[str, np.ndarray]:
+        """Return pathwise Phoenix cashflow and terminal-event components.
+
+        The four present-value components add to the contract payoff. Event
+        indicators are auxiliary learning targets; they are not cashflows.
+        Keeping this decomposition beside the payoff rules prevents the
+        surrogate label generator from inventing a second product definition.
+        """
+        n_paths, n_points = paths.shape
+        n_steps = n_points - 1
+        obs_count = int(params.get("obs_count", 6))
+        if obs_count < 1 or obs_count > n_steps:
+            raise ValueError("obs_count must be between 1 and the path step count")
+        obs_idx = np.linspace(0, n_steps, obs_count + 1, dtype=int)[1:]
+
+        s0 = float(params["S0"])
+        autocall_b = s0 * float(params["autocall_barrier_frac"])
+        coupon_b = s0 * float(params["coupon_barrier_frac"])
+        coupon_rate = float(params["coupon_rate"])
+        knockin_b = s0 * float(params["knock_in_frac"])
+
+        coupon_pv = np.zeros(n_paths, dtype=np.float64)
+        autocall_principal_pv = np.zeros(n_paths, dtype=np.float64)
+        maturity_protected_pv = np.zeros(n_paths, dtype=np.float64)
+        maturity_downside_pv = np.zeros(n_paths, dtype=np.float64)
+        autocalled = np.zeros(n_paths, dtype=bool)
+        downside_redemption = np.zeros(n_paths, dtype=bool)
+        active = np.ones(n_paths, dtype=bool)
+
+        for idx in obs_idx:
+            observation_time = (idx / n_steps) * T
+            observation_discount = float(discount_factor(observation_time))
+            levels = paths[:, idx]
+
+            coupon_due = active & (levels >= coupon_b)
+            coupon_pv[coupon_due] += coupon_rate * observation_discount
+
+            called = active & (levels >= autocall_b)
+            autocall_principal_pv[called] = observation_discount
+            autocalled[called] = True
+            active[called] = False
+
+        if np.any(active):
+            final_levels = paths[:, -1]
+            knocked_in = np.any(paths <= knockin_b, axis=1)
+            capital_loss = active & knocked_in & (final_levels < s0)
+            protected = active & ~capital_loss
+            maturity_discount = float(discount_factor(T))
+            maturity_protected_pv[protected] = maturity_discount
+            maturity_downside_pv[capital_loss] = (
+                final_levels[capital_loss] / s0
+            ) * maturity_discount
+            downside_redemption[capital_loss] = True
+
+        return {
+            "coupon_pv": coupon_pv,
+            "autocall_principal_pv": autocall_principal_pv,
+            "maturity_protected_pv": maturity_protected_pv,
+            "maturity_downside_pv": maturity_downside_pv,
+            "autocall_probability": autocalled.astype(np.float64),
+            "downside_probability": downside_redemption.astype(np.float64),
+        }
+
 
 class AccumulatorPayoff(BasePayoff):
     """Accumulator - accumulates shares when in range."""
