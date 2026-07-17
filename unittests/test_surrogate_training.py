@@ -180,8 +180,14 @@ def test_candidate_search_is_selected_only_from_development_validation(tmp_path)
     assert len(manifest["candidate_models"]) == 9
     assert manifest["selected_candidate"] in manifest["candidate_models"]
     selected = manifest["candidate_models"][manifest["selected_candidate"]]
-    assert selected["selection"]["policy"] == "robust-validation-mae-v2"
+    assert selected["selection"]["policy"] == "robust-validation-mae-v3"
     assert "maximum_validation_regime_moneyness_mae" in selected["selection"]
+    repeated = selected["selection"]["repeated_group_validation"]
+    assert repeated["policy"] == "repeated-group-held-out-validation-v1"
+    assert repeated["folds"] == 5
+    assert repeated["repeats"] == 3
+    assert len(repeated["fold_metrics"]) == 15
+    assert all(fold["n_groups"] > 0 for fold in repeated["fold_metrics"])
     assert manifest["development_error_analysis"]["split"] == "validation"
     assert manifest["acceptance"]["evaluation_dataset_id"] == (
         "sha256:synthetic-audit-8"

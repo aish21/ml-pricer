@@ -14,7 +14,7 @@ from .surrogate_trainer import (
 )
 
 
-DEFAULT_OUTPUT_ROOT = Path("data") / "surrogates" / "phoenix-v6"
+DEFAULT_OUTPUT_ROOT = Path("data") / "surrogates" / "phoenix-v7"
 
 
 def _dataset_config(
@@ -76,7 +76,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Generate and train the uncertainty-calibrated Phoenix "
-            "payoff-aware v6 model."
+            "payoff-aware v7 model."
         )
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -145,7 +145,7 @@ def _build_parser() -> argparse.ArgumentParser:
     full.add_argument("--audit-markets-per-contract", type=int, default=4)
     full.add_argument("--audit-paths-per-replication", type=int, default=256)
     full.add_argument("--audit-label-replications", type=int, default=8)
-    full.add_argument("--audit-seed-offset", type=int, default=7_000_019)
+    full.add_argument("--audit-seed-offset", type=int, default=9_000_031)
     add_training_arguments(full)
     full.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     return parser

@@ -49,7 +49,7 @@ def shadow_result(*, absolute_error=0.01):
     return {
         "status": "success",
         "artifact_id": f"sha256:{'a' * 64}",
-        "model_version": "phoenix-surrogate-payoff-aware-v6",
+        "model_version": "phoenix-surrogate-payoff-aware-v7",
         "surrogate_price": 1.0 + absolute_error,
         "absolute_error": absolute_error,
         "error_to_reference_standard_error": absolute_error / 0.01,

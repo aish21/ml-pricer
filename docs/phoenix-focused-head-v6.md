@@ -1,5 +1,10 @@
 # Phoenix focused-output-head surrogate v6
 
+> Historical specification. V7 confirmed the focused candidate across repeated
+> group-held-out validation folds but deliberately did not rerun the unchanged
+> predictor on another audit. See
+> [`phoenix-robust-selection-v7.md`](phoenix-robust-selection-v7.md).
+
 V6 addresses the only failed v5 promotion check without changing that check.
 The inspected v5 audit is retired from promotion use.
 

@@ -78,6 +78,9 @@ class PhoenixSurrogateTrainingConfig:
     selection_worst_regime_weight: float = 0.35
     selection_worst_moneyness_weight: float = 0.25
     selection_worst_joint_cell_weight: float = 0.25
+    selection_validation_folds: int = 5
+    selection_validation_repeats: int = 3
+    selection_worst_fold_weight: float = 0.25
     focused_head_regime_weight: float = 2.0
     focused_head_coupon_weight: float = 2.0
     focused_head_ridge: float = 0.001
@@ -138,9 +141,17 @@ class PhoenixSurrogateTrainingConfig:
                 self.selection_worst_regime_weight,
                 self.selection_worst_moneyness_weight,
                 self.selection_worst_joint_cell_weight,
+                self.selection_worst_fold_weight,
             )
         ):
             raise SurrogateTrainingError("candidate selection weights are invalid")
+        if (
+            self.selection_validation_folds < 2
+            or self.selection_validation_folds > 10
+            or self.selection_validation_repeats < 1
+            or self.selection_validation_repeats > 10
+        ):
+            raise SurrogateTrainingError("validation fold settings are invalid")
         if (
             not math.isfinite(self.focused_head_regime_weight)
             or self.focused_head_regime_weight < 1.0
@@ -827,6 +838,94 @@ def _refit_focused_output_head(
     }
 
 
+def _repeated_group_validation(
+    dataset: PhoenixSurrogateDataset,
+    predictions: np.ndarray,
+    config: PhoenixSurrogateTrainingConfig,
+) -> dict[str, Any]:
+    validation_mask = _split_mask(dataset, "validation")
+    validation_groups = np.unique(dataset.group_ids[validation_mask])
+    if len(validation_groups) < config.selection_validation_folds:
+        raise SurrogateTrainingError(
+            "not enough validation groups for robust selection folds"
+        )
+    folds = []
+    for repeat in range(config.selection_validation_repeats):
+        rng = np.random.RandomState(config.random_state + 50_021 + repeat * 10_007)
+        shuffled = rng.permutation(validation_groups)
+        for fold_index, fold_groups in enumerate(
+            np.array_split(shuffled, config.selection_validation_folds)
+        ):
+            mask = validation_mask & np.isin(dataset.group_ids, fold_groups)
+            base = _regression_metrics(
+                dataset.y[mask],
+                predictions[mask],
+                dataset.label_standard_error[mask],
+            )
+
+            def worst_mae(labels: np.ndarray) -> float:
+                return max(
+                    float(
+                        np.mean(
+                            np.abs(
+                                predictions[mask & (labels == label)]
+                                - dataset.y[mask & (labels == label)]
+                            )
+                        )
+                    )
+                    for label in np.unique(labels[mask])
+                )
+
+            joint_labels = np.asarray(
+                [
+                    f"{regime}:{region}"
+                    for regime, region in zip(
+                        dataset.regime_names,
+                        dataset.moneyness_region_names,
+                    )
+                ]
+            )
+            worst_regime = worst_mae(dataset.regime_names)
+            worst_moneyness = worst_mae(dataset.moneyness_region_names)
+            worst_joint = worst_mae(joint_labels)
+            score = (
+                base["mae"]
+                + config.selection_worst_regime_weight * worst_regime
+                + config.selection_worst_moneyness_weight * worst_moneyness
+                + config.selection_worst_joint_cell_weight * worst_joint
+            )
+            folds.append(
+                {
+                    "repeat": repeat,
+                    "fold": fold_index,
+                    "n_groups": int(len(fold_groups)),
+                    "n_samples": int(np.sum(mask)),
+                    "mae": base["mae"],
+                    "maximum_regime_mae": worst_regime,
+                    "maximum_moneyness_mae": worst_moneyness,
+                    "maximum_regime_moneyness_mae": worst_joint,
+                    "score": score,
+                }
+            )
+    scores = np.asarray([fold["score"] for fold in folds])
+    mean_score = float(np.mean(scores))
+    worst_score = float(np.max(scores))
+    return {
+        "policy": "repeated-group-held-out-validation-v1",
+        "folds": config.selection_validation_folds,
+        "repeats": config.selection_validation_repeats,
+        "n_validation_groups": int(len(validation_groups)),
+        "mean_fold_score": mean_score,
+        "median_fold_score": float(np.median(scores)),
+        "worst_fold_score": worst_score,
+        "worst_fold_weight": config.selection_worst_fold_weight,
+        "selection_score": (
+            mean_score + config.selection_worst_fold_weight * worst_score
+        ),
+        "fold_metrics": folds,
+    }
+
+
 def _fit_candidate_models(
     dataset: PhoenixSurrogateDataset,
     config: PhoenixSurrogateTrainingConfig,
@@ -876,6 +975,7 @@ def _fit_candidate_models(
                     )
                 )
     for name, metrics in candidates.items():
+        predictions = models[name].predict(dataset.X)
         validation_mae = metrics["split_metrics"]["validation"]["mae"]
         maximum_regime_mae = max(
             values["mae"] for values in metrics["regime_metrics"]["validation"].values()
@@ -888,18 +988,25 @@ def _fit_candidate_models(
             values["mae"]
             for values in metrics["regime_moneyness_validation_metrics"].values()
         )
+        repeated_validation = _repeated_group_validation(
+            dataset,
+            predictions,
+            config,
+        )
         metrics["selection"] = {
-            "policy": "robust-validation-mae-v2",
+            "policy": "robust-validation-mae-v3",
             "validation_mae": validation_mae,
             "maximum_validation_regime_mae": maximum_regime_mae,
             "maximum_validation_moneyness_mae": maximum_moneyness_mae,
             "maximum_validation_regime_moneyness_mae": (maximum_joint_cell_mae),
-            "score": (
+            "single_split_score": (
                 validation_mae
                 + config.selection_worst_regime_weight * maximum_regime_mae
                 + config.selection_worst_moneyness_weight * maximum_moneyness_mae
                 + config.selection_worst_joint_cell_weight * maximum_joint_cell_mae
             ),
+            "repeated_group_validation": repeated_validation,
+            "score": repeated_validation["selection_score"],
         }
     selected_candidate = min(
         candidates,
