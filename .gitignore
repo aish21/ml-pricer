@@ -11,6 +11,9 @@ __pycache__/
 
 # Jupyter Notebook
 .ipynb_checkpoints
+notebooks/tuner_dir/
+notebooks/tuner_logs/
+notebooks/tuner_results/
 
 # Distribution / packaging
 .Python
@@ -29,6 +32,10 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
 # PyTorch
 *.pth

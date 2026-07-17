@@ -1,0 +1,14 @@
+* text=auto eol=lf
+
+*.gif binary
+*.h5 binary
+*.hdf5 binary
+*.ico binary
+*.jpeg binary
+*.jpg binary
+*.joblib binary
+*.keras binary
+*.npz binary
+*.pkl binary
+*.png binary
+*.sqlite3 binary

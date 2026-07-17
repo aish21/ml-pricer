@@ -36,7 +36,7 @@ from app.services.product_registry import (
     get_results_dir,
 )
 
-app = FastAPI(title="Neural Pricer API", version="0.4.0")
+app = FastAPI(title="Neural Pricer API", version="0.5.0")
 app.include_router(bb_api_router)
 app.include_router(api_v1_router)
 app.include_router(blackberry_router)

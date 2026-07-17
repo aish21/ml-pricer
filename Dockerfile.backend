@@ -1,6 +1,6 @@
 FROM python:3.11-slim
 
-LABEL org.opencontainers.image.source="https://github.com/aish21/neural-pricer"
+LABEL org.opencontainers.image.source="https://github.com/aish21/ml-pricer"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

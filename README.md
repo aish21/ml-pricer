@@ -7,8 +7,8 @@ derivatives. The current product path exposes a versioned, single-underlier
 Phoenix contract priced by deterministic Monte Carlo through a FastAPI backend,
 a Streamlit frontend, and a local BlackBerry Bold 9780-compatible terminal. A
 dated market snapshot separates arbitrary equity-like symbols from product
-terms. A monitored payoff-aware Phoenix v4 surrogate can run in shadow mode against the
-reference price; legacy artifacts remain ineligible.
+terms. A monitored payoff-aware Phoenix v4 surrogate can run in shadow mode
+against the reference price; legacy artifacts remain ineligible.
 
 This is an educational/demo system. It is not production trading
 infrastructure, financial advice, or a risk system suitable for live capital
@@ -104,7 +104,7 @@ src/final/
   model_trainer.py        LightGBM training and model loading
   evaluator.py            Model vs Monte Carlo evaluation
   reference_pricer.py     Deterministic reference price and uncertainty
-  surrogate_contract.py   Phoenix v3 feature/output/domain contract
+  surrogate_contract.py   Phoenix v4 feature/output/domain contract
   surrogate_data.py       Group-disjoint Sobol-labelled dataset generator
   surrogate_trainer.py    MLP/baseline evaluation and artifact promotion gates
   surrogate_pipeline.py   Versioned generate/train command line entry point
@@ -167,6 +167,13 @@ Run tests:
 
 ```powershell
 python -m pytest -q
+```
+
+Run the same source checks as CI:
+
+```powershell
+python -m black --check app src unittests
+python -m ruff check app src/final unittests
 ```
 
 Run the Phoenix surrogate research pipeline:

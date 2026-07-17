@@ -43,8 +43,7 @@ def init_db(conn: sqlite3.Connection) -> None:
         """
     )
     columns = {
-        row[1]
-        for row in conn.execute("PRAGMA table_info(pricing_runs)").fetchall()
+        row[1] for row in conn.execute("PRAGMA table_info(pricing_runs)").fetchall()
     }
     if "run_type" not in columns:
         conn.execute(

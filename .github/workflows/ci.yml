@@ -25,7 +25,9 @@ jobs:
       - name: Install tested dependency groups
         run: python -m pip install --upgrade pip && python -m pip install -e ".[api,training,test]"
       - name: Static checks
-        run: python -m ruff check app src/final unittests
+        run: |
+          python -m black --check app src unittests
+          python -m ruff check app src/final unittests
       - name: Unit and integration tests
         run: python -m pytest -q
       - name: Build package
