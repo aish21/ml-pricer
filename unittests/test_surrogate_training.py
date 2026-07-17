@@ -13,6 +13,7 @@ from src.final.surrogate_data import PhoenixSurrogateDataset
 from src.final.surrogate_model import load_numpy_mlp_artifact
 from src.final.surrogate_trainer import (
     PhoenixSurrogateTrainingConfig,
+    train_event_conditioned_research_candidate,
     train_phoenix_surrogate,
 )
 
@@ -227,4 +228,40 @@ def test_training_rejects_an_under_replicated_audit_before_fitting(tmp_path):
                 greek_validation_cases=0,
             ),
             verbose=False,
+        )
+
+
+def test_event_conditioned_candidate_stays_development_only():
+    _, report = train_event_conditioned_research_candidate(
+        dataset=synthetic_dataset(),
+        config=PhoenixSurrogateTrainingConfig(
+            hidden_layer_sizes=(8,),
+            max_iter=50,
+            train_lightgbm_baseline=False,
+            greek_validation_cases=0,
+        ),
+    )
+
+    assert report["runtime_eligible"] is False
+    assert report["audit_evaluated"] is False
+    assert report["deployment_status"] == "research_only"
+    assert report["target_reconstruction_maximum_error"] < 1e-12
+    assert report["selection"]["policy"] == (
+        "event-conditioned-development-comparison-v1"
+    )
+    repeated = report["selection"]["repeated_group_validation"]
+    assert repeated["policy"] == "repeated-group-held-out-validation-v1"
+    assert len(repeated["fold_metrics"]) == 15
+
+
+def test_event_conditioned_candidate_rejects_an_audit_dataset():
+    with pytest.raises(RuntimeError, match="expected a development dataset"):
+        train_event_conditioned_research_candidate(
+            dataset=synthetic_dataset(role="audit"),
+            config=PhoenixSurrogateTrainingConfig(
+                hidden_layer_sizes=(8,),
+                max_iter=10,
+                train_lightgbm_baseline=False,
+                greek_validation_cases=0,
+            ),
         )

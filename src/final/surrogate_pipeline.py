@@ -10,6 +10,7 @@ from .surrogate_data import (
 )
 from .surrogate_trainer import (
     PhoenixSurrogateTrainingConfig,
+    train_event_conditioned_research_candidate,
     train_phoenix_surrogate,
 )
 
@@ -139,6 +140,18 @@ def _build_parser() -> argparse.ArgumentParser:
     train.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     add_training_arguments(train)
 
+    research_events = subparsers.add_parser(
+        "research-events",
+        help="Evaluate the event-conditioned architecture on development data",
+    )
+    research_events.add_argument("dataset", type=Path)
+    research_events.add_argument(
+        "--report",
+        type=Path,
+        help="optional path for the development-only JSON report",
+    )
+    add_training_arguments(research_events)
+
     full = subparsers.add_parser("full", help="Generate data and train the model")
     add_dataset_arguments(full)
     full.add_argument("--audit-contracts", type=int, default=256)
@@ -171,6 +184,24 @@ def main(argv: list[str] | None = None) -> int:
             ),
             flush=True,
         )
+        return 0
+
+    if args.command == "research-events":
+        dataset = load_phoenix_surrogate_dataset(args.dataset)
+        _, report = train_event_conditioned_research_candidate(
+            dataset=dataset,
+            config=_training_config(args),
+            hidden_layer_sizes=tuple(args.hidden_layers),
+            random_state=args.training_seed,
+        )
+        if args.report is not None:
+            report_path = Path(args.report)
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(
+                json.dumps(report, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+        print(json.dumps(report, indent=2), flush=True)
         return 0
 
     if args.command == "train":

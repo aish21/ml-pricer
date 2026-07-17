@@ -31,6 +31,13 @@ from .surrogate_contract import (
     surrogate_contract_metadata,
 )
 from .surrogate_data import DATASET_SCHEMA_VERSION, PhoenixSurrogateDataset
+from .surrogate_event_conditioning import (
+    PHOENIX_EVENT_CONDITIONED_OUTPUT_NAMES,
+    PHOENIX_EVENT_CONDITIONED_RESEARCH_VERSION,
+    EventConditionedResearchSurrogate,
+    decompose_event_conditioned_targets,
+    reconstruct_event_conditioned_price,
+)
 from .surrogate_model import NumpyMLPSurrogate, file_sha256
 
 
@@ -924,6 +931,249 @@ def _repeated_group_validation(
         ),
         "fold_metrics": folds,
     }
+
+
+def train_event_conditioned_research_candidate(
+    dataset: PhoenixSurrogateDataset,
+    config: PhoenixSurrogateTrainingConfig,
+    *,
+    hidden_layer_sizes: tuple[int, ...] | None = None,
+    random_state: int | None = None,
+) -> tuple[EventConditionedResearchSurrogate, dict[str, Any]]:
+    """Fit an offline event-conditioned candidate on development data only.
+
+    This entry point deliberately does not accept an audit dataset and does not
+    write a serving artifact. It exists to establish whether changing the
+    approximation architecture is worthwhile before another sealed audit is
+    generated.
+    """
+    from sklearn.neural_network import MLPRegressor
+
+    _validate_training_dataset(dataset, expected_role="development")
+    layout = hidden_layer_sizes or config.hidden_layer_sizes
+    seed = config.random_state if random_state is None else random_state
+    if not layout or any(width < 1 or width > 2_048 for width in layout):
+        raise SurrogateTrainingError("event-conditioned hidden_layer_sizes are invalid")
+    if seed < 0 or seed > 1_000_000:
+        raise SurrogateTrainingError("event-conditioned random_state is invalid")
+
+    train_mask = _split_mask(dataset, "train")
+    targets = decompose_event_conditioned_targets(dataset.auxiliary_targets)
+    reconstructed_labels = reconstruct_event_conditioned_price(targets)
+    if not np.allclose(reconstructed_labels, dataset.y, rtol=0.0, atol=1e-12):
+        raise SurrogateTrainingError(
+            "event-conditioned targets do not reconstruct the dataset price"
+        )
+
+    feature_mean = np.mean(dataset.X[train_mask], axis=0)
+    feature_scale = np.std(dataset.X[train_mask], axis=0)
+    feature_scale[feature_scale < 1e-12] = 1.0
+
+    def fit_network(
+        *,
+        output_indices: tuple[int, ...],
+        fit_mask: np.ndarray,
+        network_seed: int,
+    ) -> tuple[NumpyMLPSurrogate, dict[str, Any]]:
+        if int(np.sum(fit_mask)) < 10:
+            raise SurrogateTrainingError(
+                "too few positive-event rows for conditional branch training"
+            )
+        selected_targets = targets[:, output_indices]
+        network_target_mean = np.mean(selected_targets[fit_mask], axis=0)
+        network_target_scale = np.std(selected_targets[fit_mask], axis=0)
+        network_target_scale[network_target_scale < 1e-12] = 1.0
+        X_fit = (dataset.X[fit_mask] - feature_mean) / feature_scale
+        y_fit = (
+            selected_targets[fit_mask] - network_target_mean
+        ) / network_target_scale
+        network_model = MLPRegressor(
+            hidden_layer_sizes=layout,
+            activation="relu",
+            solver="adam",
+            alpha=config.alpha,
+            learning_rate_init=config.learning_rate_init,
+            max_iter=config.max_iter,
+            random_state=network_seed,
+            early_stopping=True,
+            validation_fraction=0.15,
+            n_iter_no_change=30,
+        )
+        network_started = time.perf_counter()
+        network_model.fit(
+            X_fit,
+            y_fit[:, 0] if len(output_indices) == 1 else y_fit,
+        )
+        network_elapsed = time.perf_counter() - network_started
+        network = NumpyMLPSurrogate(
+            feature_names=PHOENIX_SURROGATE_FEATURE_NAMES,
+            output_names=tuple(
+                PHOENIX_EVENT_CONDITIONED_OUTPUT_NAMES[index]
+                for index in output_indices
+            ),
+            feature_mean=feature_mean,
+            feature_scale=feature_scale,
+            target_mean=network_target_mean,
+            target_scale=network_target_scale,
+            weights=tuple(
+                np.asarray(values, dtype=np.float64) for values in network_model.coefs_
+            ),
+            biases=tuple(
+                np.asarray(values, dtype=np.float64)
+                for values in network_model.intercepts_
+            ),
+        )
+        return network, {
+            "n_training_samples": int(np.sum(fit_mask)),
+            "random_state": network_seed,
+            "fit_seconds": network_elapsed,
+            "iterations": int(network_model.n_iter_),
+            "loss": float(network_model.loss_),
+        }
+
+    event_network, event_fit = fit_network(
+        output_indices=(0, 1, 2, 3),
+        fit_mask=train_mask,
+        network_seed=seed,
+    )
+    branch_networks = []
+    branch_fits = {}
+    for branch_offset, output_index in enumerate((4, 5, 6)):
+        probability_index = branch_offset + 1
+        branch_mask = train_mask & (targets[:, probability_index] > 0.0)
+        branch_network, branch_fit = fit_network(
+            output_indices=(output_index,),
+            fit_mask=branch_mask,
+            network_seed=seed + (branch_offset + 1) * 101,
+        )
+        branch_networks.append(branch_network)
+        branch_fits[PHOENIX_EVENT_CONDITIONED_OUTPUT_NAMES[output_index]] = branch_fit
+
+    surrogate = EventConditionedResearchSurrogate(
+        event_network=event_network,
+        branch_networks=tuple(branch_networks),
+    )
+    predictions = surrogate.predict(dataset.X)
+    output_predictions = surrogate.predict_outputs(dataset.X)
+    raw_output_predictions = surrogate.predict_raw_outputs(dataset.X)
+
+    split_metrics = {}
+    output_metrics = {}
+    for split in ("train", "validation", "test"):
+        mask = _split_mask(dataset, split)
+        split_metrics[split] = _regression_metrics(
+            dataset.y[mask],
+            predictions[mask],
+            dataset.label_standard_error[mask],
+        )
+        output_metrics[split] = {}
+        for index, name in enumerate(PHOENIX_EVENT_CONDITIONED_OUTPUT_NAMES):
+            metric_mask = mask
+            metric_population = "all rows"
+            if index >= 4:
+                metric_mask = mask & (targets[:, index - 3] > 0.0)
+                metric_population = "rows where the branch event has positive weight"
+            errors = (
+                output_predictions[metric_mask, index] - targets[metric_mask, index]
+            )
+            absolute = np.abs(errors)
+            output_metrics[split][name] = {
+                "n_samples": int(np.sum(metric_mask)),
+                "population": metric_population,
+                "mae": float(np.mean(absolute)),
+                "rmse": float(math.sqrt(np.mean(errors**2))),
+                "p95_absolute_error": float(np.quantile(absolute, 0.95)),
+                "mean_error": float(np.mean(errors)),
+            }
+
+    regime_metrics = _regime_metrics(dataset, predictions)
+    moneyness_metrics = _moneyness_metrics(dataset, predictions)
+    joint_metrics = _joint_regime_moneyness_metrics(
+        dataset, predictions, split="validation"
+    )
+    validation_metrics = split_metrics["validation"]
+    maximum_regime_mae = max(
+        values["mae"] for values in regime_metrics["validation"].values()
+    )
+    maximum_moneyness_mae = max(
+        values["mae"] for values in moneyness_metrics["validation"].values()
+    )
+    maximum_joint_mae = max(values["mae"] for values in joint_metrics.values())
+    repeated_validation = _repeated_group_validation(dataset, predictions, config)
+
+    probability_raw = raw_output_predictions[:, 1:4]
+    probability_violation = np.sum(
+        np.maximum(-probability_raw, 0.0) + np.maximum(probability_raw - 1.0, 0.0),
+        axis=1,
+    ) + np.abs(np.sum(probability_raw, axis=1) - 1.0)
+    value_raw = raw_output_predictions[:, (0, 4, 5, 6)]
+    value_violation = np.sum(np.maximum(-value_raw, 0.0), axis=1)
+    report = {
+        "research_version": PHOENIX_EVENT_CONDITIONED_RESEARCH_VERSION,
+        "candidate_name": (
+            "event_conditioned__"
+            + "x".join(str(width) for width in layout)
+            + f"__seed{seed}"
+        ),
+        "model_type": "numpy-mlp-event-conditioned-mixture-of-experts-research",
+        "dataset_id": dataset.metadata["dataset_id"],
+        "runtime_eligible": False,
+        "audit_evaluated": False,
+        "deployment_status": "research_only",
+        "exclusion_reason": (
+            "development-only architecture experiment; not part of the "
+            "production artifact contract"
+        ),
+        "training_split": "train",
+        "selection_split": "validation",
+        "hidden_layer_sizes": list(layout),
+        "random_state": seed,
+        "output_names": list(PHOENIX_EVENT_CONDITIONED_OUTPUT_NAMES),
+        "price_identity": (
+            "coupon_pv + sum(terminal_event_probability * "
+            "conditional_terminal_principal_pv)"
+        ),
+        "fit": {
+            "event_and_coupon_network": event_fit,
+            "conditional_branch_networks": branch_fits,
+            "total_fit_seconds": event_fit["fit_seconds"]
+            + sum(values["fit_seconds"] for values in branch_fits.values()),
+        },
+        "target_reconstruction_maximum_error": float(
+            np.max(np.abs(reconstructed_labels - dataset.y))
+        ),
+        "split_metrics": split_metrics,
+        "regime_metrics": regime_metrics,
+        "moneyness_metrics": moneyness_metrics,
+        "regime_moneyness_validation_metrics": joint_metrics,
+        "output_metrics": output_metrics,
+        "projection_diagnostics": {
+            "raw_probability_constraint_violation_fraction": float(
+                np.mean(probability_violation > 1e-12)
+            ),
+            "raw_mean_probability_constraint_violation": float(
+                np.mean(probability_violation)
+            ),
+            "raw_negative_value_fraction": float(np.mean(value_violation > 0.0)),
+            "raw_mean_negative_value_violation": float(np.mean(value_violation)),
+        },
+        "selection": {
+            "policy": "event-conditioned-development-comparison-v1",
+            "validation_mae": validation_metrics["mae"],
+            "maximum_validation_regime_mae": maximum_regime_mae,
+            "maximum_validation_moneyness_mae": maximum_moneyness_mae,
+            "maximum_validation_regime_moneyness_mae": maximum_joint_mae,
+            "single_split_score": (
+                validation_metrics["mae"]
+                + config.selection_worst_regime_weight * maximum_regime_mae
+                + config.selection_worst_moneyness_weight * maximum_moneyness_mae
+                + config.selection_worst_joint_cell_weight * maximum_joint_mae
+            ),
+            "repeated_group_validation": repeated_validation,
+            "score": repeated_validation["selection_score"],
+        },
+    }
+    return surrogate, report
 
 
 def _fit_candidate_models(

@@ -25,3 +25,13 @@ def test_full_pipeline_defaults_keep_development_and_audit_budgets_separate():
     assert audit.dataset_seed == 9_000_073
     assert audit.label_seed == 9_007_332
     assert audit.sampling_profile == "balanced"
+
+
+def test_event_conditioned_research_command_has_no_audit_or_artifact_arguments():
+    args = _build_parser().parse_args(["research-events", "development-dataset.npz"])
+
+    assert args.command == "research-events"
+    assert str(args.dataset) == "development-dataset.npz"
+    assert args.report is None
+    assert not hasattr(args, "audit_dataset")
+    assert not hasattr(args, "output_root")

@@ -1,5 +1,10 @@
 # Phoenix repeated group-validation selector v7
 
+> Current serving-contract specification. The next development-only
+> event-conditioned architecture did not beat this selector and was not
+> promoted or audited. See
+> [`phoenix-event-conditioned-research-v1.md`](phoenix-event-conditioned-research-v1.md).
+
 V7 tests whether the v6 focused-head candidate won because of one favorable
 development validation split. It does not inspect or reuse the v5 or v6 audit
 labels.

@@ -8,8 +8,9 @@ Phoenix contract priced by deterministic Monte Carlo through a FastAPI backend,
 a Streamlit frontend, and a local BlackBerry Bold 9780-compatible terminal. A
 dated market snapshot separates arbitrary equity-like symbols from product
 terms. A repeatedly validated, payoff-aware Phoenix v7 research surrogate can
-run in monitored shadow mode against the reference price; legacy artifacts
-remain ineligible.
+run in monitored shadow mode against the reference price. A development-only
+event-conditioned successor is implemented but was rejected by the repeated
+validation gate; legacy artifacts remain ineligible.
 
 This is an educational/demo system. It is not production trading
 infrastructure, financial advice, or a risk system suitable for live capital
@@ -37,6 +38,8 @@ allocation.
 - Selects direct-price versus payoff-aware multi-task MLPs on validation data,
   searches multiple architectures/seeds with a robust validation score, then
   gates the winner once on an independently generated audit dataset.
+- Evaluates an offline event-conditioned mixture of experts without exposing a
+  losing research candidate to serving or consuming another audit dataset.
 - Exports a checksum-verified pure-NumPy runtime; LightGBM remains an offline
   research baseline.
 - Records opt-in dated shadow observations, feature-drift diagnostics, sliced
@@ -108,6 +111,7 @@ src/final/
   surrogate_contract.py   Phoenix v7 feature/output/domain contract
   surrogate_data.py       Group-disjoint Sobol-labelled dataset generator
   surrogate_trainer.py    MLP/baseline evaluation and artifact promotion gates
+  surrogate_event_conditioning.py  Offline event/conditional-value architecture
   surrogate_pipeline.py   Versioned generate/train command line entry point
   surrogate_replay.py     Replay dated shadow observations through an artifact
   pipeline.py             Training/evaluation orchestration
@@ -127,6 +131,7 @@ docs/
   equity-market-term-structure-v1.md  Piecewise carry/volatility specification
   equity-research-market-v1.md  Server-built USD research calibration
   equity-risk-analytics-v1.md  Paired scenarios and risk analytics
+  phoenix-event-conditioned-research-v1.md  Development-only architecture result
   phoenix-robust-selection-v7.md  V7 repeated group-validation specification
   phoenix-focused-head-v6.md  Historical v6 focused-head specification
   phoenix-uncertainty-v5.md  Historical v5 uncertainty specification
@@ -187,8 +192,10 @@ python -m src.final.surrogate_pipeline full
 ```
 
 Generated datasets and artifacts are excluded from Git. See
-[docs/phoenix-robust-selection-v7.md](docs/phoenix-robust-selection-v7.md) before enabling
-shadow inference.
+[docs/phoenix-robust-selection-v7.md](docs/phoenix-robust-selection-v7.md)
+before enabling shadow inference. The rejected event-conditioned experiment and
+its reproducible development-only command are documented in
+[docs/phoenix-event-conditioned-research-v1.md](docs/phoenix-event-conditioned-research-v1.md).
 
 Start the FastAPI backend locally:
 
@@ -389,6 +396,9 @@ Legacy routes kept for compatibility:
   predictor that failed the v6 audit and is therefore `research_only`. A run is
   loadable by default only when every price, region, auxiliary-output,
   uncertainty, and Greek gate passes on its independent audit.
+- The event-conditioned research candidate is also `research_only`. It improved
+  interpretability, but its repeated development score was worse than v7, so it
+  was neither audited nor added to the runtime artifact format.
 - Scenario explanations are simple and rule-based.
 - Phase 7 Greeks are finite-difference research estimates. Discontinuous
   barriers can produce noisy Gamma and bump sensitivity even with paired paths.
@@ -401,6 +411,9 @@ Legacy routes kept for compatibility:
   fit an arbitrage-controlled volatility surface from a licensed feed.
 - Expand surrogate labels and shadow telemetry across denser barrier regions,
   market regimes, and materially larger untouched datasets.
+- Add observation-level autocall, survival, and coupon-event labels so the next
+  surrogate can learn discrete event hazards instead of aggregate terminal
+  probabilities.
 - Add theta with explicit calendar, fixing, accrual, and market-roll rules.
 - Add volatility-skew, credit/funding, and seasoned-trade state models.
 - Add optional PIN or gateway-based access control for non-local deployments.
