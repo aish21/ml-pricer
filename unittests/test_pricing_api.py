@@ -281,7 +281,7 @@ def test_health_endpoints_are_available():
         "enabled": False,
         "mode": "shadow-only",
         "available": False,
-        "model_version": "phoenix-surrogate-payoff-aware-v5",
+        "model_version": "phoenix-surrogate-payoff-aware-v6",
         "reason": "disabled",
     }
     assert ready.json()["surrogate_monitoring"] == {

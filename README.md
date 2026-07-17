@@ -7,7 +7,7 @@ derivatives. The current product path exposes a versioned, single-underlier
 Phoenix contract priced by deterministic Monte Carlo through a FastAPI backend,
 a Streamlit frontend, and a local BlackBerry Bold 9780-compatible terminal. A
 dated market snapshot separates arbitrary equity-like symbols from product
-terms. An uncertainty-calibrated payoff-aware Phoenix v5 surrogate can run in
+terms. A focused, uncertainty-calibrated payoff-aware Phoenix v6 surrogate can run in
 monitored shadow mode against the reference price; legacy artifacts remain
 ineligible.
 
@@ -105,7 +105,7 @@ src/final/
   model_trainer.py        LightGBM training and model loading
   evaluator.py            Model vs Monte Carlo evaluation
   reference_pricer.py     Deterministic reference price and uncertainty
-  surrogate_contract.py   Phoenix v5 feature/output/domain contract
+  surrogate_contract.py   Phoenix v6 feature/output/domain contract
   surrogate_data.py       Group-disjoint Sobol-labelled dataset generator
   surrogate_trainer.py    MLP/baseline evaluation and artifact promotion gates
   surrogate_pipeline.py   Versioned generate/train command line entry point
@@ -127,7 +127,8 @@ docs/
   equity-market-term-structure-v1.md  Piecewise carry/volatility specification
   equity-research-market-v1.md  Server-built USD research calibration
   equity-risk-analytics-v1.md  Paired scenarios and risk analytics
-  phoenix-uncertainty-v5.md  V5 audit uncertainty and promotion specification
+  phoenix-focused-head-v6.md  V6 development selection and audit specification
+  phoenix-uncertainty-v5.md  Historical v5 uncertainty specification
   phoenix-live-shadow-v4.md  Historical v4 monitoring specification
   phoenix-payoff-aware-v3.md  Historical finance/ML lecture and v3 specification
   phoenix-surrogate-v2.md  Superseded v2 historical specification
@@ -185,7 +186,7 @@ python -m src.final.surrogate_pipeline full
 ```
 
 Generated datasets and artifacts are excluded from Git. See
-[docs/phoenix-uncertainty-v5.md](docs/phoenix-uncertainty-v5.md) before enabling
+[docs/phoenix-focused-head-v6.md](docs/phoenix-focused-head-v6.md) before enabling
 shadow inference.
 
 Start the FastAPI backend locally:
@@ -382,9 +383,9 @@ Legacy routes kept for compatibility:
   simulated path steps.
 - Legacy model/scaler artifacts remain committed but fail contract/feature
   compatibility checks and are not used for pricing.
-- Phoenix surrogate v5 remains shadow-only and disabled by default. Its first
-  sealed artifact remains `research_only` after scoring 79.49% against a
-  pre-registered 80% uncertainty-or-economic coverage gate. A training run is
+- Phoenix surrogate v6 remains shadow-only and disabled by default. Its focused
+  candidate improved development validation but remained `research_only` after
+  reaching 77.54% against the frozen 80% audit coverage gate. A training run is
   loadable by default only when every price, region, auxiliary-output,
   uncertainty, and Greek gate passes on its independent audit.
 - Scenario explanations are simple and rule-based.
@@ -422,7 +423,7 @@ limits.
 The optional surrogate shadow uses `PHOENIX_SURROGATE_SHADOW_ENABLED` and
 `PHOENIX_SURROGATE_DIR`. Unapproved artifacts remain blocked unless the
 research-only `PHOENIX_SURROGATE_ALLOW_UNAPPROVED` override is set. See
-[docs/phoenix-uncertainty-v5.md](docs/phoenix-uncertainty-v5.md).
+[docs/phoenix-focused-head-v6.md](docs/phoenix-focused-head-v6.md).
 `PHOENIX_SURROGATE_TELEMETRY_ENABLED` controls the bounded local observation
 store used by the metrics endpoint and replay command.
 

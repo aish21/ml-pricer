@@ -16,7 +16,7 @@ from .payoffs import PhoenixPayoff
 
 PHOENIX_SURROGATE_FEATURE_VERSION = "phoenix-surrogate-features-v3"
 PHOENIX_SURROGATE_LABEL_VERSION = "phoenix-piecewise-payoff-aware-label-v2"
-PHOENIX_SURROGATE_MODEL_VERSION = "phoenix-surrogate-payoff-aware-v5"
+PHOENIX_SURROGATE_MODEL_VERSION = "phoenix-surrogate-payoff-aware-v6"
 PHOENIX_SURROGATE_ARTIFACT_VERSION = "phoenix-surrogate-artifact-v3"
 CURVE_TIME_FRACTIONS = (0.25, 0.5, 0.75, 1.0)
 TERM_FEATURE_NAMES = (

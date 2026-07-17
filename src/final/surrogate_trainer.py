@@ -77,6 +77,11 @@ class PhoenixSurrogateTrainingConfig:
     acceptance_maximum_cashflow_reconstruction_mae: float = 0.08
     selection_worst_regime_weight: float = 0.35
     selection_worst_moneyness_weight: float = 0.25
+    selection_worst_joint_cell_weight: float = 0.25
+    focused_head_regime_weight: float = 2.0
+    focused_head_coupon_weight: float = 2.0
+    focused_head_ridge: float = 0.001
+    train_focused_head_candidates: bool = True
     require_audit_dataset: bool = True
 
     def __post_init__(self) -> None:
@@ -132,9 +137,19 @@ class PhoenixSurrogateTrainingConfig:
             for value in (
                 self.selection_worst_regime_weight,
                 self.selection_worst_moneyness_weight,
+                self.selection_worst_joint_cell_weight,
             )
         ):
             raise SurrogateTrainingError("candidate selection weights are invalid")
+        if (
+            not math.isfinite(self.focused_head_regime_weight)
+            or self.focused_head_regime_weight < 1.0
+            or not math.isfinite(self.focused_head_coupon_weight)
+            or self.focused_head_coupon_weight < 1.0
+            or not math.isfinite(self.focused_head_ridge)
+            or self.focused_head_ridge <= 0.0
+        ):
+            raise SurrogateTrainingError("focused output-head settings are invalid")
         if (
             not math.isfinite(self.acceptance_audit_r2)
             or self.acceptance_audit_r2 > 1.0
@@ -690,6 +705,128 @@ def _fit_numpy_mlp_candidate(
     }
 
 
+def _refit_focused_output_head(
+    *,
+    dataset: PhoenixSurrogateDataset,
+    base_surrogate: NumpyMLPSurrogate,
+    base_metrics: dict[str, Any],
+    config: PhoenixSurrogateTrainingConfig,
+    candidate_name: str,
+) -> tuple[NumpyMLPSurrogate, dict[str, Any]]:
+    if base_surrogate.output_names != PHOENIX_PAYOFF_AWARE_MODEL_OUTPUT_NAMES:
+        raise SurrogateTrainingError(
+            "focused output-head refit requires payoff-aware outputs"
+        )
+    train_mask = _split_mask(dataset, "train")
+    raw_targets = np.column_stack([dataset.y, dataset.auxiliary_targets])
+    target_standard_error = np.column_stack(
+        [dataset.label_standard_error, dataset.auxiliary_standard_error]
+    )
+    standardized_targets = (
+        raw_targets[train_mask] - base_surrogate.target_mean
+    ) / base_surrogate.target_scale
+    hidden = (
+        dataset.X[train_mask] - base_surrogate.feature_mean
+    ) / base_surrogate.feature_scale
+    for weight, bias in zip(
+        base_surrogate.weights[:-1],
+        base_surrogate.biases[:-1],
+    ):
+        hidden = np.maximum(hidden @ weight + bias, 0.0)
+
+    sample_weights = np.ones(int(np.sum(train_mask)), dtype=np.float64)
+    sample_weights *= np.where(
+        dataset.regime_names[train_mask] == "low_vol",
+        config.focused_head_regime_weight,
+        1.0,
+    )
+    sample_weights *= np.where(
+        dataset.moneyness_region_names[train_mask] == "coupon",
+        config.focused_head_coupon_weight,
+        1.0,
+    )
+    design = np.column_stack([hidden, np.ones(len(hidden), dtype=np.float64)])
+    weighted_design = design * np.sqrt(sample_weights)[:, None]
+    weighted_targets = standardized_targets * np.sqrt(sample_weights)[:, None]
+    normalizer = float(np.sum(sample_weights))
+    gram = weighted_design.T @ weighted_design / normalizer
+    penalty = np.eye(gram.shape[0], dtype=np.float64) * config.focused_head_ridge
+    penalty[-1, -1] = 0.0
+    coefficients = np.linalg.solve(
+        gram + penalty,
+        weighted_design.T @ weighted_targets / normalizer,
+    )
+    surrogate = NumpyMLPSurrogate(
+        feature_names=base_surrogate.feature_names,
+        output_names=base_surrogate.output_names,
+        feature_mean=base_surrogate.feature_mean,
+        feature_scale=base_surrogate.feature_scale,
+        target_mean=base_surrogate.target_mean,
+        target_scale=base_surrogate.target_scale,
+        weights=base_surrogate.weights[:-1] + (coefficients[:-1],),
+        biases=base_surrogate.biases[:-1] + (coefficients[-1],),
+    )
+    predictions = surrogate.predict(dataset.X)
+    output_predictions = surrogate.predict_outputs(dataset.X)
+    split_metrics = {}
+    output_metrics = {}
+    for split in ("train", "validation", "test"):
+        mask = _split_mask(dataset, split)
+        split_metrics[split] = _regression_metrics(
+            dataset.y[mask],
+            predictions[mask],
+            dataset.label_standard_error[mask],
+        )
+        output_metrics[split] = {
+            name: _regression_metrics(
+                raw_targets[mask, index],
+                output_predictions[mask, index],
+                target_standard_error[mask, index],
+            )
+            for index, name in enumerate(surrogate.output_names)
+        }
+    return surrogate, {
+        **{
+            name: value
+            for name, value in base_metrics.items()
+            if name
+            not in {
+                "candidate_name",
+                "strategy",
+                "model_type",
+                "split_metrics",
+                "regime_metrics",
+                "moneyness_metrics",
+                "regime_moneyness_validation_metrics",
+                "output_metrics",
+            }
+        },
+        "model_type": "numpy-mlp-payoff-aware-focused-head",
+        "candidate_name": candidate_name,
+        "strategy": "payoff_aware_focused_head",
+        "base_candidate": base_metrics["candidate_name"],
+        "focused_head": {
+            "regime": "low_vol",
+            "regime_weight": config.focused_head_regime_weight,
+            "moneyness_region": "coupon",
+            "moneyness_weight": config.focused_head_coupon_weight,
+            "joint_weight": (
+                config.focused_head_regime_weight * config.focused_head_coupon_weight
+            ),
+            "ridge": config.focused_head_ridge,
+        },
+        "split_metrics": split_metrics,
+        "regime_metrics": _regime_metrics(dataset, predictions),
+        "moneyness_metrics": _moneyness_metrics(dataset, predictions),
+        "regime_moneyness_validation_metrics": _joint_regime_moneyness_metrics(
+            dataset,
+            predictions,
+            split="validation",
+        ),
+        "output_metrics": output_metrics,
+    }
+
+
 def _fit_candidate_models(
     dataset: PhoenixSurrogateDataset,
     config: PhoenixSurrogateTrainingConfig,
@@ -727,6 +864,17 @@ def _fit_candidate_models(
                 random_state=random_state,
                 candidate_name=name,
             )
+            if config.train_focused_head_candidates:
+                focused_name = f"{name}__focused_head"
+                models[focused_name], candidates[focused_name] = (
+                    _refit_focused_output_head(
+                        dataset=dataset,
+                        base_surrogate=models[name],
+                        base_metrics=candidates[name],
+                        config=config,
+                        candidate_name=focused_name,
+                    )
+                )
     for name, metrics in candidates.items():
         validation_mae = metrics["split_metrics"]["validation"]["mae"]
         maximum_regime_mae = max(
@@ -736,15 +884,21 @@ def _fit_candidate_models(
             values["mae"]
             for values in metrics["moneyness_metrics"]["validation"].values()
         )
+        maximum_joint_cell_mae = max(
+            values["mae"]
+            for values in metrics["regime_moneyness_validation_metrics"].values()
+        )
         metrics["selection"] = {
-            "policy": "robust-validation-mae-v1",
+            "policy": "robust-validation-mae-v2",
             "validation_mae": validation_mae,
             "maximum_validation_regime_mae": maximum_regime_mae,
             "maximum_validation_moneyness_mae": maximum_moneyness_mae,
+            "maximum_validation_regime_moneyness_mae": (maximum_joint_cell_mae),
             "score": (
                 validation_mae
                 + config.selection_worst_regime_weight * maximum_regime_mae
                 + config.selection_worst_moneyness_weight * maximum_moneyness_mae
+                + config.selection_worst_joint_cell_weight * maximum_joint_cell_mae
             ),
         }
     selected_candidate = min(

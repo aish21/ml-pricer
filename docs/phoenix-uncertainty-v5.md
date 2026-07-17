@@ -1,5 +1,9 @@
 # Phoenix uncertainty-calibrated surrogate v5
 
+> Historical specification. V5 remained `research_only`. V6 retains its audit
+> gates while adding a development-only focused output-head candidate; see
+> [`phoenix-focused-head-v6.md`](phoenix-focused-head-v6.md).
+
 Phase 11 changes how the Phoenix surrogate is audited. It does not relax the
 price, regime, barrier-region, payoff-component, event-probability, boundary,
 or Greek gates introduced by v4.

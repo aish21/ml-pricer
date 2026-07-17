@@ -22,6 +22,6 @@ def test_full_pipeline_defaults_keep_development_and_audit_budgets_separate():
     assert audit.label_replications == 8
     assert audit.paths_per_replication == 256
     assert audit.label_replications * audit.paths_per_replication == 2048
-    assert audit.dataset_seed == 5_000_053
-    assert audit.label_seed == 5_007_312
+    assert audit.dataset_seed == 7_000_061
+    assert audit.label_seed == 7_007_320
     assert audit.sampling_profile == "balanced"

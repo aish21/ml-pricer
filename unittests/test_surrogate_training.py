@@ -128,7 +128,11 @@ def test_training_exports_versioned_checksum_numpy_artifact(tmp_path):
     assert manifest["runtime_policy"] == "shadow-only"
     assert manifest["dataset_id"] == "sha256:synthetic-development-5"
     assert manifest["audit_dataset_id"] == "sha256:synthetic-audit-6"
-    assert manifest["selected_strategy"] in {"direct_price", "payoff_aware"}
+    assert manifest["selected_strategy"] in {
+        "direct_price",
+        "payoff_aware",
+        "payoff_aware_focused_head",
+    }
     assert "scipy" in manifest["training_environment"]
     assert manifest["acceptance"]["evaluation_dataset_id"] == (
         "sha256:synthetic-audit-6"
@@ -173,10 +177,11 @@ def test_candidate_search_is_selected_only_from_development_validation(tmp_path)
         verbose=False,
     )
 
-    assert len(manifest["candidate_models"]) == 5
+    assert len(manifest["candidate_models"]) == 9
     assert manifest["selected_candidate"] in manifest["candidate_models"]
     selected = manifest["candidate_models"][manifest["selected_candidate"]]
-    assert selected["selection"]["policy"] == "robust-validation-mae-v1"
+    assert selected["selection"]["policy"] == "robust-validation-mae-v2"
+    assert "maximum_validation_regime_moneyness_mae" in selected["selection"]
     assert manifest["development_error_analysis"]["split"] == "validation"
     assert manifest["acceptance"]["evaluation_dataset_id"] == (
         "sha256:synthetic-audit-8"
