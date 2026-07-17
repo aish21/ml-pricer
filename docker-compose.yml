@@ -7,9 +7,12 @@ services:
     environment:
       MODEL_RESULTS_DIR: /srv/app/final/results
       MODEL_HISTORY_FILE: /srv/app/data/pricing_history.csv
-      PHOENIX_SURROGATE_DIR: /srv/app/data/surrogates/phoenix-v3/artifacts
+      PHOENIX_SURROGATE_DIR: /srv/app/data/surrogates/phoenix-v4/artifacts
       PHOENIX_SURROGATE_SHADOW_ENABLED: ${PHOENIX_SURROGATE_SHADOW_ENABLED:-false}
       PHOENIX_SURROGATE_ALLOW_UNAPPROVED: ${PHOENIX_SURROGATE_ALLOW_UNAPPROVED:-false}
+      PHOENIX_SURROGATE_TELEMETRY_ENABLED: ${PHOENIX_SURROGATE_TELEMETRY_ENABLED:-true}
+      PHOENIX_SURROGATE_TELEMETRY_DB: /srv/app/data/surrogate_shadow_observations.sqlite3
+      PHOENIX_SURROGATE_TELEMETRY_MAX_ROWS: ${PHOENIX_SURROGATE_TELEMETRY_MAX_ROWS:-100000}
     volumes:
       - ./final/results:/srv/app/final/results:ro
       - ./data:/srv/app/data:rw

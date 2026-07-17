@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/aish21/neural-pricer"
+Repository = "https://github.com/aish21/ml-pricer"
 
 [project.optional-dependencies]
 api = [

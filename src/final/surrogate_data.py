@@ -51,6 +51,7 @@ class PhoenixDatasetConfig:
     test_fraction: float = 0.15
     dataset_role: str = "development"
     barrier_focused_sampling: bool = True
+    sampling_profile: str = "balanced"
 
     def __post_init__(self) -> None:
         if self.n_contracts < 6:
@@ -90,6 +91,12 @@ class PhoenixDatasetConfig:
             raise SurrogateDatasetError(
                 "dataset_role must be one of: development, audit"
             )
+        if self.sampling_profile not in {"balanced", "low_vol_barrier_focus"}:
+            raise SurrogateDatasetError(
+                "sampling_profile must be one of: balanced, low_vol_barrier_focus"
+            )
+        if self.dataset_role == "audit" and self.sampling_profile != "balanced":
+            raise SurrogateDatasetError("audit datasets must use balanced sampling")
 
 
 @dataclass(frozen=True)
@@ -224,6 +231,26 @@ def _regime_ranges(regime: str) -> tuple[tuple[float, float], tuple[float, float
     if regime == "high_vol":
         return (0.03, 0.10), (0.32, 0.65)
     return (0.05, 0.12), (0.50, 0.90)
+
+
+def _case_sampling_labels(
+    *,
+    config: PhoenixDatasetConfig,
+    rng: np.random.RandomState,
+    group_id: int,
+    market_index: int,
+) -> tuple[str, str]:
+    if config.sampling_profile == "low_vol_barrier_focus" and market_index >= 4:
+        regime = "low_vol"
+        region = ("knock_in", "coupon", "autocall")[(group_id + market_index) % 3]
+        return regime, region
+    regime = MARKET_REGIMES[(group_id + market_index) % len(MARKET_REGIMES)]
+    region = (
+        MONEYNESS_REGIONS[int(rng.randint(len(MONEYNESS_REGIONS)))]
+        if config.barrier_focused_sampling
+        else "broad"
+    )
+    return regime, region
 
 
 def _sample_market(
@@ -473,11 +500,11 @@ def generate_phoenix_surrogate_dataset(
     for group_id in range(config.n_contracts):
         terms = _sample_terms(rng)
         for market_index in range(config.markets_per_contract):
-            regime = MARKET_REGIMES[(group_id + market_index) % len(MARKET_REGIMES)]
-            moneyness_region = (
-                MONEYNESS_REGIONS[int(rng.randint(len(MONEYNESS_REGIONS)))]
-                if config.barrier_focused_sampling
-                else "broad"
+            regime, moneyness_region = _case_sampling_labels(
+                config=config,
+                rng=rng,
+                group_id=group_id,
+                market_index=market_index,
             )
             market, reference_spot = _sample_market(
                 rng=rng,

@@ -121,3 +121,40 @@ def test_training_exports_versioned_checksum_numpy_artifact(tmp_path):
     )
     assert predictions.shape == (3,)
     assert np.all(np.isfinite(predictions))
+
+
+def test_candidate_search_is_selected_only_from_development_validation(tmp_path):
+    manifest = train_phoenix_surrogate(
+        dataset=synthetic_dataset(),
+        audit_dataset=synthetic_dataset(role="audit", seed=8),
+        output_root=tmp_path,
+        config=PhoenixSurrogateTrainingConfig(
+            hidden_layer_sizes=(8,),
+            candidate_hidden_layer_sizes=((12,),),
+            candidate_seed_offsets=(0, 1),
+            max_iter=50,
+            train_lightgbm_baseline=False,
+            greek_validation_cases=0,
+            acceptance_audit_mae=10.0,
+            acceptance_audit_p95_absolute_error=10.0,
+            acceptance_audit_r2=-100.0,
+            acceptance_maximum_regime_mae=10.0,
+            acceptance_maximum_moneyness_region_mae=10.0,
+            acceptance_maximum_regime_moneyness_mae=10.0,
+            acceptance_minimum_within_two_label_se=0.0,
+            acceptance_maximum_component_mae=10.0,
+            acceptance_maximum_event_mae=10.0,
+            acceptance_maximum_mean_output_boundary_violation=1.0,
+            acceptance_maximum_cashflow_reconstruction_mae=10.0,
+        ),
+        verbose=False,
+    )
+
+    assert len(manifest["candidate_models"]) == 5
+    assert manifest["selected_candidate"] in manifest["candidate_models"]
+    selected = manifest["candidate_models"][manifest["selected_candidate"]]
+    assert selected["selection"]["policy"] == "robust-validation-mae-v1"
+    assert manifest["development_error_analysis"]["split"] == "validation"
+    assert manifest["acceptance"]["evaluation_dataset_id"] == (
+        "sha256:synthetic-audit-8"
+    )

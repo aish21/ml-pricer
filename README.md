@@ -7,7 +7,7 @@ derivatives. The current product path exposes a versioned, single-underlier
 Phoenix contract priced by deterministic Monte Carlo through a FastAPI backend,
 a Streamlit frontend, and a local BlackBerry Bold 9780-compatible terminal. A
 dated market snapshot separates arbitrary equity-like symbols from product
-terms. A payoff-aware Phoenix v3 surrogate can run in shadow mode against the
+terms. A monitored payoff-aware Phoenix v4 surrogate can run in shadow mode against the
 reference price; legacy artifacts remain ineligible.
 
 This is an educational/demo system. It is not production trading
@@ -34,9 +34,12 @@ allocation.
   scrambled Sobol price, cashflow, and event labels plus Monte Carlo
   uncertainty.
 - Selects direct-price versus payoff-aware multi-task MLPs on validation data,
-  then gates the winner once on an independently generated audit dataset.
+  searches multiple architectures/seeds with a robust validation score, then
+  gates the winner once on an independently generated audit dataset.
 - Exports a checksum-verified pure-NumPy runtime; LightGBM remains an offline
   research baseline.
+- Records opt-in dated shadow observations, feature-drift diagnostics, sliced
+  live error metrics, and out-of-time artifact replay.
 - Fetches credential-free research quotes through yfinance with bounded
   retries, caching, and freshness checks.
 - Serves pricing through FastAPI.
@@ -92,6 +95,7 @@ app/
   services/research_market_data.py  Treasury/options research calibration
   services/risk_service.py  Frozen-market scenarios and finite-difference risk
   services/surrogate_service.py  Fail-closed shadow artifact runtime
+  services/surrogate_monitoring.py  Shadow telemetry, metrics, and replay store
 
 src/final/
   payoffs.py              Core payoff implementations
@@ -104,6 +108,7 @@ src/final/
   surrogate_data.py       Group-disjoint Sobol-labelled dataset generator
   surrogate_trainer.py    MLP/baseline evaluation and artifact promotion gates
   surrogate_pipeline.py   Versioned generate/train command line entry point
+  surrogate_replay.py     Replay dated shadow observations through an artifact
   pipeline.py             Training/evaluation orchestration
 
 final/results/
@@ -121,7 +126,8 @@ docs/
   equity-market-term-structure-v1.md  Piecewise carry/volatility specification
   equity-research-market-v1.md  Server-built USD research calibration
   equity-risk-analytics-v1.md  Paired scenarios and risk analytics
-  phoenix-payoff-aware-v3.md  Finance/ML lecture and v3 operating specification
+  phoenix-live-shadow-v4.md  V4 selection, monitoring, and replay specification
+  phoenix-payoff-aware-v3.md  Historical finance/ML lecture and v3 specification
   phoenix-surrogate-v2.md  Superseded v2 historical specification
   live-market-data.md      Research-provider behavior and usage boundary
 
@@ -170,7 +176,7 @@ python -m src.final.surrogate_pipeline full
 ```
 
 Generated datasets and artifacts are excluded from Git. See
-[docs/phoenix-payoff-aware-v3.md](docs/phoenix-payoff-aware-v3.md) before enabling
+[docs/phoenix-live-shadow-v4.md](docs/phoenix-live-shadow-v4.md) before enabling
 shadow inference.
 
 Start the FastAPI backend locally:
@@ -325,6 +331,7 @@ Versioned API v1:
 - `POST /api/v1/price` (deprecated generic envelope)
 - `GET /api/v1/products`
 - `GET /api/v1/model-info`
+- `GET /api/v1/surrogate-shadow/metrics`
 - `GET /api/v1/runs`
 - `GET /api/v1/runs/{run_id}`
 
@@ -366,7 +373,7 @@ Legacy routes kept for compatibility:
   simulated path steps.
 - Legacy model/scaler artifacts remain committed but fail contract/feature
   compatibility checks and are not used for pricing.
-- Phoenix surrogate v3 remains shadow-only and disabled by default. A training
+- Phoenix surrogate v4 remains shadow-only and disabled by default. A training
   run is loadable by default only when every price, region, auxiliary-output,
   and Greek gate passes on its independent audit.
 - Scenario explanations are simple and rule-based.
@@ -404,7 +411,9 @@ limits.
 The optional surrogate shadow uses `PHOENIX_SURROGATE_SHADOW_ENABLED` and
 `PHOENIX_SURROGATE_DIR`. Unapproved artifacts remain blocked unless the
 research-only `PHOENIX_SURROGATE_ALLOW_UNAPPROVED` override is set. See
-[docs/phoenix-payoff-aware-v3.md](docs/phoenix-payoff-aware-v3.md).
+[docs/phoenix-live-shadow-v4.md](docs/phoenix-live-shadow-v4.md).
+`PHOENIX_SURROGATE_TELEMETRY_ENABLED` controls the bounded local observation
+store used by the metrics endpoint and replay command.
 
 The API and frontend images install separate dependency groups. The API image
 contains the NumPy reference runtime but not LightGBM, Optuna, XGBoost, or

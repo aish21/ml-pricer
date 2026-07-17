@@ -137,6 +137,7 @@ def test_status_and_shadow_evaluation_load_approved_checksum_artifact(tmp_path):
     assert shadow["surrogate_price"] == pytest.approx(1.0)
     assert shadow["absolute_error"] == pytest.approx(0.02)
     assert shadow["error_to_reference_standard_error"] == pytest.approx(2.0)
+    assert shadow["input_diagnostics"]["maximum_standardized_feature_distance"] >= 0.0
 
 
 def test_research_only_artifact_requires_explicit_override(tmp_path):

@@ -41,6 +41,8 @@ class SurrogateTrainingError(RuntimeError):
 @dataclass(frozen=True)
 class PhoenixSurrogateTrainingConfig:
     hidden_layer_sizes: tuple[int, ...] = (128, 128)
+    candidate_hidden_layer_sizes: tuple[tuple[int, ...], ...] = ()
+    candidate_seed_offsets: tuple[int, ...] = (0,)
     alpha: float = 0.0001
     learning_rate_init: float = 0.001
     max_iter: int = 1_000
@@ -53,12 +55,15 @@ class PhoenixSurrogateTrainingConfig:
     acceptance_audit_r2: float = 0.90
     acceptance_maximum_regime_mae: float = 0.03
     acceptance_maximum_moneyness_region_mae: float = 0.03
+    acceptance_maximum_regime_moneyness_mae: float = 0.04
     acceptance_minimum_within_two_label_se: float = 0.40
     acceptance_minimum_greek_sign_agreement: float = 0.50
     acceptance_maximum_component_mae: float = 0.08
     acceptance_maximum_event_mae: float = 0.08
     acceptance_maximum_mean_output_boundary_violation: float = 0.005
     acceptance_maximum_cashflow_reconstruction_mae: float = 0.08
+    selection_worst_regime_weight: float = 0.35
+    selection_worst_moneyness_weight: float = 0.25
     require_audit_dataset: bool = True
 
     def __post_init__(self) -> None:
@@ -66,6 +71,21 @@ class PhoenixSurrogateTrainingConfig:
             width < 1 or width > 2_048 for width in self.hidden_layer_sizes
         ):
             raise SurrogateTrainingError("hidden_layer_sizes are invalid")
+        if len(self.candidate_hidden_layer_sizes) > 8:
+            raise SurrogateTrainingError("too many candidate hidden-layer layouts")
+        for layout in self.candidate_hidden_layer_sizes:
+            if not layout or any(width < 1 or width > 2_048 for width in layout):
+                raise SurrogateTrainingError("candidate_hidden_layer_sizes are invalid")
+        if (
+            not self.candidate_seed_offsets
+            or len(self.candidate_seed_offsets) > 4
+            or any(
+                offset < 0 or offset > 1_000_000
+                for offset in self.candidate_seed_offsets
+            )
+            or len(set(self.candidate_seed_offsets)) != len(self.candidate_seed_offsets)
+        ):
+            raise SurrogateTrainingError("candidate_seed_offsets are invalid")
         if self.alpha < 0.0 or self.learning_rate_init <= 0.0:
             raise SurrogateTrainingError("MLP optimization settings are invalid")
         if self.max_iter < 10:
@@ -85,12 +105,21 @@ class PhoenixSurrogateTrainingConfig:
                 self.acceptance_audit_p95_absolute_error,
                 self.acceptance_maximum_regime_mae,
                 self.acceptance_maximum_moneyness_region_mae,
+                self.acceptance_maximum_regime_moneyness_mae,
                 self.acceptance_maximum_component_mae,
                 self.acceptance_maximum_event_mae,
                 self.acceptance_maximum_cashflow_reconstruction_mae,
             )
         ):
             raise SurrogateTrainingError("acceptance error thresholds are invalid")
+        if any(
+            not math.isfinite(value) or value < 0.0
+            for value in (
+                self.selection_worst_regime_weight,
+                self.selection_worst_moneyness_weight,
+            )
+        ):
+            raise SurrogateTrainingError("candidate selection weights are invalid")
         if (
             not math.isfinite(self.acceptance_audit_r2)
             or self.acceptance_audit_r2 > 1.0
@@ -155,6 +184,109 @@ def _regime_metrics(
                     dataset.label_standard_error[mask],
                 )
     return output
+
+
+def _moneyness_metrics(
+    dataset: PhoenixSurrogateDataset, predictions: np.ndarray
+) -> dict[str, dict[str, dict[str, Any]]]:
+    output = {}
+    for split in ("train", "validation", "test"):
+        output[split] = {}
+        for region in sorted(
+            set(str(value) for value in dataset.moneyness_region_names)
+        ):
+            mask = (dataset.split_names == split) & (
+                dataset.moneyness_region_names == region
+            )
+            if np.any(mask):
+                output[split][region] = _regression_metrics(
+                    dataset.y[mask],
+                    predictions[mask],
+                    dataset.label_standard_error[mask],
+                )
+    return output
+
+
+def _joint_regime_moneyness_metrics(
+    dataset: PhoenixSurrogateDataset,
+    predictions: np.ndarray,
+    *,
+    split: str | None = None,
+) -> dict[str, dict[str, Any]]:
+    output = {}
+    split_mask = (
+        np.ones(len(dataset.y), dtype=bool)
+        if split is None
+        else dataset.split_names == split
+    )
+    regimes = sorted(set(str(value) for value in dataset.regime_names[split_mask]))
+    regions = sorted(
+        set(str(value) for value in dataset.moneyness_region_names[split_mask])
+    )
+    for regime in regimes:
+        for region in regions:
+            mask = (
+                split_mask
+                & (dataset.regime_names == regime)
+                & (dataset.moneyness_region_names == region)
+            )
+            if np.any(mask):
+                output[f"{regime}:{region}"] = _regression_metrics(
+                    dataset.y[mask],
+                    predictions[mask],
+                    dataset.label_standard_error[mask],
+                )
+    return output
+
+
+def _development_error_analysis(
+    dataset: PhoenixSurrogateDataset,
+    predictions: np.ndarray,
+) -> dict[str, Any]:
+    mask = _split_mask(dataset, "validation")
+    indices = np.flatnonzero(mask)
+    absolute_errors = np.abs(predictions - dataset.y)
+    denominator = np.maximum(dataset.label_standard_error, 1e-8)
+    ordered = indices[np.argsort(-absolute_errors[indices])]
+    feature_positions = {
+        name: PHOENIX_SURROGATE_FEATURE_NAMES.index(name)
+        for name in (
+            "spot_ratio",
+            "maturity_years",
+            "coupon_rate_per_year",
+            "total_variance_t100",
+        )
+    }
+    worst_cases = []
+    for row_index in ordered[:20]:
+        worst_cases.append(
+            {
+                "row_index": int(row_index),
+                "group_id": int(dataset.group_ids[row_index]),
+                "regime": str(dataset.regime_names[row_index]),
+                "moneyness_region": str(dataset.moneyness_region_names[row_index]),
+                "actual_price": float(dataset.y[row_index]),
+                "predicted_price": float(predictions[row_index]),
+                "absolute_error": float(absolute_errors[row_index]),
+                "label_standard_error": float(dataset.label_standard_error[row_index]),
+                "error_to_label_se": float(
+                    absolute_errors[row_index] / denominator[row_index]
+                ),
+                "features": {
+                    name: float(dataset.X[row_index, position])
+                    for name, position in feature_positions.items()
+                },
+            }
+        )
+    cells = _joint_regime_moneyness_metrics(dataset, predictions, split="validation")
+    return {
+        "split": "validation",
+        "worst_regime_moneyness_cells": [
+            {"cell": name, **values}
+            for name, values in sorted(cells.items(), key=lambda item: -item[1]["mae"])
+        ],
+        "worst_cases": worst_cases,
+    }
 
 
 def _audit_metrics(
@@ -246,6 +378,9 @@ def _audit_metrics(
         "price_metrics": price_metrics,
         "regime_metrics": regime_metrics,
         "moneyness_region_metrics": moneyness_metrics,
+        "regime_moneyness_metrics": _joint_regime_moneyness_metrics(
+            dataset, predictions
+        ),
         "output_metrics": output_metrics,
     }
 
@@ -273,6 +408,7 @@ def _development_test_metrics(
         ),
         "regime_metrics": regime_metrics,
         "moneyness_region_metrics": {},
+        "regime_moneyness_metrics": {},
     }
 
 
@@ -307,6 +443,9 @@ def _fit_numpy_mlp_candidate(
     config: PhoenixSurrogateTrainingConfig,
     *,
     strategy: str,
+    hidden_layer_sizes: tuple[int, ...],
+    random_state: int,
+    candidate_name: str,
 ) -> tuple[NumpyMLPSurrogate, dict[str, Any]]:
     from sklearn.neural_network import MLPRegressor
 
@@ -332,13 +471,13 @@ def _fit_numpy_mlp_candidate(
     X_train = (dataset.X[train_mask] - feature_mean) / feature_scale
     y_train = (raw_targets[train_mask] - target_mean) / target_scale
     model = MLPRegressor(
-        hidden_layer_sizes=config.hidden_layer_sizes,
+        hidden_layer_sizes=hidden_layer_sizes,
         activation="relu",
         solver="adam",
         alpha=config.alpha,
         learning_rate_init=config.learning_rate_init,
         max_iter=config.max_iter,
-        random_state=config.random_state,
+        random_state=random_state,
         early_stopping=True,
         validation_fraction=0.15,
         n_iter_no_change=30,
@@ -381,13 +520,20 @@ def _fit_numpy_mlp_candidate(
         }
     return surrogate, {
         "model_type": f"numpy-mlp-{strategy}",
+        "candidate_name": candidate_name,
         "strategy": strategy,
+        "hidden_layer_sizes": list(hidden_layer_sizes),
+        "random_state": random_state,
         "output_names": list(output_names),
         "fit_seconds": elapsed,
         "iterations": int(model.n_iter_),
         "loss": float(model.loss_),
         "split_metrics": split_metrics,
         "regime_metrics": _regime_metrics(dataset, predictions),
+        "moneyness_metrics": _moneyness_metrics(dataset, predictions),
+        "regime_moneyness_validation_metrics": _joint_regime_moneyness_metrics(
+            dataset, predictions, split="validation"
+        ),
         "output_metrics": output_metrics,
     }
 
@@ -395,21 +541,75 @@ def _fit_numpy_mlp_candidate(
 def _fit_candidate_models(
     dataset: PhoenixSurrogateDataset,
     config: PhoenixSurrogateTrainingConfig,
-) -> tuple[NumpyMLPSurrogate, str, dict[str, Any]]:
+) -> tuple[NumpyMLPSurrogate, str, str, dict[str, Any]]:
     candidates = {}
     models = {}
-    for strategy in ("direct_price", "payoff_aware"):
-        models[strategy], candidates[strategy] = _fit_numpy_mlp_candidate(
-            dataset, config, strategy=strategy
+    direct_name = "direct_price"
+    models[direct_name], candidates[direct_name] = _fit_numpy_mlp_candidate(
+        dataset,
+        config,
+        strategy="direct_price",
+        hidden_layer_sizes=config.hidden_layer_sizes,
+        random_state=config.random_state,
+        candidate_name=direct_name,
+    )
+    layouts = tuple(
+        dict.fromkeys(
+            (config.hidden_layer_sizes,) + config.candidate_hidden_layer_sizes
         )
-    selected_strategy = min(
+    )
+    for layout in layouts:
+        layout_label = "x".join(str(width) for width in layout)
+        for seed_offset in config.candidate_seed_offsets:
+            random_state = config.random_state + seed_offset
+            name = (
+                "payoff_aware"
+                if len(layouts) == 1 and len(config.candidate_seed_offsets) == 1
+                else f"payoff_aware__{layout_label}__seed{random_state}"
+            )
+            models[name], candidates[name] = _fit_numpy_mlp_candidate(
+                dataset,
+                config,
+                strategy="payoff_aware",
+                hidden_layer_sizes=layout,
+                random_state=random_state,
+                candidate_name=name,
+            )
+    for name, metrics in candidates.items():
+        validation_mae = metrics["split_metrics"]["validation"]["mae"]
+        maximum_regime_mae = max(
+            values["mae"] for values in metrics["regime_metrics"]["validation"].values()
+        )
+        maximum_moneyness_mae = max(
+            values["mae"]
+            for values in metrics["moneyness_metrics"]["validation"].values()
+        )
+        metrics["selection"] = {
+            "policy": "robust-validation-mae-v1",
+            "validation_mae": validation_mae,
+            "maximum_validation_regime_mae": maximum_regime_mae,
+            "maximum_validation_moneyness_mae": maximum_moneyness_mae,
+            "score": (
+                validation_mae
+                + config.selection_worst_regime_weight * maximum_regime_mae
+                + config.selection_worst_moneyness_weight * maximum_moneyness_mae
+            ),
+        }
+    selected_candidate = min(
         candidates,
         key=lambda name: (
-            candidates[name]["split_metrics"]["validation"]["mae"],
+            candidates[name]["selection"]["score"],
+            candidates[name]["selection"]["validation_mae"],
             name,
         ),
     )
-    return models[selected_strategy], selected_strategy, candidates
+    selected_strategy = candidates[selected_candidate]["strategy"]
+    return (
+        models[selected_candidate],
+        selected_candidate,
+        selected_strategy,
+        candidates,
+    )
 
 
 def _lightgbm_baseline(
@@ -645,6 +845,10 @@ def _acceptance(
         values["mae"]
         for values in evaluation_metrics["moneyness_region_metrics"].values()
     )
+    maximum_regime_moneyness_mae = max(
+        values["mae"]
+        for values in evaluation_metrics["regime_moneyness_metrics"].values()
+    )
     checks = {
         "audit_mae": {
             "value": test["mae"],
@@ -672,6 +876,12 @@ def _acceptance(
             "maximum": config.acceptance_maximum_moneyness_region_mae,
             "passed": maximum_moneyness_region_mae
             <= config.acceptance_maximum_moneyness_region_mae,
+        },
+        "maximum_regime_moneyness_cell_mae": {
+            "value": maximum_regime_moneyness_mae,
+            "maximum": config.acceptance_maximum_regime_moneyness_mae,
+            "passed": maximum_regime_moneyness_mae
+            <= config.acceptance_maximum_regime_moneyness_mae,
         },
         "within_two_label_se_fraction": {
             "value": test["within_two_label_se_fraction"],
@@ -801,10 +1011,14 @@ def train_phoenix_surrogate(
                 "development and audit datasets must use independent seeds"
             )
     started = time.perf_counter()
-    surrogate, selected_strategy, candidate_metrics = _fit_candidate_models(
-        dataset, config
-    )
-    selected_metrics = candidate_metrics[selected_strategy]
+    (
+        surrogate,
+        selected_candidate,
+        selected_strategy,
+        candidate_metrics,
+    ) = _fit_candidate_models(dataset, config)
+    selected_metrics = candidate_metrics[selected_candidate]
+    development_predictions = surrogate.predict(dataset.X)
     baseline_metrics = _lightgbm_baseline(dataset, config)
     evaluation_metrics = (
         _audit_metrics(audit_dataset, surrogate)
@@ -837,6 +1051,7 @@ def train_phoenix_surrogate(
         "feature_schema_version": dataset.metadata["feature_schema_version"],
         "training_config": asdict(config),
         "training_environment": _training_environment(config),
+        "selected_candidate": selected_candidate,
         "selected_strategy": selected_strategy,
         "output_names": list(surrogate.output_names),
         "weights_sha256": weights_checksum,
@@ -884,8 +1099,12 @@ def train_phoenix_surrogate(
             else None
         ),
         "selected_strategy": selected_strategy,
+        "selected_candidate": selected_candidate,
         "selected_model": selected_metrics,
         "candidate_models": candidate_metrics,
+        "development_error_analysis": _development_error_analysis(
+            dataset, development_predictions
+        ),
         "lightgbm_baseline": baseline_metrics,
         "audit_evaluation": evaluation_metrics,
         "greek_validation": greek_metrics,

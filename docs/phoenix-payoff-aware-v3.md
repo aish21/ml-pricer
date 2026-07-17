@@ -1,5 +1,10 @@
 # Phoenix payoff-aware surrogate v3
 
+> Historical specification: v3 established payoff-aware supervision and the
+> sealed audit. It is superseded operationally by
+> [`phoenix-live-shadow-v4.md`](phoenix-live-shadow-v4.md), which adds robust
+> candidate selection and live shadow monitoring.
+
 This document is both the operating specification for
 `phoenix-surrogate-payoff-aware-v3` and a short university-style lecture on why
 the model is designed this way. The system remains a research pricer: the

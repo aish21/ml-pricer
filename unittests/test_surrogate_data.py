@@ -89,3 +89,20 @@ def test_dataset_configuration_rejects_weak_or_incompatible_sampling():
         tiny_config(paths_per_replication=10)
     with pytest.raises(SurrogateDatasetError, match="n_steps"):
         tiny_config(n_steps=11)
+    with pytest.raises(SurrogateDatasetError, match="audit datasets"):
+        tiny_config(dataset_role="audit", sampling_profile="low_vol_barrier_focus")
+
+
+def test_low_vol_barrier_profile_adds_focused_development_cases():
+    dataset = generate_phoenix_surrogate_dataset(
+        tiny_config(
+            markets_per_contract=6,
+            sampling_profile="low_vol_barrier_focus",
+        ),
+        verbose=False,
+    )
+
+    low_volatility_count = int(np.sum(dataset.regime_names == "low_vol"))
+    assert low_volatility_count > int(np.sum(dataset.regime_names == "normal"))
+    focused = dataset.moneyness_region_names[np.arange(len(dataset.y)) % 6 >= 4]
+    assert set(focused).issubset({"knock_in", "coupon", "autocall"})

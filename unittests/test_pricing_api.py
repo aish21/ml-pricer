@@ -281,8 +281,27 @@ def test_health_endpoints_are_available():
         "enabled": False,
         "mode": "shadow-only",
         "available": False,
-        "model_version": "phoenix-surrogate-payoff-aware-v3",
+        "model_version": "phoenix-surrogate-payoff-aware-v4",
         "reason": "disabled",
+    }
+    assert ready.json()["surrogate_monitoring"] == {
+        "enabled": False,
+        "available": False,
+        "reason": "disabled",
+    }
+
+
+def test_surrogate_monitoring_metrics_report_disabled_by_default():
+    response = client.get("/api/v1/surrogate-shadow/metrics")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "success",
+        "monitoring": {
+            "enabled": False,
+            "available": False,
+            "reason": "disabled",
+        },
     }
 
 

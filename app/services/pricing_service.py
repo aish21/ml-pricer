@@ -414,6 +414,21 @@ def price_phoenix_with_term_structure(
             reference_standard_error=result["standard_error"],
         )
         if shadow is not None:
+            try:
+                from app.services.surrogate_monitoring import (
+                    record_surrogate_shadow_observation,
+                )
+
+                shadow["telemetry_recorded"] = record_surrogate_shadow_observation(
+                    market=market,
+                    terms=normalized_terms,
+                    contract_reference_spot=market.spot,
+                    reference_price=result["price"],
+                    reference_standard_error=result["standard_error"],
+                    shadow_result=shadow,
+                )
+            except Exception:
+                shadow["telemetry_recorded"] = False
             result["surrogate_shadow"] = shadow
     except Exception:
         result["surrogate_shadow"] = {

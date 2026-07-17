@@ -7,6 +7,8 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, Mapping
 
+import numpy as np
+
 from src.final.market import (
     EQUITY_GBM_PIECEWISE_MODEL_VERSION,
     EQUITY_MARKET_TERM_STRUCTURE_VERSION,
@@ -37,7 +39,7 @@ from src.final.surrogate_model import (
 from app.services.product_registry import REPO_ROOT
 
 
-DEFAULT_SURROGATE_ROOT = REPO_ROOT / "data" / "surrogates" / "phoenix-v3" / "artifacts"
+DEFAULT_SURROGATE_ROOT = REPO_ROOT / "data" / "surrogates" / "phoenix-v4" / "artifacts"
 MAX_POINTER_BYTES = 64 * 1024
 MAX_MANIFEST_BYTES = 2 * 1024 * 1024
 MAX_WEIGHTS_BYTES = 32 * 1024 * 1024
@@ -345,6 +347,9 @@ def evaluate_surrogate_shadow(
         )
         prediction = float(bundle.model.predict(features)[0])
         output_values = bundle.model.predict_outputs(features)[0]
+        standardized_distances = np.abs(
+            (features - bundle.model.feature_mean) / bundle.model.feature_scale
+        )
     except (SurrogateContractError, SurrogateModelError) as exc:
         return {
             "status": "error",
@@ -392,6 +397,19 @@ def evaluate_surrogate_shadow(
             absolute_error / standard_error if standard_error > 0.0 else None
         ),
         "latency_ms": int(round((time.perf_counter() - started) * 1_000)),
+        "input_diagnostics": {
+            "maximum_standardized_feature_distance": float(
+                np.max(standardized_distances)
+            ),
+            "features_above_four_sigma": [
+                {
+                    "feature": bundle.model.feature_names[index],
+                    "standardized_distance": float(standardized_distances[index]),
+                }
+                for index in np.argsort(-standardized_distances)
+                if standardized_distances[index] > 4.0
+            ][:5],
+        },
     }
     if bundle.model.output_names == PHOENIX_PAYOFF_AWARE_MODEL_OUTPUT_NAMES:
         result["cashflow_components"] = {

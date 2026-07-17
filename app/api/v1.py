@@ -48,6 +48,11 @@ from app.services.risk_service import (
 )
 from app.services.run_store import get_run, list_recent_runs, save_run
 from app.services.surrogate_service import get_surrogate_status
+from app.services.surrogate_monitoring import (
+    SurrogateMonitoringError,
+    get_surrogate_monitoring_status,
+    get_surrogate_monitoring_summary,
+)
 
 
 router = APIRouter(prefix="/api/v1", tags=["api-v1"])
@@ -688,7 +693,22 @@ def products():
 def model_info():
     info = get_model_info()
     info["surrogate_shadow"] = get_surrogate_status()
+    info["surrogate_monitoring"] = get_surrogate_monitoring_status()
     return {
         "status": "success",
         "model_info": info,
     }
+
+
+@router.get("/surrogate-shadow/metrics")
+def surrogate_shadow_metrics(limit: int = Query(default=1000, ge=1, le=100_000)):
+    try:
+        return {
+            "status": "success",
+            "monitoring": get_surrogate_monitoring_summary(limit=limit),
+        }
+    except SurrogateMonitoringError:
+        return JSONResponse(
+            {"status": "error", "message": "surrogate monitoring unavailable"},
+            status_code=503,
+        )
