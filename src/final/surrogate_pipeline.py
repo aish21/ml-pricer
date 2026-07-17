@@ -14,7 +14,7 @@ from .surrogate_trainer import (
 )
 
 
-DEFAULT_OUTPUT_ROOT = Path("data") / "surrogates" / "phoenix-v4"
+DEFAULT_OUTPUT_ROOT = Path("data") / "surrogates" / "phoenix-v5"
 
 
 def _dataset_config(
@@ -25,12 +25,14 @@ def _dataset_config(
     markets_per_contract: int | None = None,
     seed_offset: int = 0,
     sampling_profile: str | None = None,
+    paths_per_replication: int | None = None,
+    label_replications: int | None = None,
 ) -> PhoenixDatasetConfig:
     return PhoenixDatasetConfig(
         n_contracts=n_contracts or args.n_contracts,
         markets_per_contract=markets_per_contract or args.markets_per_contract,
-        paths_per_replication=args.paths_per_replication,
-        label_replications=args.label_replications,
+        paths_per_replication=(paths_per_replication or args.paths_per_replication),
+        label_replications=label_replications or args.label_replications,
         dataset_seed=args.dataset_seed + seed_offset,
         label_seed=args.label_seed + seed_offset,
         sampling_method=args.sampling_method,
@@ -72,7 +74,10 @@ def _save_generated_dataset(dataset, output_root: Path) -> Path:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Generate and train the monitored Phoenix payoff-aware v4 model."
+        description=(
+            "Generate and train the uncertainty-calibrated Phoenix "
+            "payoff-aware v5 model."
+        )
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -138,7 +143,9 @@ def _build_parser() -> argparse.ArgumentParser:
     add_dataset_arguments(full)
     full.add_argument("--audit-contracts", type=int, default=256)
     full.add_argument("--audit-markets-per-contract", type=int, default=4)
-    full.add_argument("--audit-seed-offset", type=int, default=1_000_003)
+    full.add_argument("--audit-paths-per-replication", type=int, default=256)
+    full.add_argument("--audit-label-replications", type=int, default=8)
+    full.add_argument("--audit-seed-offset", type=int, default=5_000_011)
     add_training_arguments(full)
     full.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     return parser
@@ -183,6 +190,8 @@ def main(argv: list[str] | None = None) -> int:
                 markets_per_contract=args.audit_markets_per_contract,
                 seed_offset=args.audit_seed_offset,
                 sampling_profile="balanced",
+                paths_per_replication=args.audit_paths_per_replication,
+                label_replications=args.audit_label_replications,
             )
         )
         audit_path = _save_generated_dataset(audit_dataset, output_root)

@@ -1,6 +1,8 @@
 import json
+from dataclasses import replace
 
 import numpy as np
+import pytest
 
 from src.final.surrogate_contract import (
     DEFAULT_TRAINING_DOMAIN,
@@ -53,6 +55,16 @@ def synthetic_dataset(*, role="development", seed=5):
             "synthetic": True,
             "dataset_seed": seed,
             "label_seed": seed + 100,
+            "label_replications": 8,
+            "paths_per_replication": 256,
+            "sampling_method": "sobol",
+        },
+        "label_uncertainty_protocol": {
+            "estimator": "between-replication-standard-error",
+            "independent_randomizations": 8,
+            "paths_per_randomization": 256,
+            "total_paths_per_label": 2048,
+            "sampling_method": "sobol",
         },
         "generation_environment": {
             "python": "test",
@@ -94,7 +106,8 @@ def test_training_exports_versioned_checksum_numpy_artifact(tmp_path):
             acceptance_audit_r2=-100.0,
             acceptance_maximum_regime_mae=10.0,
             acceptance_maximum_moneyness_region_mae=10.0,
-            acceptance_minimum_within_two_label_se=0.0,
+            acceptance_minimum_uncertainty_or_economic_coverage=0.0,
+            acceptance_maximum_label_confidence_half_width_p95=10.0,
             acceptance_maximum_component_mae=10.0,
             acceptance_maximum_event_mae=10.0,
             acceptance_maximum_mean_output_boundary_violation=1.0,
@@ -116,9 +129,18 @@ def test_training_exports_versioned_checksum_numpy_artifact(tmp_path):
     assert manifest["dataset_id"] == "sha256:synthetic-development-5"
     assert manifest["audit_dataset_id"] == "sha256:synthetic-audit-6"
     assert manifest["selected_strategy"] in {"direct_price", "payoff_aware"}
+    assert "scipy" in manifest["training_environment"]
     assert manifest["acceptance"]["evaluation_dataset_id"] == (
         "sha256:synthetic-audit-6"
     )
+    assert (
+        manifest["audit_uncertainty_policy"]["policy_version"]
+        == "phoenix-audit-uncertainty-v1"
+    )
+    assert (
+        "uncertainty_or_economic_tolerance_coverage" in manifest["acceptance"]["checks"]
+    )
+    assert "within_two_label_se_fraction" not in manifest["acceptance"]["checks"]
     assert predictions.shape == (3,)
     assert np.all(np.isfinite(predictions))
 
@@ -141,7 +163,8 @@ def test_candidate_search_is_selected_only_from_development_validation(tmp_path)
             acceptance_maximum_regime_mae=10.0,
             acceptance_maximum_moneyness_region_mae=10.0,
             acceptance_maximum_regime_moneyness_mae=10.0,
-            acceptance_minimum_within_two_label_se=0.0,
+            acceptance_minimum_uncertainty_or_economic_coverage=0.0,
+            acceptance_maximum_label_confidence_half_width_p95=10.0,
             acceptance_maximum_component_mae=10.0,
             acceptance_maximum_event_mae=10.0,
             acceptance_maximum_mean_output_boundary_violation=1.0,
@@ -158,3 +181,39 @@ def test_candidate_search_is_selected_only_from_development_validation(tmp_path)
     assert manifest["acceptance"]["evaluation_dataset_id"] == (
         "sha256:synthetic-audit-8"
     )
+
+
+def test_training_rejects_an_under_replicated_audit_before_fitting(tmp_path):
+    audit = synthetic_dataset(role="audit", seed=9)
+    weak_metadata = {
+        **audit.metadata,
+        "config": {
+            **audit.metadata["config"],
+            "label_replications": 2,
+            "paths_per_replication": 1024,
+        },
+        "label_uncertainty_protocol": {
+            "estimator": "between-replication-standard-error",
+            "independent_randomizations": 2,
+            "paths_per_randomization": 1024,
+            "total_paths_per_label": 2048,
+            "sampling_method": "sobol",
+        },
+    }
+
+    with pytest.raises(
+        RuntimeError,
+        match="requires more independent replications",
+    ):
+        train_phoenix_surrogate(
+            dataset=synthetic_dataset(),
+            audit_dataset=replace(audit, metadata=weak_metadata),
+            output_root=tmp_path,
+            config=PhoenixSurrogateTrainingConfig(
+                hidden_layer_sizes=(8,),
+                max_iter=10,
+                train_lightgbm_baseline=False,
+                greek_validation_cases=0,
+            ),
+            verbose=False,
+        )

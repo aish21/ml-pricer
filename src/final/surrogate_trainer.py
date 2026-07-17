@@ -38,6 +38,14 @@ class SurrogateTrainingError(RuntimeError):
     pass
 
 
+AUDIT_UNCERTAINTY_POLICY_VERSION = "phoenix-audit-uncertainty-v1"
+
+
+def _json_sha256(payload: dict[str, Any]) -> str:
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
 @dataclass(frozen=True)
 class PhoenixSurrogateTrainingConfig:
     hidden_layer_sizes: tuple[int, ...] = (128, 128)
@@ -56,7 +64,12 @@ class PhoenixSurrogateTrainingConfig:
     acceptance_maximum_regime_mae: float = 0.03
     acceptance_maximum_moneyness_region_mae: float = 0.03
     acceptance_maximum_regime_moneyness_mae: float = 0.04
-    acceptance_minimum_within_two_label_se: float = 0.40
+    audit_confidence_level: float = 0.95
+    minimum_audit_label_replications: int = 8
+    minimum_audit_total_paths: int = 2_048
+    acceptance_economic_price_tolerance: float = 0.01
+    acceptance_minimum_uncertainty_or_economic_coverage: float = 0.80
+    acceptance_maximum_label_confidence_half_width_p95: float = 0.015
     acceptance_minimum_greek_sign_agreement: float = 0.50
     acceptance_maximum_component_mae: float = 0.08
     acceptance_maximum_event_mae: float = 0.08
@@ -106,6 +119,8 @@ class PhoenixSurrogateTrainingConfig:
                 self.acceptance_maximum_regime_mae,
                 self.acceptance_maximum_moneyness_region_mae,
                 self.acceptance_maximum_regime_moneyness_mae,
+                self.acceptance_economic_price_tolerance,
+                self.acceptance_maximum_label_confidence_half_width_p95,
                 self.acceptance_maximum_component_mae,
                 self.acceptance_maximum_event_mae,
                 self.acceptance_maximum_cashflow_reconstruction_mae,
@@ -125,15 +140,106 @@ class PhoenixSurrogateTrainingConfig:
             or self.acceptance_audit_r2 > 1.0
         ):
             raise SurrogateTrainingError("acceptance R-squared threshold is invalid")
+        if not 0.80 <= self.audit_confidence_level < 1.0:
+            raise SurrogateTrainingError("audit confidence level is invalid")
+        if (
+            self.minimum_audit_label_replications < 2
+            or self.minimum_audit_label_replications > 32
+            or self.minimum_audit_total_paths < 8
+        ):
+            raise SurrogateTrainingError("audit sampling requirements are invalid")
         if any(
             not 0.0 <= value <= 1.0
             for value in (
-                self.acceptance_minimum_within_two_label_se,
+                self.acceptance_minimum_uncertainty_or_economic_coverage,
                 self.acceptance_minimum_greek_sign_agreement,
                 self.acceptance_maximum_mean_output_boundary_violation,
             )
         ):
             raise SurrogateTrainingError("acceptance fraction thresholds are invalid")
+
+
+def _audit_uncertainty_policy(
+    dataset: PhoenixSurrogateDataset,
+    config: PhoenixSurrogateTrainingConfig,
+) -> dict[str, Any]:
+    dataset_config = dataset.metadata.get("config")
+    uncertainty = dataset.metadata.get("label_uncertainty_protocol")
+    if not isinstance(dataset_config, dict) or not isinstance(uncertainty, dict):
+        raise SurrogateTrainingError("audit dataset uncertainty metadata is missing")
+    try:
+        replications = int(dataset_config["label_replications"])
+        paths_per_replication = int(dataset_config["paths_per_replication"])
+        sampling_method = str(dataset_config["sampling_method"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise SurrogateTrainingError(
+            "audit dataset uncertainty configuration is invalid"
+        ) from exc
+    if (
+        not isinstance(dataset_config.get("label_replications"), int)
+        or isinstance(dataset_config.get("label_replications"), bool)
+        or not isinstance(dataset_config.get("paths_per_replication"), int)
+        or isinstance(dataset_config.get("paths_per_replication"), bool)
+    ):
+        raise SurrogateTrainingError(
+            "audit dataset uncertainty configuration is invalid"
+        )
+    total_paths = replications * paths_per_replication
+    expected_metadata = {
+        "estimator": "between-replication-standard-error",
+        "independent_randomizations": replications,
+        "paths_per_randomization": paths_per_replication,
+        "total_paths_per_label": total_paths,
+        "sampling_method": sampling_method,
+    }
+    if uncertainty != expected_metadata:
+        raise SurrogateTrainingError(
+            "audit dataset uncertainty metadata is inconsistent"
+        )
+    if sampling_method != "sobol":
+        raise SurrogateTrainingError(
+            "audit uncertainty policy requires scrambled Sobol sampling"
+        )
+    if replications < config.minimum_audit_label_replications:
+        raise SurrogateTrainingError(
+            "audit uncertainty policy requires more independent replications"
+        )
+    if total_paths < config.minimum_audit_total_paths:
+        raise SurrogateTrainingError(
+            "audit uncertainty policy requires more paths per label"
+        )
+
+    from scipy.stats import t
+
+    confidence_multiplier = float(
+        t.ppf(
+            0.5 + config.audit_confidence_level / 2.0,
+            df=replications - 1,
+        )
+    )
+    policy = {
+        "policy_version": AUDIT_UNCERTAINTY_POLICY_VERSION,
+        "sampling_method": sampling_method,
+        "minimum_independent_randomizations": (config.minimum_audit_label_replications),
+        "observed_independent_randomizations": replications,
+        "minimum_total_paths_per_label": config.minimum_audit_total_paths,
+        "observed_total_paths_per_label": total_paths,
+        "confidence_interval": "student-t-between-randomizations",
+        "confidence_level": config.audit_confidence_level,
+        "confidence_multiplier": confidence_multiplier,
+        "economic_price_tolerance": config.acceptance_economic_price_tolerance,
+        "coverage_rule": (
+            "absolute_error <= max(label_confidence_half_width, "
+            "economic_price_tolerance)"
+        ),
+        "minimum_coverage_fraction": (
+            config.acceptance_minimum_uncertainty_or_economic_coverage
+        ),
+        "maximum_label_confidence_half_width_p95": (
+            config.acceptance_maximum_label_confidence_half_width_p95
+        ),
+    }
+    return {**policy, "policy_id": _json_sha256(policy)}
 
 
 def _regression_metrics(
@@ -159,6 +265,41 @@ def _regression_metrics(
         "within_one_label_se_fraction": float(np.mean(absolute <= denominator)),
         "within_two_label_se_fraction": float(np.mean(absolute <= 2.0 * denominator)),
         "median_error_to_label_se": float(np.median(absolute / denominator)),
+    }
+
+
+def _uncertainty_aware_metrics(
+    actual: np.ndarray,
+    predicted: np.ndarray,
+    label_standard_error: np.ndarray,
+    policy: dict[str, Any],
+) -> dict[str, Any]:
+    absolute = np.abs(np.asarray(predicted) - np.asarray(actual))
+    standard_error = np.asarray(label_standard_error)
+    confidence_half_width = standard_error * policy["confidence_multiplier"]
+    economic_tolerance = policy["economic_price_tolerance"]
+    combined_tolerance = np.maximum(confidence_half_width, economic_tolerance)
+    return {
+        "label_confidence_level": policy["confidence_level"],
+        "label_confidence_multiplier": policy["confidence_multiplier"],
+        "label_standard_error_median": float(np.median(standard_error)),
+        "label_standard_error_p95": float(np.quantile(standard_error, 0.95)),
+        "label_standard_error_maximum": float(np.max(standard_error)),
+        "label_confidence_half_width_median": float(np.median(confidence_half_width)),
+        "label_confidence_half_width_p95": float(
+            np.quantile(confidence_half_width, 0.95)
+        ),
+        "label_confidence_half_width_maximum": float(np.max(confidence_half_width)),
+        "economic_price_tolerance": economic_tolerance,
+        "economic_tolerance_binding_fraction": float(
+            np.mean(economic_tolerance >= confidence_half_width)
+        ),
+        "within_label_confidence_interval_fraction": float(
+            np.mean(absolute <= confidence_half_width)
+        ),
+        "within_uncertainty_or_economic_tolerance_fraction": float(
+            np.mean(absolute <= combined_tolerance)
+        ),
     }
 
 
@@ -290,13 +431,23 @@ def _development_error_analysis(
 
 
 def _audit_metrics(
-    dataset: PhoenixSurrogateDataset, surrogate: NumpyMLPSurrogate
+    dataset: PhoenixSurrogateDataset,
+    surrogate: NumpyMLPSurrogate,
+    uncertainty_policy: dict[str, Any],
 ) -> dict[str, Any]:
     predictions = surrogate.predict(dataset.X)
     output_predictions = surrogate.predict_outputs(dataset.X)
     raw_output_predictions = surrogate.predict_raw_outputs(dataset.X)
     price_metrics = _regression_metrics(
         dataset.y, predictions, dataset.label_standard_error
+    )
+    price_metrics.update(
+        _uncertainty_aware_metrics(
+            dataset.y,
+            predictions,
+            dataset.label_standard_error,
+            uncertainty_policy,
+        )
     )
     regime_metrics = {}
     for regime in sorted(set(str(value) for value in dataset.regime_names)):
@@ -375,6 +526,7 @@ def _audit_metrics(
     return {
         "dataset_id": dataset.metadata["dataset_id"],
         "n_samples": int(len(dataset.y)),
+        "uncertainty_policy": uncertainty_policy,
         "price_metrics": price_metrics,
         "regime_metrics": regime_metrics,
         "moneyness_region_metrics": moneyness_metrics,
@@ -883,11 +1035,17 @@ def _acceptance(
             "passed": maximum_regime_moneyness_mae
             <= config.acceptance_maximum_regime_moneyness_mae,
         },
-        "within_two_label_se_fraction": {
-            "value": test["within_two_label_se_fraction"],
-            "minimum": config.acceptance_minimum_within_two_label_se,
-            "passed": test["within_two_label_se_fraction"]
-            >= config.acceptance_minimum_within_two_label_se,
+        "audit_label_confidence_half_width_p95": {
+            "value": test["label_confidence_half_width_p95"],
+            "maximum": config.acceptance_maximum_label_confidence_half_width_p95,
+            "passed": test["label_confidence_half_width_p95"]
+            <= config.acceptance_maximum_label_confidence_half_width_p95,
+        },
+        "uncertainty_or_economic_tolerance_coverage": {
+            "value": test["within_uncertainty_or_economic_tolerance_fraction"],
+            "minimum": (config.acceptance_minimum_uncertainty_or_economic_coverage),
+            "passed": test["within_uncertainty_or_economic_tolerance_fraction"]
+            >= config.acceptance_minimum_uncertainty_or_economic_coverage,
         },
     }
     output_metrics = evaluation_metrics.get("output_metrics", {})
@@ -964,13 +1122,8 @@ def _write_weights(path: Path, surrogate: NumpyMLPSurrogate) -> None:
         np.savez_compressed(handle, **payload)
 
 
-def _json_sha256(payload: dict[str, Any]) -> str:
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
-
-
 def _training_environment(config: PhoenixSurrogateTrainingConfig) -> dict[str, str]:
-    packages = ["numpy", "scikit-learn"]
+    packages = ["numpy", "scikit-learn", "scipy"]
     if config.train_lightgbm_baseline:
         packages.append("lightgbm")
     environment = {"python": platform.python_version()}
@@ -1010,6 +1163,11 @@ def train_phoenix_surrogate(
             raise SurrogateTrainingError(
                 "development and audit datasets must use independent seeds"
             )
+    uncertainty_policy = (
+        _audit_uncertainty_policy(audit_dataset, config)
+        if audit_dataset is not None
+        else None
+    )
     started = time.perf_counter()
     (
         surrogate,
@@ -1021,7 +1179,7 @@ def train_phoenix_surrogate(
     development_predictions = surrogate.predict(dataset.X)
     baseline_metrics = _lightgbm_baseline(dataset, config)
     evaluation_metrics = (
-        _audit_metrics(audit_dataset, surrogate)
+        _audit_metrics(audit_dataset, surrogate, uncertainty_policy)
         if audit_dataset is not None
         else _development_test_metrics(dataset, surrogate)
     )
@@ -1054,6 +1212,7 @@ def train_phoenix_surrogate(
         "selected_candidate": selected_candidate,
         "selected_strategy": selected_strategy,
         "output_names": list(surrogate.output_names),
+        "audit_uncertainty_policy": uncertainty_policy,
         "weights_sha256": weights_checksum,
     }
     artifact_id = _json_sha256(identity)

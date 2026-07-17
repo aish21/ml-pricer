@@ -582,6 +582,19 @@ def generate_phoenix_surrogate_dataset(
             if config.label_replications > 1
             else "pathwise standard error"
         ),
+        "label_uncertainty_protocol": {
+            "estimator": (
+                "between-replication-standard-error"
+                if config.label_replications > 1
+                else "pathwise-standard-error"
+            ),
+            "independent_randomizations": config.label_replications,
+            "paths_per_randomization": config.paths_per_replication,
+            "total_paths_per_label": (
+                config.label_replications * config.paths_per_replication
+            ),
+            "sampling_method": config.sampling_method,
+        },
         "generation_seconds": time.perf_counter() - started,
         **surrogate_contract_metadata(),
     }

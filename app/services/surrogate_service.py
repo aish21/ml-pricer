@@ -39,7 +39,7 @@ from src.final.surrogate_model import (
 from app.services.product_registry import REPO_ROOT
 
 
-DEFAULT_SURROGATE_ROOT = REPO_ROOT / "data" / "surrogates" / "phoenix-v4" / "artifacts"
+DEFAULT_SURROGATE_ROOT = REPO_ROOT / "data" / "surrogates" / "phoenix-v5" / "artifacts"
 MAX_POINTER_BYTES = 64 * 1024
 MAX_MANIFEST_BYTES = 2 * 1024 * 1024
 MAX_WEIGHTS_BYTES = 32 * 1024 * 1024

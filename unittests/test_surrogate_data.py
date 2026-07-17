@@ -35,6 +35,16 @@ def test_dataset_generation_is_deterministic_and_group_disjoint():
     assert first.X.shape == (12, 24)
     assert first.auxiliary_targets.shape == (12, 6)
     assert np.allclose(first.auxiliary_targets[:, :4].sum(axis=1), first.y)
+    assert first.metadata["label_uncertainty"] == (
+        "standard error across independent scrambled replications"
+    )
+    assert first.metadata["label_uncertainty_protocol"] == {
+        "estimator": "between-replication-standard-error",
+        "independent_randomizations": 2,
+        "paths_per_randomization": 8,
+        "total_paths_per_label": 16,
+        "sampling_method": "sobol",
+    }
     assert set(first.split_names) == {"train", "validation", "test"}
     for group_id in set(first.group_ids):
         group_splits = set(first.split_names[first.group_ids == group_id])

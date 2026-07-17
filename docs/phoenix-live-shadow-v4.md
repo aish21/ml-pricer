@@ -1,5 +1,10 @@
 # Phoenix live-shadow surrogate v4
 
+> Historical specification. Phase 11 replaces the unstable two-replication
+> promotion gate with the pre-registered uncertainty protocol in
+> [`phoenix-uncertainty-v5.md`](phoenix-uncertainty-v5.md). The v4 results below
+> remain research provenance.
+
 `phoenix-surrogate-payoff-aware-v4` extends the v3 payoff-aware model with
 robust candidate selection, targeted low-volatility training coverage, live
 input-drift diagnostics, durable shadow observations, and out-of-time replay.
