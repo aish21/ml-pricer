@@ -1,5 +1,9 @@
 # Phoenix observation-level hazard research model
 
+> Historical smoke specification. The frozen configuration was subsequently
+> run on all 6,144 development cases and still did not beat v7. See
+> [`phoenix-hazard-full-development-v1.md`](phoenix-hazard-full-development-v1.md).
+
 This phase replaces aggregate terminal-event regression with a model of the
 actual Phoenix observation sequence. It is isolated from the Phoenix v7 serving
 contract and cannot consume an audit dataset or write a runtime artifact.
@@ -143,8 +147,7 @@ The architecture remains `research_only`. It is not promoted, served, or
 audited.
 
 The smoke dataset is deliberately small, while a sequential tree model is
-data-hungry. The next step is an operational scale test: freeze this
-configuration, replay observation labels for the existing 6,144-case
-development dataset, and compare it once against v7 using the repeated-group
-policy. No further tuning should use the smoke test split. A new sealed audit
-is justified only if the full-development candidate wins.
+data-hungry. The predeclared operational scale test has now been completed
+without further smoke-set tuning. It also lost to v7, so no audit was consumed;
+the full result is documented in
+[`phoenix-hazard-full-development-v1.md`](phoenix-hazard-full-development-v1.md).

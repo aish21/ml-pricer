@@ -2,8 +2,8 @@
 
 > Current serving-contract specification. The next development-only
 > event-conditioned architecture did not beat this selector and was not
-> promoted or audited. Its observation-level hazard successor also remains
-> research-only after a smoke validation gate. See
+> promoted or audited. Its observation-level hazard successor also failed its
+> frozen full-development comparison. See
 > [`phoenix-event-conditioned-research-v1.md`](phoenix-event-conditioned-research-v1.md).
 
 V7 tests whether the v6 focused-head candidate won because of one favorable

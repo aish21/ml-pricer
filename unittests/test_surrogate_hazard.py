@@ -61,6 +61,18 @@ def test_hazard_labels_reconstruct_the_base_monte_carlo_prices(tmp_path):
     assert np.array_equal(loaded.observation_mask, dataset.observation_mask)
 
 
+def test_hazard_label_identity_is_independent_of_worker_count():
+    sequential = small_hazard_dataset()
+    parallel = generate_phoenix_hazard_dataset(
+        sequential.base,
+        verbose=False,
+        workers=2,
+    )
+
+    assert parallel.metadata["dataset_id"] == sequential.metadata["dataset_id"]
+    assert parallel.metadata["generation_workers"] == 2
+
+
 def test_hazard_candidate_uses_soft_events_and_stays_research_only():
     dataset = small_hazard_dataset()
 

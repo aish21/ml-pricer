@@ -11,8 +11,8 @@ terms. A repeatedly validated, payoff-aware Phoenix v7 research surrogate can
 run in monitored shadow mode against the reference price. A development-only
 event-conditioned successor is implemented but was rejected by the repeated
 validation gate. An observation-level hazard successor now preserves autocall
-and coupon timing, but it also remains research-only after its smoke gate;
-legacy artifacts remain ineligible.
+and coupon timing, but it also remains research-only after its full-development
+gate; legacy artifacts remain ineligible.
 
 This is an educational/demo system. It is not production trading
 infrastructure, financial advice, or a risk system suitable for live capital
@@ -139,6 +139,7 @@ docs/
   equity-risk-analytics-v1.md  Paired scenarios and risk analytics
   phoenix-event-conditioned-research-v1.md  Development-only architecture result
   phoenix-observation-hazard-research-v1.md  Observation-event model result
+  phoenix-hazard-full-development-v1.md  Frozen full-data hazard comparison
   phoenix-robust-selection-v7.md  V7 repeated group-validation specification
   phoenix-focused-head-v6.md  Historical v6 focused-head specification
   phoenix-uncertainty-v5.md  Historical v5 uncertainty specification
@@ -205,6 +206,8 @@ its reproducible development-only command are documented in
 [docs/phoenix-event-conditioned-research-v1.md](docs/phoenix-event-conditioned-research-v1.md).
 The observation-level successor is documented in
 [docs/phoenix-observation-hazard-research-v1.md](docs/phoenix-observation-hazard-research-v1.md).
+Its frozen full-development decision is in
+[docs/phoenix-hazard-full-development-v1.md](docs/phoenix-hazard-full-development-v1.md).
 
 Start the FastAPI backend locally:
 
@@ -409,8 +412,8 @@ Legacy routes kept for compatibility:
   interpretability, but its repeated development score was worse than v7, so it
   was neither audited nor added to the runtime artifact format.
 - The observation-hazard candidate preserves event timing and uses soft-label
-  cross-entropy, but it did not beat the payoff-aware model on the smoke
-  validation gate. Its full-development scale test has not yet been run.
+  cross-entropy, but it did not beat the payoff-aware model on either its smoke
+  or frozen full-development validation gate.
 - Scenario explanations are simple and rule-based.
 - Phase 7 Greeks are finite-difference research estimates. Discontinuous
   barriers can produce noisy Gamma and bump sensitivity even with paired paths.
@@ -425,8 +428,9 @@ Legacy routes kept for compatibility:
   market regimes, and materially larger untouched datasets.
 - Add observation-level autocall, survival, and coupon-event labels so the next
   surrogate can learn discrete event hazards instead of aggregate terminal
-  probabilities. The research label/model contract now exists; the next
-  milestone is its frozen full-development comparison.
+  probabilities. The label contract now exists; the next model should use
+  fixed-dimensional event summaries as auxiliary targets while retaining a
+  direct price head.
 - Add theta with explicit calendar, fixing, accrual, and market-roll rules.
 - Add volatility-skew, credit/funding, and seasoned-trade state models.
 - Add optional PIN or gateway-based access control for non-local deployments.

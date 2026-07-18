@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import time
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -267,10 +268,93 @@ def _hazard_dataset_id(
     return f"sha256:{digest.hexdigest()}"
 
 
+def _label_hazard_sample(
+    payload: tuple[int, np.ndarray, int, int, int, int, str],
+) -> tuple[
+    int,
+    int,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    float,
+    float,
+    float,
+]:
+    (
+        sample_index,
+        features,
+        n_steps,
+        paths_per_replication,
+        label_replications,
+        label_seed,
+        sampling_method,
+    ) = payload
+    payoff = PhoenixPayoff()
+    market, terms, reference_spot = reconstruct_phoenix_surrogate_case(features)
+    observation_count = int(terms["obs_count"])
+    params = {
+        "S0": reference_spot,
+        "r": 0.0,
+        "sigma": 1.0,
+        "T": terms["maturity_years"],
+        "autocall_barrier_frac": terms["autocall_barrier_frac"],
+        "coupon_barrier_frac": terms["coupon_barrier_frac"],
+        "coupon_rate": terms["coupon_rate"],
+        "knock_in_frac": terms["knock_in_frac"],
+        "obs_count": observation_count,
+    }
+    replication_coupon = []
+    replication_autocall = []
+    replication_survival = []
+    replication_protected = []
+    replication_downside = []
+    replication_recovery_numerator = []
+    for replication in range(label_replications):
+        seed = (label_seed + sample_index * 104_729 + replication * 7_919) % (2**32 - 1)
+        shocks = _standard_normal_shocks(
+            method=sampling_method,
+            n_paths=paths_per_replication,
+            n_steps=n_steps,
+            seed=seed,
+        )
+        ledger = phoenix_piecewise_observation_event_ledger(
+            payoff=payoff,
+            params=params,
+            market=market,
+            n_paths=paths_per_replication,
+            n_steps=n_steps,
+            seed=None,
+            standard_normal_shocks=shocks,
+        )
+        replication_coupon.append(np.mean(ledger["coupon_event"], axis=0))
+        replication_autocall.append(np.mean(ledger["first_autocall_event"], axis=0))
+        replication_survival.append(
+            np.mean(ledger["survival_after_observation"], axis=0)
+        )
+        replication_protected.append(float(np.mean(ledger["protected_maturity_event"])))
+        replication_downside.append(float(np.mean(ledger["downside_maturity_event"])))
+        replication_recovery_numerator.append(
+            float(np.mean(ledger["downside_recovery_ratio"]))
+        )
+    observed_downside = float(np.mean(replication_downside))
+    recovery_numerator = float(np.mean(replication_recovery_numerator))
+    return (
+        sample_index,
+        observation_count,
+        np.mean(replication_coupon, axis=0),
+        np.mean(replication_autocall, axis=0),
+        np.mean(replication_survival, axis=0),
+        float(np.mean(replication_protected)),
+        observed_downside,
+        recovery_numerator / observed_downside if observed_downside > 0.0 else 0.0,
+    )
+
+
 def generate_phoenix_hazard_dataset(
     base: PhoenixSurrogateDataset,
     *,
     verbose: bool = True,
+    workers: int = 1,
 ) -> PhoenixHazardDataset:
     """Replay a development dataset's paths into observation-level labels."""
     if base.metadata.get("dataset_role") != "development":
@@ -290,6 +374,8 @@ def generate_phoenix_hazard_dataset(
         raise PhoenixHazardDatasetError(
             "base dataset generation config is invalid"
         ) from exc
+    if workers < 1 or workers > 32:
+        raise PhoenixHazardDatasetError("hazard generation workers are invalid")
 
     n_samples = len(base.y)
     shape = (n_samples, PHOENIX_HAZARD_MAX_OBSERVATIONS)
@@ -301,87 +387,58 @@ def generate_phoenix_hazard_dataset(
     downside_probability = np.zeros(n_samples, dtype=np.float64)
     downside_conditional_recovery = np.zeros(n_samples, dtype=np.float64)
     started = time.perf_counter()
-    payoff = PhoenixPayoff()
 
-    for sample_index, features in enumerate(base.X):
-        market, terms, reference_spot = reconstruct_phoenix_surrogate_case(features)
-        observation_count = int(terms["obs_count"])
-        observation_mask[sample_index, :observation_count] = True
-        params = {
-            "S0": reference_spot,
-            "r": 0.0,
-            "sigma": 1.0,
-            "T": terms["maturity_years"],
-            "autocall_barrier_frac": terms["autocall_barrier_frac"],
-            "coupon_barrier_frac": terms["coupon_barrier_frac"],
-            "coupon_rate": terms["coupon_rate"],
-            "knock_in_frac": terms["knock_in_frac"],
-            "obs_count": observation_count,
-        }
-        replication_coupon = []
-        replication_autocall = []
-        replication_survival = []
-        replication_protected = []
-        replication_downside = []
-        replication_recovery_numerator = []
-        for replication in range(label_replications):
-            seed = (label_seed + sample_index * 104_729 + replication * 7_919) % (
-                2**32 - 1
-            )
-            shocks = _standard_normal_shocks(
-                method=sampling_method,
-                n_paths=paths_per_replication,
-                n_steps=n_steps,
-                seed=seed,
-            )
-            ledger = phoenix_piecewise_observation_event_ledger(
-                payoff=payoff,
-                params=params,
-                market=market,
-                n_paths=paths_per_replication,
-                n_steps=n_steps,
-                seed=None,
-                standard_normal_shocks=shocks,
-            )
-            replication_coupon.append(np.mean(ledger["coupon_event"], axis=0))
-            replication_autocall.append(np.mean(ledger["first_autocall_event"], axis=0))
-            replication_survival.append(
-                np.mean(ledger["survival_after_observation"], axis=0)
-            )
-            replication_protected.append(
-                float(np.mean(ledger["protected_maturity_event"]))
-            )
-            replication_downside.append(
-                float(np.mean(ledger["downside_maturity_event"]))
-            )
-            replication_recovery_numerator.append(
-                float(np.mean(ledger["downside_recovery_ratio"]))
-            )
-        coupon_probability[sample_index, :observation_count] = np.mean(
-            replication_coupon, axis=0
+    payloads = (
+        (
+            sample_index,
+            features,
+            n_steps,
+            paths_per_replication,
+            label_replications,
+            label_seed,
+            sampling_method,
         )
-        first_autocall_probability[sample_index, :observation_count] = np.mean(
-            replication_autocall, axis=0
-        )
-        survival_after_probability[sample_index, :observation_count] = np.mean(
-            replication_survival, axis=0
-        )
-        protected_probability[sample_index] = float(np.mean(replication_protected))
-        downside_probability[sample_index] = float(np.mean(replication_downside))
-        recovery_numerator = float(np.mean(replication_recovery_numerator))
-        downside_conditional_recovery[sample_index] = (
-            recovery_numerator / downside_probability[sample_index]
-            if downside_probability[sample_index] > 0.0
-            else 0.0
-        )
-        if verbose and (
-            sample_index + 1 == n_samples
-            or (sample_index + 1) % max(1, n_samples // 20) == 0
-        ):
-            print(
-                f"[PhoenixHazardData] {sample_index + 1}/{n_samples} labels complete",
-                flush=True,
+        for sample_index, features in enumerate(base.X)
+    )
+    executor = ProcessPoolExecutor(max_workers=workers) if workers > 1 else None
+    results = (
+        executor.map(_label_hazard_sample, payloads, chunksize=4)
+        if executor is not None
+        else map(_label_hazard_sample, payloads)
+    )
+    try:
+        for completed, result in enumerate(results, start=1):
+            (
+                sample_index,
+                observation_count,
+                observed_coupon,
+                observed_autocall,
+                observed_survival,
+                observed_protected,
+                observed_downside,
+                observed_recovery,
+            ) = result
+            observation_mask[sample_index, :observation_count] = True
+            coupon_probability[sample_index, :observation_count] = observed_coupon
+            first_autocall_probability[sample_index, :observation_count] = (
+                observed_autocall
             )
+            survival_after_probability[sample_index, :observation_count] = (
+                observed_survival
+            )
+            protected_probability[sample_index] = observed_protected
+            downside_probability[sample_index] = observed_downside
+            downside_conditional_recovery[sample_index] = observed_recovery
+            if verbose and (
+                completed == n_samples or completed % max(1, n_samples // 20) == 0
+            ):
+                print(
+                    f"[PhoenixHazardData] {completed}/{n_samples} labels complete",
+                    flush=True,
+                )
+    finally:
+        if executor is not None:
+            executor.shutdown(wait=True, cancel_futures=True)
 
     dataset_id = _hazard_dataset_id(
         base_dataset_id=base.metadata["dataset_id"],
@@ -401,6 +458,7 @@ def generate_phoenix_hazard_dataset(
         "n_samples": n_samples,
         "n_steps": n_steps,
         "maximum_observations": PHOENIX_HAZARD_MAX_OBSERVATIONS,
+        "generation_workers": workers,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "generation_seconds": time.perf_counter() - started,
         "source_randomization": {

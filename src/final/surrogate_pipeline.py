@@ -181,6 +181,7 @@ def _build_parser() -> argparse.ArgumentParser:
     hazard_generate.add_argument(
         "--output-root", type=Path, default=DEFAULT_HAZARD_OUTPUT_ROOT
     )
+    hazard_generate.add_argument("--workers", type=int, default=1)
 
     research_hazards = subparsers.add_parser(
         "research-hazards",
@@ -215,8 +216,8 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
-    output_root = Path(args.output_root)
     if args.command == "generate":
+        output_root = Path(args.output_root)
         dataset = generate_phoenix_surrogate_dataset(
             _dataset_config(args, role=args.dataset_role)
         )
@@ -254,7 +255,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "hazard-generate":
         dataset = load_phoenix_surrogate_dataset(args.dataset)
-        hazard_dataset = generate_phoenix_hazard_dataset(dataset)
+        hazard_dataset = generate_phoenix_hazard_dataset(
+            dataset,
+            workers=args.workers,
+        )
         dataset_directory = Path(args.output_root) / "datasets"
         dataset_name = (
             hazard_dataset.metadata["dataset_id"].removeprefix("sha256:") + ".npz"
@@ -295,6 +299,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(report, indent=2), flush=True)
         return 0
 
+    output_root = Path(args.output_root)
     if args.command == "train":
         dataset = load_phoenix_surrogate_dataset(args.dataset)
         audit_dataset = load_phoenix_surrogate_dataset(args.audit_dataset)

@@ -1,3 +1,4 @@
+import src.final.surrogate_pipeline as surrogate_pipeline
 from src.final.surrogate_pipeline import _build_parser, _dataset_config
 
 
@@ -50,8 +51,40 @@ def test_hazard_commands_keep_labels_and_training_development_only():
     )
 
     assert generate_args.command == "hazard-generate"
+    assert generate_args.workers == 1
     assert train_args.command == "research-hazards"
     assert train_args.hazard_max_iter == 800
     assert train_args.training_seed == 143
     assert not hasattr(train_args, "audit_dataset")
     assert not hasattr(train_args, "output_root")
+
+
+def test_research_hazard_command_executes_without_an_output_root(monkeypatch, capsys):
+    base = object()
+    hazard = object()
+    monkeypatch.setattr(
+        surrogate_pipeline,
+        "load_phoenix_surrogate_dataset",
+        lambda _path: base,
+    )
+    monkeypatch.setattr(
+        surrogate_pipeline,
+        "load_phoenix_hazard_dataset",
+        lambda _path, *, base: hazard,
+    )
+    monkeypatch.setattr(
+        surrogate_pipeline,
+        "train_phoenix_observation_hazard_candidate",
+        lambda _dataset, _config: (None, {"status": "research_only"}),
+    )
+
+    result = surrogate_pipeline.main(
+        [
+            "research-hazards",
+            "development-dataset.npz",
+            "hazard-dataset.npz",
+        ]
+    )
+
+    assert result == 0
+    assert '"status": "research_only"' in capsys.readouterr().out
