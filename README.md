@@ -149,6 +149,7 @@ docs/
   phoenix-price-first-multitask-research-v1.md  Price-first development winner
   phoenix-price-first-sealed-audit-v1.md  Fresh audit and gate decision
   phoenix-price-first-shadow-artifact-v1.md  Audit-bound NumPy shadow artifact
+  phoenix-shadow-promotion-readiness-v1.md  Frozen live-evidence gates
   phoenix-robust-selection-v7.md  V7 repeated group-validation specification
   phoenix-focused-head-v6.md  Historical v6 focused-head specification
   phoenix-uncertainty-v5.md  Historical v5 uncertainty specification
@@ -225,6 +226,8 @@ The successor's sealed audit is documented in
 [docs/phoenix-price-first-sealed-audit-v1.md](docs/phoenix-price-first-sealed-audit-v1.md).
 Its pure-NumPy shadow artifact and runtime controls are documented in
 [docs/phoenix-price-first-shadow-artifact-v1.md](docs/phoenix-price-first-shadow-artifact-v1.md).
+The frozen out-of-time evidence and human-review gates are documented in
+[docs/phoenix-shadow-promotion-readiness-v1.md](docs/phoenix-shadow-promotion-readiness-v1.md).
 
 Start the FastAPI backend locally:
 
@@ -447,8 +450,9 @@ Legacy routes kept for compatibility:
   fit an arbitrage-controlled volatility surface from a licensed feed.
 - Expand surrogate labels and shadow telemetry across denser barrier regions,
   market regimes, and materially larger untouched datasets.
-- Collect a meaningful out-of-time shadow sample and freeze artifact-promotion,
-  alerting, and rollback thresholds before considering a limited canary.
+- Collect the frozen out-of-time shadow sample, investigate any failed
+  readiness gates, and define an operational rollback plan before considering
+  a separately versioned limited canary.
 - Add theta with explicit calendar, fixing, accrual, and market-roll rules.
 - Add volatility-skew, credit/funding, and seasoned-trade state models.
 - Add optional PIN or gateway-based access control for non-local deployments.
@@ -477,6 +481,8 @@ legacy artifacts. See
 [docs/phoenix-price-first-shadow-artifact-v1.md](docs/phoenix-price-first-shadow-artifact-v1.md).
 `PHOENIX_SURROGATE_TELEMETRY_ENABLED` controls the bounded local observation
 store used by the metrics endpoint and replay command.
+`GET /api/v1/surrogate-shadow/promotion-readiness` evaluates the frozen
+evidence policy without changing the model's shadow-only status.
 
 The API and frontend images install separate dependency groups. The API image
 contains the NumPy reference runtime but not LightGBM, Optuna, XGBoost, or

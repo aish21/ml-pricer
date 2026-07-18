@@ -13,7 +13,7 @@ from src.final.market import EquityMarketSegment, EquityMarketTermStructure
 from app.services.product_registry import REPO_ROOT
 
 
-SHADOW_OBSERVATION_SCHEMA_VERSION = "phoenix-shadow-observation-v1"
+SHADOW_OBSERVATION_SCHEMA_VERSION = "phoenix-shadow-observation-v2"
 DEFAULT_SURROGATE_MONITORING_DB = (
     REPO_ROOT / "data" / "surrogate_shadow_observations.sqlite3"
 )
@@ -81,6 +81,7 @@ def _initialize(connection: sqlite3.Connection) -> None:
             symbol TEXT NOT NULL,
             market_data_time TEXT NOT NULL,
             artifact_id TEXT,
+            target_artifact_id TEXT,
             model_version TEXT NOT NULL,
             status TEXT NOT NULL,
             reference_price REAL NOT NULL,
@@ -98,6 +99,26 @@ def _initialize(connection: sqlite3.Connection) -> None:
         )
         """
     )
+    columns = {
+        str(row["name"])
+        for row in connection.execute(
+            "PRAGMA table_info(surrogate_shadow_observations)"
+        ).fetchall()
+    }
+    if "target_artifact_id" not in columns:
+        connection.execute(
+            """
+            ALTER TABLE surrogate_shadow_observations
+            ADD COLUMN target_artifact_id TEXT
+            """
+        )
+    connection.execute(
+        """
+        UPDATE surrogate_shadow_observations
+        SET target_artifact_id = artifact_id
+        WHERE target_artifact_id IS NULL AND artifact_id IS NOT NULL
+        """
+    )
     connection.execute(
         """
         CREATE INDEX IF NOT EXISTS idx_surrogate_shadow_created
@@ -108,6 +129,12 @@ def _initialize(connection: sqlite3.Connection) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_surrogate_shadow_artifact
         ON surrogate_shadow_observations(artifact_id, created_at DESC)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_surrogate_shadow_target_artifact
+        ON surrogate_shadow_observations(target_artifact_id, created_at DESC)
         """
     )
     connection.commit()
@@ -221,6 +248,18 @@ def record_surrogate_shadow_observation(
             "maximum_standardized_feature_distance",
             allow_none=True,
         )
+    artifact_id = shadow_result.get("artifact_id")
+    target_artifact_id = shadow_result.get("target_artifact_id") or artifact_id
+    for value, label in (
+        (artifact_id, "artifact_id"),
+        (target_artifact_id, "target_artifact_id"),
+    ):
+        if value is not None and (
+            not isinstance(value, str)
+            or len(value) != 71
+            or not value.startswith("sha256:")
+        ):
+            raise SurrogateMonitoringError(f"{label} is invalid")
 
     observation_id = f"shadow_{uuid.uuid4().hex}"
     created_at = datetime.now(timezone.utc).isoformat()
@@ -232,13 +271,16 @@ def record_surrogate_shadow_observation(
             """
             INSERT INTO surrogate_shadow_observations (
                 observation_id, created_at, schema_version, symbol,
-                market_data_time, artifact_id, model_version, status,
+                market_data_time, artifact_id, target_artifact_id,
+                model_version, status,
                 reference_price, reference_standard_error, surrogate_price,
                 absolute_error, error_to_reference_standard_error, latency_ms,
                 maximum_standardized_feature_distance, market_regime,
                 moneyness_region, contract_reference_spot, market_payload,
                 terms_payload
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            )
             """,
             (
                 observation_id,
@@ -246,7 +288,8 @@ def record_surrogate_shadow_observation(
                 SHADOW_OBSERVATION_SCHEMA_VERSION,
                 market.symbol,
                 market.market_data_time.isoformat(),
-                shadow_result.get("artifact_id"),
+                artifact_id,
+                target_artifact_id,
                 str(shadow_result.get("model_version", "unknown")),
                 status,
                 reference_value,
@@ -426,6 +469,50 @@ def get_surrogate_monitoring_status(
     }
 
 
+def load_surrogate_shadow_observations(
+    *,
+    target_artifact_id: str,
+    evidence_start_at: str,
+    limit: int = 100_000,
+    settings: SurrogateMonitoringSettings | None = None,
+) -> list[dict[str, Any]]:
+    active = settings or SurrogateMonitoringSettings.from_env()
+    if not active.enabled:
+        raise SurrogateMonitoringError("surrogate monitoring is disabled")
+    if (
+        not isinstance(target_artifact_id, str)
+        or len(target_artifact_id) != 71
+        or not target_artifact_id.startswith("sha256:")
+    ):
+        raise SurrogateMonitoringError("target artifact id is invalid")
+    try:
+        parsed_start = datetime.fromisoformat(evidence_start_at.replace("Z", "+00:00"))
+    except (AttributeError, ValueError) as exc:
+        raise SurrogateMonitoringError("evidence start is invalid") from exc
+    if parsed_start.tzinfo is None or parsed_start.utcoffset() is None:
+        raise SurrogateMonitoringError("evidence start must include UTC offset")
+    if limit < 1 or limit > 100_000:
+        raise SurrogateMonitoringError("shadow observation limit is invalid")
+    connection = _connect(active.db_path)
+    try:
+        rows = connection.execute(
+            """
+            SELECT * FROM surrogate_shadow_observations
+            WHERE target_artifact_id = ? AND created_at >= ?
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (target_artifact_id, parsed_start.isoformat(), limit),
+        ).fetchall()
+    except sqlite3.Error as exc:
+        raise SurrogateMonitoringError(
+            "shadow observation evidence query failed"
+        ) from exc
+    finally:
+        connection.close()
+    return [dict(row) for row in rows]
+
+
 def _market_from_payload(payload: Mapping[str, Any]) -> EquityMarketTermStructure:
     try:
         return EquityMarketTermStructure(
@@ -504,6 +591,7 @@ def replay_surrogate_shadow_observations(
                 "created_at": row["created_at"],
                 "symbol": row["symbol"],
                 "original_artifact_id": row["artifact_id"],
+                "original_target_artifact_id": row["target_artifact_id"],
                 "result": result,
             }
         )

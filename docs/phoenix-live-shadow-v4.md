@@ -36,7 +36,13 @@ V4 does not relax that gate. It changes the research process in two ways:
 - dataset schema: `phoenix-surrogate-dataset-v3`;
 - model: `phoenix-surrogate-payoff-aware-v4`;
 - artifact schema: `phoenix-surrogate-artifact-v3`;
-- live observation schema: `phoenix-shadow-observation-v1`.
+- historical live observation schema: `phoenix-shadow-observation-v1`.
+
+The audit-approved price-first artifact now records
+`phoenix-shadow-observation-v2`, which distinguishes the artifact that ran from
+the artifact that was intended to run. The database migrates in place. The
+frozen readiness policy is documented in
+[`phoenix-shadow-promotion-readiness-v1.md`](phoenix-shadow-promotion-readiness-v1.md).
 
 An old artifact fails closed against the v4 runtime even though its input
 features have the same mathematical meaning.
@@ -139,6 +145,14 @@ The summary endpoint is:
 ```text
 GET /api/v1/surrogate-shadow/metrics?limit=1000
 ```
+
+Promotion-readiness evidence is reported separately:
+
+```text
+GET /api/v1/surrogate-shadow/promotion-readiness?limit=100000
+```
+
+This endpoint is read-only and cannot change the shadow-only runtime policy.
 
 It reports status counts, MAE, p95 error, fraction within two reference standard
 errors, latency, regime and barrier-region slices, symbol count, and feature

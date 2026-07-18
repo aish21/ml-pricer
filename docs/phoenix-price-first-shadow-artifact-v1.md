@@ -77,3 +77,5 @@ The runtime:
 Artifact availability or inference failure cannot replace or fail the reference
 price. Promotion beyond shadow mode requires evidence from real or out-of-time
 observations, a frozen promotion policy, and an operational rollback design.
+The evidence policy is now frozen in
+[`phoenix-shadow-promotion-readiness-v1.md`](phoenix-shadow-promotion-readiness-v1.md).

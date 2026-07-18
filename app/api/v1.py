@@ -53,6 +53,7 @@ from app.services.surrogate_monitoring import (
     get_surrogate_monitoring_status,
     get_surrogate_monitoring_summary,
 )
+from app.services.surrogate_promotion import get_surrogate_promotion_readiness
 
 
 router = APIRouter(prefix="/api/v1", tags=["api-v1"])
@@ -710,5 +711,24 @@ def surrogate_shadow_metrics(limit: int = Query(default=1000, ge=1, le=100_000))
     except SurrogateMonitoringError:
         return JSONResponse(
             {"status": "error", "message": "surrogate monitoring unavailable"},
+            status_code=503,
+        )
+
+
+@router.get("/surrogate-shadow/promotion-readiness")
+def surrogate_shadow_promotion_readiness(
+    limit: int = Query(default=100_000, ge=1, le=100_000),
+):
+    try:
+        return {
+            "status": "success",
+            "readiness": get_surrogate_promotion_readiness(limit=limit),
+        }
+    except SurrogateMonitoringError:
+        return JSONResponse(
+            {
+                "status": "error",
+                "message": "surrogate promotion readiness unavailable",
+            },
             status_code=503,
         )

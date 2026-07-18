@@ -6,6 +6,7 @@ from app.services.surrogate_monitoring import (
     SurrogateMonitoringSettings,
     get_surrogate_monitoring_status,
     get_surrogate_monitoring_summary,
+    load_surrogate_shadow_observations,
     record_surrogate_shadow_observation,
     replay_surrogate_shadow_observations,
 )
@@ -104,6 +105,37 @@ def test_monitoring_is_opt_in_and_does_not_create_database(tmp_path):
         is False
     )
     assert not settings.db_path.exists()
+
+
+def test_unavailable_observation_is_attributed_to_the_intended_artifact(tmp_path):
+    settings = enabled_settings(tmp_path)
+    target_artifact_id = f"sha256:{'c' * 64}"
+    unavailable = {
+        "status": "unavailable",
+        "target_artifact_id": target_artifact_id,
+        "model_version": "phoenix-price-first-multitask-v1",
+        "reason": "artifact missing",
+    }
+
+    assert record_surrogate_shadow_observation(
+        market=make_market(),
+        terms=TERMS,
+        contract_reference_spot=100.0,
+        reference_price=1.0,
+        reference_standard_error=0.01,
+        shadow_result=unavailable,
+        settings=settings,
+    )
+    rows = load_surrogate_shadow_observations(
+        target_artifact_id=target_artifact_id,
+        evidence_start_at="2025-01-01T00:00:00+00:00",
+        settings=settings,
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["status"] == "unavailable"
+    assert rows[0]["artifact_id"] is None
+    assert rows[0]["target_artifact_id"] == target_artifact_id
 
 
 def test_replay_uses_stored_market_and_current_surrogate(monkeypatch, tmp_path):

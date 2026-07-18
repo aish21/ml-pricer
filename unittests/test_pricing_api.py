@@ -305,6 +305,18 @@ def test_surrogate_monitoring_metrics_report_disabled_by_default():
     }
 
 
+def test_surrogate_promotion_readiness_is_non_promoting_when_disabled():
+    response = client.get("/api/v1/surrogate-shadow/promotion-readiness")
+
+    assert response.status_code == 200
+    readiness = response.json()["readiness"]
+    assert readiness["decision"] == "insufficient_evidence"
+    assert readiness["ready_for_review"] is False
+    assert readiness["runtime_eligible"] is False
+    assert readiness["automatic_promotion_permitted"] is False
+    assert readiness["policy"]["policy_id"].startswith("sha256:")
+
+
 def test_product_focused_phoenix_api_uses_dated_market_snapshot():
     response = client.post("/api/v1/products/phoenix/price", json=SNAPSHOT_REQUEST)
 

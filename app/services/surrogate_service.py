@@ -458,6 +458,7 @@ def evaluate_surrogate_shadow(
             "mode": "shadow-only",
             "reason": str(exc),
             "model_version": PHOENIX_PRICE_FIRST_MODEL_VERSION,
+            "target_artifact_id": PHOENIX_PRICE_FIRST_APPROVED_ARTIFACT_ID,
         }
     violations = domain_violations(
         market=market,
@@ -470,6 +471,7 @@ def evaluate_surrogate_shadow(
             "status": "out_of_domain",
             "mode": "shadow-only",
             "artifact_id": bundle.artifact_id,
+            "target_artifact_id": bundle.artifact_id,
             "model_version": bundle.manifest["model_version"],
             "violations": violations,
         }
@@ -489,6 +491,7 @@ def evaluate_surrogate_shadow(
             "status": "error",
             "mode": "shadow-only",
             "artifact_id": bundle.artifact_id,
+            "target_artifact_id": bundle.artifact_id,
             "model_version": bundle.manifest["model_version"],
             "reason": str(exc),
         }
@@ -497,6 +500,7 @@ def evaluate_surrogate_shadow(
             "status": "error",
             "mode": "shadow-only",
             "artifact_id": bundle.artifact_id,
+            "target_artifact_id": bundle.artifact_id,
             "model_version": bundle.manifest["model_version"],
             "reason": "surrogate prediction failed output validation",
         }
@@ -516,6 +520,7 @@ def evaluate_surrogate_shadow(
                 "status": "error",
                 "mode": "shadow-only",
                 "artifact_id": bundle.artifact_id,
+                "target_artifact_id": bundle.artifact_id,
                 "model_version": bundle.manifest["model_version"],
                 "reason": "surrogate payoff-aware outputs failed validation",
             }
@@ -526,6 +531,7 @@ def evaluate_surrogate_shadow(
         "mode": "shadow-only",
         "used_for_price": False,
         "artifact_id": bundle.artifact_id,
+        "target_artifact_id": bundle.artifact_id,
         "model_version": bundle.manifest["model_version"],
         "dataset_id": bundle.manifest.get("dataset_id"),
         "surrogate_price": prediction,
