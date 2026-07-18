@@ -13,6 +13,14 @@ from .surrogate_contract import (
 )
 from .surrogate_hazard_data import PhoenixHazardDataset
 from .surrogate_hybrid import summarize_phoenix_observation_events
+from .surrogate_price_first_contract import (
+    PHOENIX_PRICE_FIRST_AUDIT_VERSION,
+    PHOENIX_PRICE_FIRST_EVENT_TARGET_NAMES,
+    PHOENIX_PRICE_FIRST_FROZEN_AUXILIARY_WEIGHT,
+    PHOENIX_PRICE_FIRST_FROZEN_SPECIFICATION_COMMIT,
+    PHOENIX_PRICE_FIRST_OUTPUT_NAMES,
+    PHOENIX_PRICE_FIRST_RESEARCH_VERSION,
+)
 from .surrogate_trainer import (
     PhoenixSurrogateTrainingConfig,
     SurrogateTrainingError,
@@ -29,29 +37,11 @@ from .surrogate_trainer import (
 )
 
 
-PHOENIX_PRICE_FIRST_RESEARCH_VERSION = "phoenix-price-first-multitask-research-v1"
-PHOENIX_PRICE_FIRST_AUDIT_VERSION = "phoenix-price-first-sealed-audit-v1"
-PHOENIX_PRICE_FIRST_FROZEN_SPECIFICATION_COMMIT = (
-    "e1ba32e567a40ca501d1e89b8e7396dead803427"
-)
-PHOENIX_PRICE_FIRST_FROZEN_AUXILIARY_WEIGHT = 0.1
 PHOENIX_PRICE_FIRST_FROZEN_DEVELOPMENT_METRICS = {
     "validation_mae": 0.006644006053484162,
     "repeated_selection_score": 0.018586225678601333,
     "development_test_mae": 0.006971920441342174,
 }
-PHOENIX_PRICE_FIRST_EVENT_TARGET_NAMES = (
-    "conditional_expected_autocall_time_fraction",
-    "conditional_autocall_time_variance",
-    "final_survival_probability",
-    "early_coupon_mass",
-    "late_coupon_mass",
-)
-PHOENIX_PRICE_FIRST_OUTPUT_NAMES = (
-    ("price",)
-    + PHOENIX_PAYOFF_AWARE_TARGET_NAMES
-    + PHOENIX_PRICE_FIRST_EVENT_TARGET_NAMES
-)
 
 
 @dataclass(frozen=True)

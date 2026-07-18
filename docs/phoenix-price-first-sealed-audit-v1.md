@@ -1,5 +1,9 @@
 # Phoenix price-first sealed audit
 
+> The approved model has now been exported to a checksum-verified pure-NumPy
+> artifact for monitored shadow inference. See
+> [`phoenix-price-first-shadow-artifact-v1.md`](phoenix-price-first-shadow-artifact-v1.md).
+
 This phase evaluates the frozen price-first multi-task candidate exactly once
 on a new independent audit. The audit does not tune or retrain any
 hyperparameter, loss weight, threshold, sampling rule, or model-selection
@@ -88,13 +92,11 @@ They remain diagnostics rather than promotion gates.
 The frozen price-first candidate passes its sealed audit. The audit is now
 consumed and cannot be reused to justify a modified architecture or threshold.
 
-The model is audit-approved but remains `research_only` because the branched
-PyTorch research object has no versioned, checksum-verified runtime artifact or
-production loader. No serving pointer was changed by this phase.
-
-The next phase should export the frozen ReLU trunk and three heads into a
-pure-NumPy branched artifact so API deployments do not require PyTorch. The
-artifact manifest must bind:
+At the end of the audit phase, the model remained `research_only` because the
+branched PyTorch object had no versioned runtime artifact. The subsequent
+artifact phase exported the frozen ReLU trunk and three heads to pure NumPy and
+made only the exact audit-bound artifact eligible for monitored shadow loading.
+Its manifest binds:
 
 - development, observation, and audit dataset IDs;
 - the frozen source commit and full training configuration;
@@ -103,4 +105,5 @@ artifact manifest must bind:
 - feature and output schemas; and
 - per-file SHA-256 checksums.
 
-Only that audited artifact should become eligible for monitored shadow loading.
+Only that audited artifact is eligible for monitored shadow loading. It is
+still disabled by default and never supplies the client-visible price.

@@ -113,6 +113,25 @@ def test_price_first_audit_command_freezes_all_model_and_gate_settings():
     assert not hasattr(args, "output_root")
 
 
+def test_price_first_package_command_only_accepts_frozen_inputs_and_output_root():
+    args = _build_parser().parse_args(
+        [
+            "package-price-first",
+            "development.npz",
+            "hazards.npz",
+            "audit-report.json",
+            "--output-root",
+            "artifacts",
+        ]
+    )
+
+    assert args.command == "package-price-first"
+    assert args.audit_report.name == "audit-report.json"
+    assert str(args.output_root) == "artifacts"
+    assert not hasattr(args, "training_seed")
+    assert not hasattr(args, "audit_dataset")
+
+
 def test_research_hazard_command_executes_without_an_output_root(monkeypatch, capsys):
     base = object()
     hazard = object()
@@ -282,3 +301,46 @@ def test_price_first_audit_refuses_to_overwrite_a_consumed_report(
         raise AssertionError("consumed audit report was overwritten")
 
     assert report_path.read_text(encoding="utf-8") == "{}\n"
+
+
+def test_price_first_package_executes_with_the_sealed_report(
+    monkeypatch,
+    tmp_path,
+    capsys,
+):
+    base = object()
+    hazard = object()
+    monkeypatch.setattr(
+        surrogate_pipeline,
+        "load_phoenix_surrogate_dataset",
+        lambda _path: base,
+    )
+    monkeypatch.setattr(
+        surrogate_pipeline,
+        "load_phoenix_hazard_dataset",
+        lambda _path, *, base: hazard,
+    )
+    monkeypatch.setattr(
+        surrogate_pipeline,
+        "package_audit_approved_price_first_artifact",
+        lambda **_kwargs: {
+            "artifact_id": "sha256:" + "a" * 64,
+            "deployment_status": "shadow_approved",
+            "model_version": "phoenix-price-first-multitask-v1",
+            "numpy_parity": {"passed": True},
+        },
+    )
+
+    result = surrogate_pipeline.main(
+        [
+            "package-price-first",
+            "development-dataset.npz",
+            "hazard-dataset.npz",
+            "sealed-audit-report.json",
+            "--output-root",
+            str(tmp_path),
+        ]
+    )
+
+    assert result == 0
+    assert '"deployment_status": "shadow_approved"' in capsys.readouterr().out

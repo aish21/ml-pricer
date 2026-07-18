@@ -23,6 +23,10 @@ from .surrogate_price_first import (
     audit_frozen_phoenix_price_first_candidate,
     train_phoenix_price_first_candidate,
 )
+from .surrogate_price_first_artifact import (
+    DEFAULT_PRICE_FIRST_ARTIFACT_ROOT,
+    package_audit_approved_price_first_artifact,
+)
 from .surrogate_trainer import (
     PhoenixSurrogateTrainingConfig,
     train_event_conditioned_research_candidate,
@@ -286,6 +290,19 @@ def _build_parser() -> argparse.ArgumentParser:
         help="required path for the immutable audit report",
     )
 
+    package_price_first = subparsers.add_parser(
+        "package-price-first",
+        help="Export the audit-approved price-first model for NumPy shadow inference",
+    )
+    package_price_first.add_argument("dataset", type=Path)
+    package_price_first.add_argument("hazard_dataset", type=Path)
+    package_price_first.add_argument("audit_report", type=Path)
+    package_price_first.add_argument(
+        "--output-root",
+        type=Path,
+        default=DEFAULT_PRICE_FIRST_ARTIFACT_ROOT,
+    )
+
     full = subparsers.add_parser("full", help="Generate data and train the model")
     add_dataset_arguments(full)
     full.add_argument("--audit-contracts", type=int, default=256)
@@ -468,6 +485,32 @@ def main(argv: list[str] | None = None) -> int:
                     "price_metrics": report["audit_evaluation"]["price_metrics"],
                     "acceptance": report["acceptance"],
                     "report": str(report_path),
+                },
+                indent=2,
+            ),
+            flush=True,
+        )
+        return 0
+
+    if args.command == "package-price-first":
+        dataset = load_phoenix_surrogate_dataset(args.dataset)
+        hazard_dataset = load_phoenix_hazard_dataset(
+            args.hazard_dataset,
+            base=dataset,
+        )
+        manifest = package_audit_approved_price_first_artifact(
+            development_dataset=hazard_dataset,
+            audit_report_path=args.audit_report,
+            output_root=args.output_root,
+        )
+        print(
+            json.dumps(
+                {
+                    "artifact_id": manifest["artifact_id"],
+                    "deployment_status": manifest["deployment_status"],
+                    "model_version": manifest["model_version"],
+                    "numpy_parity": manifest["numpy_parity"],
+                    "output_root": str(args.output_root),
                 },
                 indent=2,
             ),

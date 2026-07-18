@@ -15,9 +15,9 @@ and coupon timing, but it also remains research-only after its full-development
 gate. A direct-price hybrid with compact event-summary targets was also
 rejected after equal-weight auxiliary training degraded price accuracy. Its
 price-first, separate-head successor is the first model to beat v7's repeated
-development gate and has passed a fresh sealed audit. It remains research-only
-until a checksum-verified branched runtime artifact exists; legacy artifacts
-remain ineligible.
+development gate and pass a fresh sealed audit. That exact winner now has a
+checksum-verified pure-NumPy artifact and can run in monitored shadow mode. It
+remains disabled by default and never replaces the reference price.
 
 This is an educational/demo system. It is not production trading
 infrastructure, financial advice, or a risk system suitable for live capital
@@ -148,6 +148,7 @@ docs/
   phoenix-event-summary-hybrid-research-v1.md  Direct-price hybrid result
   phoenix-price-first-multitask-research-v1.md  Price-first development winner
   phoenix-price-first-sealed-audit-v1.md  Fresh audit and gate decision
+  phoenix-price-first-shadow-artifact-v1.md  Audit-bound NumPy shadow artifact
   phoenix-robust-selection-v7.md  V7 repeated group-validation specification
   phoenix-focused-head-v6.md  Historical v6 focused-head specification
   phoenix-uncertainty-v5.md  Historical v5 uncertainty specification
@@ -222,6 +223,8 @@ Its price-first successor is documented in
 [docs/phoenix-price-first-multitask-research-v1.md](docs/phoenix-price-first-multitask-research-v1.md).
 The successor's sealed audit is documented in
 [docs/phoenix-price-first-sealed-audit-v1.md](docs/phoenix-price-first-sealed-audit-v1.md).
+Its pure-NumPy shadow artifact and runtime controls are documented in
+[docs/phoenix-price-first-shadow-artifact-v1.md](docs/phoenix-price-first-shadow-artifact-v1.md).
 
 Start the FastAPI backend locally:
 
@@ -417,11 +420,9 @@ Legacy routes kept for compatibility:
   simulated path steps.
 - Legacy model/scaler artifacts remain committed but fail contract/feature
   compatibility checks and are not used for pricing.
-- Phoenix surrogate v7 remains shadow-only and disabled by default. Repeated
-  development folds confirmed the focused candidate, but it remains the same
-  predictor that failed the v6 audit and is therefore `research_only`. A run is
-  loadable by default only when every price, region, auxiliary-output,
-  uncertainty, and Greek gate passes on its independent audit.
+- Phoenix surrogate v7 remains a historical, `research_only` artifact. The
+  default runtime root now targets the exact audit-approved price-first model,
+  but shadow inference is still disabled by default.
 - The event-conditioned research candidate is also `research_only`. It improved
   interpretability, but its repeated development score was worse than v7, so it
   was neither audited nor added to the runtime artifact format.
@@ -432,8 +433,8 @@ Legacy routes kept for compatibility:
   equal-weight auxiliary training caused negative transfer and also failed the
   repeated development gate.
 - The price-first multi-task successor beat v7's repeated development score,
-  and passed its fresh sealed audit. It is not runtime eligible until its
-  branched network has a versioned, checksum-verified artifact and loader.
+  passed its fresh sealed audit, and has an audit-bound pure-NumPy artifact.
+  It is shadow-only; live evidence is not yet sufficient for primary pricing.
 - Scenario explanations are simple and rule-based.
 - Phase 7 Greeks are finite-difference research estimates. Discontinuous
   barriers can produce noisy Gamma and bump sensitivity even with paired paths.
@@ -446,8 +447,8 @@ Legacy routes kept for compatibility:
   fit an arbitrage-controlled volatility surface from a licensed feed.
 - Expand surrogate labels and shadow telemetry across denser barrier regions,
   market regimes, and materially larger untouched datasets.
-- Export the audit-approved branched network as a pure-NumPy, checksum-verified
-  artifact and enable it only through monitored shadow loading.
+- Collect a meaningful out-of-time shadow sample and freeze artifact-promotion,
+  alerting, and rollback thresholds before considering a limited canary.
 - Add theta with explicit calendar, fixing, accrual, and market-roll rules.
 - Add volatility-skew, credit/funding, and seasoned-trade state models.
 - Add optional PIN or gateway-based access control for non-local deployments.
@@ -469,9 +470,11 @@ Research market data works without credentials or configuration. See
 limits.
 
 The optional surrogate shadow uses `PHOENIX_SURROGATE_SHADOW_ENABLED` and
-`PHOENIX_SURROGATE_DIR`. Unapproved artifacts remain blocked unless the
-research-only `PHOENIX_SURROGATE_ALLOW_UNAPPROVED` override is set. See
-[docs/phoenix-robust-selection-v7.md](docs/phoenix-robust-selection-v7.md).
+`PHOENIX_SURROGATE_DIR`. The default directory targets the audit-approved
+price-first artifact. Its exact artifact ID and audit bindings are mandatory;
+the research-only `PHOENIX_SURROGATE_ALLOW_UNAPPROVED` override applies only to
+legacy artifacts. See
+[docs/phoenix-price-first-shadow-artifact-v1.md](docs/phoenix-price-first-shadow-artifact-v1.md).
 `PHOENIX_SURROGATE_TELEMETRY_ENABLED` controls the bounded local observation
 store used by the metrics endpoint and replay command.
 

@@ -30,16 +30,36 @@ from src.final.surrogate_contract import (
     extract_phoenix_surrogate_features,
 )
 from src.final.surrogate_model import (
+    NumpyBranchedMLPSurrogate,
     NumpyMLPSurrogate,
     SurrogateModelError,
     file_sha256,
+    json_sha256,
+    load_numpy_branched_mlp_artifact,
     load_numpy_mlp_artifact,
+)
+from src.final.surrogate_price_first_contract import (
+    PHOENIX_PRICE_FIRST_ARTIFACT_VERSION,
+    PHOENIX_PRICE_FIRST_APPROVED_ARTIFACT_ID,
+    PHOENIX_PRICE_FIRST_AUDIT_DATASET_ID,
+    PHOENIX_PRICE_FIRST_AUDIT_POLICY_ID,
+    PHOENIX_PRICE_FIRST_AUDIT_REPORT_SHA256,
+    PHOENIX_PRICE_FIRST_AUDIT_VERSION,
+    PHOENIX_PRICE_FIRST_DEVELOPMENT_DATASET_ID,
+    PHOENIX_PRICE_FIRST_FROZEN_AUXILIARY_WEIGHT,
+    PHOENIX_PRICE_FIRST_FROZEN_SPECIFICATION_COMMIT,
+    PHOENIX_PRICE_FIRST_MODEL_VERSION,
+    PHOENIX_PRICE_FIRST_NUMPY_PARITY_ABSOLUTE_TOLERANCE,
+    PHOENIX_PRICE_FIRST_OBSERVATION_DATASET_ID,
+    PHOENIX_PRICE_FIRST_OUTPUT_NAMES,
 )
 
 from app.services.product_registry import REPO_ROOT
 
 
-DEFAULT_SURROGATE_ROOT = REPO_ROOT / "data" / "surrogates" / "phoenix-v7" / "artifacts"
+DEFAULT_SURROGATE_ROOT = (
+    REPO_ROOT / "data" / "surrogates" / "phoenix-price-first-v1" / "artifacts"
+)
 MAX_POINTER_BYTES = 64 * 1024
 MAX_MANIFEST_BYTES = 2 * 1024 * 1024
 MAX_WEIGHTS_BYTES = 32 * 1024 * 1024
@@ -84,7 +104,7 @@ class SurrogateBundle:
     artifact_id: str
     deployment_status: str
     manifest: dict[str, Any]
-    model: NumpyMLPSurrogate
+    model: NumpyMLPSurrogate | NumpyBranchedMLPSurrogate
     pointer_mtime_ns: int
 
 
@@ -105,6 +125,93 @@ def _read_json(path: Path, *, max_bytes: int, label: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise SurrogateArtifactInvalidError(f"surrogate {label} must be an object")
     return payload
+
+
+def _validate_price_first_audit_binding(
+    manifest: Mapping[str, Any],
+    artifact_id: str,
+) -> None:
+    identity = manifest.get("artifact_identity")
+    if not isinstance(identity, dict) or json_sha256(identity) != artifact_id:
+        raise SurrogateArtifactInvalidError(
+            "surrogate artifact identity checksum mismatch"
+        )
+    if any(manifest.get(name) != value for name, value in identity.items()):
+        raise SurrogateArtifactInvalidError(
+            "surrogate artifact identity fields do not match"
+        )
+    expected = {
+        "model_type": "numpy-branched-mlp",
+        "artifact_id": PHOENIX_PRICE_FIRST_APPROVED_ARTIFACT_ID,
+        "deployment_status": "shadow_approved",
+        "development_dataset_id": PHOENIX_PRICE_FIRST_DEVELOPMENT_DATASET_ID,
+        "dataset_id": PHOENIX_PRICE_FIRST_DEVELOPMENT_DATASET_ID,
+        "observation_dataset_id": PHOENIX_PRICE_FIRST_OBSERVATION_DATASET_ID,
+        "audit_dataset_id": PHOENIX_PRICE_FIRST_AUDIT_DATASET_ID,
+        "audit_version": PHOENIX_PRICE_FIRST_AUDIT_VERSION,
+        "audit_decision": "passed",
+        "model_specification_commit": (PHOENIX_PRICE_FIRST_FROZEN_SPECIFICATION_COMMIT),
+        "selected_auxiliary_loss_weight": (PHOENIX_PRICE_FIRST_FROZEN_AUXILIARY_WEIGHT),
+        "audit_report_sha256": PHOENIX_PRICE_FIRST_AUDIT_REPORT_SHA256,
+    }
+    for name, expected_value in expected.items():
+        if manifest.get(name) != expected_value:
+            raise SurrogateArtifactInvalidError(
+                f"surrogate manifest {name} is not audit-approved"
+            )
+    policy = manifest.get("audit_uncertainty_policy")
+    if (
+        not isinstance(policy, dict)
+        or policy.get("policy_id") != PHOENIX_PRICE_FIRST_AUDIT_POLICY_ID
+    ):
+        raise SurrogateArtifactInvalidError(
+            "surrogate manifest audit policy is not approved"
+        )
+    acceptance = manifest.get("audit_acceptance")
+    checks = acceptance.get("checks") if isinstance(acceptance, dict) else None
+    if (
+        not isinstance(acceptance, dict)
+        or acceptance.get("passed") is not True
+        or acceptance.get("evaluation_dataset_id")
+        != PHOENIX_PRICE_FIRST_AUDIT_DATASET_ID
+        or not isinstance(checks, dict)
+        or not checks
+        or any(
+            not isinstance(check, dict) or check.get("passed") is not True
+            for check in checks.values()
+        )
+    ):
+        raise SurrogateArtifactInvalidError(
+            "surrogate manifest audit acceptance is invalid"
+        )
+    parity = manifest.get("numpy_parity")
+    if (
+        not isinstance(parity, dict)
+        or parity.get("passed") is not True
+        or parity.get("absolute_tolerance")
+        != PHOENIX_PRICE_FIRST_NUMPY_PARITY_ABSOLUTE_TOLERANCE
+    ):
+        raise SurrogateArtifactInvalidError(
+            "surrogate manifest NumPy parity is invalid"
+        )
+    try:
+        maximum_difference = float(parity["maximum_absolute_output_difference"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise SurrogateArtifactInvalidError(
+            "surrogate manifest NumPy parity is invalid"
+        ) from exc
+    if (
+        not math.isfinite(maximum_difference)
+        or maximum_difference < 0.0
+        or maximum_difference > PHOENIX_PRICE_FIRST_NUMPY_PARITY_ABSOLUTE_TOLERANCE
+    ):
+        raise SurrogateArtifactInvalidError(
+            "surrogate manifest NumPy parity is invalid"
+        )
+    if not isinstance(manifest.get("training_config"), dict):
+        raise SurrogateArtifactInvalidError(
+            "surrogate manifest frozen training config is missing"
+        )
 
 
 def _load_bundle(settings: SurrogateSettings) -> SurrogateBundle:
@@ -164,9 +271,24 @@ def _load_bundle(settings: SurrogateSettings) -> SurrogateBundle:
         max_bytes=MAX_MANIFEST_BYTES,
         label="manifest",
     )
+    artifact_schema_version = manifest.get("artifact_schema_version")
+    if artifact_schema_version == PHOENIX_SURROGATE_ARTIFACT_VERSION:
+        expected_model_version = PHOENIX_SURROGATE_MODEL_VERSION
+        valid_output_names = (
+            ["price"],
+            list(PHOENIX_PAYOFF_AWARE_MODEL_OUTPUT_NAMES),
+        )
+        branched_model = False
+    elif artifact_schema_version == PHOENIX_PRICE_FIRST_ARTIFACT_VERSION:
+        expected_model_version = PHOENIX_PRICE_FIRST_MODEL_VERSION
+        valid_output_names = (list(PHOENIX_PRICE_FIRST_OUTPUT_NAMES),)
+        branched_model = True
+    else:
+        raise SurrogateArtifactInvalidError(
+            "surrogate manifest artifact_schema_version is incompatible"
+        )
     expected = {
-        "artifact_schema_version": PHOENIX_SURROGATE_ARTIFACT_VERSION,
-        "model_version": PHOENIX_SURROGATE_MODEL_VERSION,
+        "model_version": expected_model_version,
         "feature_schema_version": PHOENIX_SURROGATE_FEATURE_VERSION,
         "market_data_version": EQUITY_MARKET_TERM_STRUCTURE_VERSION,
         "label_model_version": EQUITY_GBM_PIECEWISE_MODEL_VERSION,
@@ -181,10 +303,7 @@ def _load_bundle(settings: SurrogateSettings) -> SurrogateBundle:
                 f"surrogate manifest {name} is incompatible"
             )
     output_names = manifest.get("output_names")
-    if output_names not in (
-        ["price"],
-        list(PHOENIX_PAYOFF_AWARE_MODEL_OUTPUT_NAMES),
-    ):
+    if output_names not in valid_output_names:
         raise SurrogateArtifactInvalidError(
             "surrogate manifest output names are incompatible"
         )
@@ -193,7 +312,11 @@ def _load_bundle(settings: SurrogateSettings) -> SurrogateBundle:
     deployment_status = manifest.get("deployment_status")
     if deployment_status not in {"shadow_approved", "research_only"}:
         raise SurrogateArtifactInvalidError("surrogate deployment status is invalid")
-    if deployment_status != "shadow_approved" and not settings.allow_unapproved:
+    if branched_model:
+        _validate_price_first_audit_binding(manifest, artifact_id)
+    if deployment_status != "shadow_approved" and (
+        branched_model or not settings.allow_unapproved
+    ):
         raise SurrogateArtifactUnavailableError(
             "surrogate artifact did not pass shadow acceptance"
         )
@@ -241,12 +364,23 @@ def _load_bundle(settings: SurrogateSettings) -> SurrogateBundle:
         raise SurrogateArtifactInvalidError("surrogate weights are missing") from exc
     if actual_checksum != expected_checksum:
         raise SurrogateArtifactInvalidError("surrogate weights checksum mismatch")
-    try:
-        model = load_numpy_mlp_artifact(
-            weights_path,
-            manifest["feature_names"],
-            output_names,
+    if branched_model and manifest.get("weights_sha256") != expected_checksum:
+        raise SurrogateArtifactInvalidError(
+            "surrogate identity weights checksum mismatch"
         )
+    try:
+        if branched_model:
+            model = load_numpy_branched_mlp_artifact(
+                weights_path,
+                manifest["feature_names"],
+                output_names,
+            )
+        else:
+            model = load_numpy_mlp_artifact(
+                weights_path,
+                manifest["feature_names"],
+                output_names,
+            )
     except SurrogateModelError as exc:
         raise SurrogateArtifactInvalidError(str(exc)) from exc
     bundle = SurrogateBundle(
@@ -279,7 +413,7 @@ def get_surrogate_status(
             "enabled": False,
             "mode": "shadow-only",
             "available": False,
-            "model_version": PHOENIX_SURROGATE_MODEL_VERSION,
+            "model_version": PHOENIX_PRICE_FIRST_MODEL_VERSION,
             "reason": "disabled",
         }
     try:
@@ -289,14 +423,14 @@ def get_surrogate_status(
             "enabled": True,
             "mode": "shadow-only",
             "available": False,
-            "model_version": PHOENIX_SURROGATE_MODEL_VERSION,
+            "model_version": PHOENIX_PRICE_FIRST_MODEL_VERSION,
             "reason": str(exc),
         }
     return {
         "enabled": True,
         "mode": "shadow-only",
         "available": True,
-        "model_version": PHOENIX_SURROGATE_MODEL_VERSION,
+        "model_version": bundle.manifest["model_version"],
         "artifact_id": bundle.artifact_id,
         "deployment_status": bundle.deployment_status,
         "dataset_id": bundle.manifest.get("dataset_id"),
@@ -323,7 +457,7 @@ def evaluate_surrogate_shadow(
             "status": "unavailable",
             "mode": "shadow-only",
             "reason": str(exc),
-            "model_version": PHOENIX_SURROGATE_MODEL_VERSION,
+            "model_version": PHOENIX_PRICE_FIRST_MODEL_VERSION,
         }
     violations = domain_violations(
         market=market,
@@ -336,7 +470,7 @@ def evaluate_surrogate_shadow(
             "status": "out_of_domain",
             "mode": "shadow-only",
             "artifact_id": bundle.artifact_id,
-            "model_version": PHOENIX_SURROGATE_MODEL_VERSION,
+            "model_version": bundle.manifest["model_version"],
             "violations": violations,
         }
     try:
@@ -355,7 +489,7 @@ def evaluate_surrogate_shadow(
             "status": "error",
             "mode": "shadow-only",
             "artifact_id": bundle.artifact_id,
-            "model_version": PHOENIX_SURROGATE_MODEL_VERSION,
+            "model_version": bundle.manifest["model_version"],
             "reason": str(exc),
         }
     if not math.isfinite(prediction) or prediction < 0.0 or prediction > 5.0:
@@ -363,11 +497,15 @@ def evaluate_surrogate_shadow(
             "status": "error",
             "mode": "shadow-only",
             "artifact_id": bundle.artifact_id,
-            "model_version": PHOENIX_SURROGATE_MODEL_VERSION,
+            "model_version": bundle.manifest["model_version"],
             "reason": "surrogate prediction failed output validation",
         }
     output_map = dict(zip(bundle.model.output_names, output_values.tolist()))
-    if bundle.model.output_names == PHOENIX_PAYOFF_AWARE_MODEL_OUTPUT_NAMES:
+    has_payoff_outputs = all(
+        name in bundle.model.output_names
+        for name in PHOENIX_PAYOFF_AWARE_MODEL_OUTPUT_NAMES
+    )
+    if has_payoff_outputs:
         if any(
             output_map[name] < -0.05 for name in PHOENIX_PRICE_COMPONENT_NAMES
         ) or any(
@@ -378,7 +516,7 @@ def evaluate_surrogate_shadow(
                 "status": "error",
                 "mode": "shadow-only",
                 "artifact_id": bundle.artifact_id,
-                "model_version": PHOENIX_SURROGATE_MODEL_VERSION,
+                "model_version": bundle.manifest["model_version"],
                 "reason": "surrogate payoff-aware outputs failed validation",
             }
     absolute_error = abs(prediction - float(reference_price))
@@ -388,7 +526,7 @@ def evaluate_surrogate_shadow(
         "mode": "shadow-only",
         "used_for_price": False,
         "artifact_id": bundle.artifact_id,
-        "model_version": PHOENIX_SURROGATE_MODEL_VERSION,
+        "model_version": bundle.manifest["model_version"],
         "dataset_id": bundle.manifest.get("dataset_id"),
         "surrogate_price": prediction,
         "reference_price": float(reference_price),
@@ -411,7 +549,7 @@ def evaluate_surrogate_shadow(
             ][:5],
         },
     }
-    if bundle.model.output_names == PHOENIX_PAYOFF_AWARE_MODEL_OUTPUT_NAMES:
+    if has_payoff_outputs:
         result["cashflow_components"] = {
             name: output_map[name] for name in PHOENIX_PRICE_COMPONENT_NAMES
         }
