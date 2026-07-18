@@ -140,19 +140,19 @@ class PhoenixPayoff(BasePayoff):
 
         return present_values
 
-    def compute_cashflow_components_with_discount_curve(
+    def compute_observation_event_ledger_with_discount_curve(
         self,
         paths: np.ndarray,
         params: Dict[str, Any],
         T: float,
         discount_factor: Callable[[float], float],
     ) -> Dict[str, np.ndarray]:
-        """Return pathwise Phoenix cashflow and terminal-event components.
+        """Return pathwise cashflows and the observation-level event ledger.
 
-        The four present-value components add to the contract payoff. Event
-        indicators are auxiliary learning targets; they are not cashflows.
-        Keeping this decomposition beside the payoff rules prevents the
-        surrogate label generator from inventing a second product definition.
+        The ledger is the canonical source for aggregate cashflow labels and
+        research-only hazard labels. Keeping both decompositions beside the
+        payoff rules prevents data generators from implementing another
+        version of the product.
         """
         n_paths, n_points = paths.shape
         n_steps = n_points - 1
@@ -173,21 +173,33 @@ class PhoenixPayoff(BasePayoff):
         maturity_downside_pv = np.zeros(n_paths, dtype=np.float64)
         autocalled = np.zeros(n_paths, dtype=bool)
         downside_redemption = np.zeros(n_paths, dtype=bool)
+        coupon_event = np.zeros((n_paths, obs_count), dtype=np.float64)
+        first_autocall_event = np.zeros((n_paths, obs_count), dtype=np.float64)
+        survival_after_observation = np.zeros((n_paths, obs_count), dtype=np.float64)
+        observation_times = np.zeros(obs_count, dtype=np.float64)
+        observation_discounts = np.zeros(obs_count, dtype=np.float64)
         active = np.ones(n_paths, dtype=bool)
 
-        for idx in obs_idx:
+        for observation_index, idx in enumerate(obs_idx):
             observation_time = (idx / n_steps) * T
             observation_discount = float(discount_factor(observation_time))
             levels = paths[:, idx]
+            observation_times[observation_index] = observation_time
+            observation_discounts[observation_index] = observation_discount
 
             coupon_due = active & (levels >= coupon_b)
             coupon_pv[coupon_due] += coupon_rate * observation_discount
+            coupon_event[:, observation_index] = coupon_due
 
             called = active & (levels >= autocall_b)
             autocall_principal_pv[called] = observation_discount
             autocalled[called] = True
+            first_autocall_event[:, observation_index] = called
             active[called] = False
+            survival_after_observation[:, observation_index] = active
 
+        protected = np.zeros(n_paths, dtype=bool)
+        downside_recovery_ratio = np.zeros(n_paths, dtype=np.float64)
         if np.any(active):
             final_levels = paths[:, -1]
             knocked_in = np.any(paths <= knockin_b, axis=1)
@@ -199,6 +211,7 @@ class PhoenixPayoff(BasePayoff):
                 final_levels[capital_loss] / s0
             ) * maturity_discount
             downside_redemption[capital_loss] = True
+            downside_recovery_ratio[capital_loss] = final_levels[capital_loss] / s0
 
         return {
             "coupon_pv": coupon_pv,
@@ -207,6 +220,40 @@ class PhoenixPayoff(BasePayoff):
             "maturity_downside_pv": maturity_downside_pv,
             "autocall_probability": autocalled.astype(np.float64),
             "downside_probability": downside_redemption.astype(np.float64),
+            "coupon_event": coupon_event,
+            "first_autocall_event": first_autocall_event,
+            "survival_after_observation": survival_after_observation,
+            "protected_maturity_event": protected.astype(np.float64),
+            "downside_maturity_event": downside_redemption.astype(np.float64),
+            "downside_recovery_ratio": downside_recovery_ratio,
+            "observation_times": observation_times,
+            "observation_discounts": observation_discounts,
+        }
+
+    def compute_cashflow_components_with_discount_curve(
+        self,
+        paths: np.ndarray,
+        params: Dict[str, Any],
+        T: float,
+        discount_factor: Callable[[float], float],
+    ) -> Dict[str, np.ndarray]:
+        """Return the stable aggregate cashflow and event-label contract."""
+        ledger = self.compute_observation_event_ledger_with_discount_curve(
+            paths=paths,
+            params=params,
+            T=T,
+            discount_factor=discount_factor,
+        )
+        return {
+            name: ledger[name]
+            for name in (
+                "coupon_pv",
+                "autocall_principal_pv",
+                "maturity_protected_pv",
+                "maturity_downside_pv",
+                "autocall_probability",
+                "downside_probability",
+            )
         }
 
 

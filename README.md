@@ -10,7 +10,9 @@ dated market snapshot separates arbitrary equity-like symbols from product
 terms. A repeatedly validated, payoff-aware Phoenix v7 research surrogate can
 run in monitored shadow mode against the reference price. A development-only
 event-conditioned successor is implemented but was rejected by the repeated
-validation gate; legacy artifacts remain ineligible.
+validation gate. An observation-level hazard successor now preserves autocall
+and coupon timing, but it also remains research-only after its smoke gate;
+legacy artifacts remain ineligible.
 
 This is an educational/demo system. It is not production trading
 infrastructure, financial advice, or a risk system suitable for live capital
@@ -40,6 +42,8 @@ allocation.
   gates the winner once on an independently generated audit dataset.
 - Evaluates an offline event-conditioned mixture of experts without exposing a
   losing research candidate to serving or consuming another audit dataset.
+- Replays exact Monte Carlo observation events and evaluates probability-aware
+  autocall, coupon, and downside hazards on group-disjoint development data.
 - Exports a checksum-verified pure-NumPy runtime; LightGBM remains an offline
   research baseline.
 - Records opt-in dated shadow observations, feature-drift diagnostics, sliced
@@ -112,6 +116,8 @@ src/final/
   surrogate_data.py       Group-disjoint Sobol-labelled dataset generator
   surrogate_trainer.py    MLP/baseline evaluation and artifact promotion gates
   surrogate_event_conditioning.py  Offline event/conditional-value architecture
+  surrogate_hazard_data.py  Observation-level event-label sidecars
+  surrogate_hazard.py     Sequential probability-aware hazard research model
   surrogate_pipeline.py   Versioned generate/train command line entry point
   surrogate_replay.py     Replay dated shadow observations through an artifact
   pipeline.py             Training/evaluation orchestration
@@ -132,6 +138,7 @@ docs/
   equity-research-market-v1.md  Server-built USD research calibration
   equity-risk-analytics-v1.md  Paired scenarios and risk analytics
   phoenix-event-conditioned-research-v1.md  Development-only architecture result
+  phoenix-observation-hazard-research-v1.md  Observation-event model result
   phoenix-robust-selection-v7.md  V7 repeated group-validation specification
   phoenix-focused-head-v6.md  Historical v6 focused-head specification
   phoenix-uncertainty-v5.md  Historical v5 uncertainty specification
@@ -196,6 +203,8 @@ Generated datasets and artifacts are excluded from Git. See
 before enabling shadow inference. The rejected event-conditioned experiment and
 its reproducible development-only command are documented in
 [docs/phoenix-event-conditioned-research-v1.md](docs/phoenix-event-conditioned-research-v1.md).
+The observation-level successor is documented in
+[docs/phoenix-observation-hazard-research-v1.md](docs/phoenix-observation-hazard-research-v1.md).
 
 Start the FastAPI backend locally:
 
@@ -399,6 +408,9 @@ Legacy routes kept for compatibility:
 - The event-conditioned research candidate is also `research_only`. It improved
   interpretability, but its repeated development score was worse than v7, so it
   was neither audited nor added to the runtime artifact format.
+- The observation-hazard candidate preserves event timing and uses soft-label
+  cross-entropy, but it did not beat the payoff-aware model on the smoke
+  validation gate. Its full-development scale test has not yet been run.
 - Scenario explanations are simple and rule-based.
 - Phase 7 Greeks are finite-difference research estimates. Discontinuous
   barriers can produce noisy Gamma and bump sensitivity even with paired paths.
@@ -413,7 +425,8 @@ Legacy routes kept for compatibility:
   market regimes, and materially larger untouched datasets.
 - Add observation-level autocall, survival, and coupon-event labels so the next
   surrogate can learn discrete event hazards instead of aggregate terminal
-  probabilities.
+  probabilities. The research label/model contract now exists; the next
+  milestone is its frozen full-development comparison.
 - Add theta with explicit calendar, fixing, accrual, and market-roll rules.
 - Add volatility-skew, credit/funding, and seasoned-trade state models.
 - Add optional PIN or gateway-based access control for non-local deployments.

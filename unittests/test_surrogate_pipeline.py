@@ -35,3 +35,23 @@ def test_event_conditioned_research_command_has_no_audit_or_artifact_arguments()
     assert args.report is None
     assert not hasattr(args, "audit_dataset")
     assert not hasattr(args, "output_root")
+
+
+def test_hazard_commands_keep_labels_and_training_development_only():
+    generate_args = _build_parser().parse_args(
+        ["hazard-generate", "development-dataset.npz"]
+    )
+    train_args = _build_parser().parse_args(
+        [
+            "research-hazards",
+            "development-dataset.npz",
+            "hazard-dataset.npz",
+        ]
+    )
+
+    assert generate_args.command == "hazard-generate"
+    assert train_args.command == "research-hazards"
+    assert train_args.hazard_max_iter == 800
+    assert train_args.training_seed == 143
+    assert not hasattr(train_args, "audit_dataset")
+    assert not hasattr(train_args, "output_root")

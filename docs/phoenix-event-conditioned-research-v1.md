@@ -1,5 +1,9 @@
 # Phoenix event-conditioned research candidate
 
+> Historical aggregate-event experiment. The subsequent observation-level
+> hazard model preserved event timing but also remained development-only. See
+> [`phoenix-observation-hazard-research-v1.md`](phoenix-observation-hazard-research-v1.md).
+
 This phase changes the approximation architecture without changing the
 production Phoenix v7 artifact, serving contract, promotion thresholds, or
 sealed audit history. The candidate is development-only and cannot be loaded by

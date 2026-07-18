@@ -108,6 +108,43 @@ def test_payoff_aware_components_reconcile_to_contract_value_and_events():
     assert components["downside_probability"].tolist() == [0.0, 0.0, 1.0]
 
 
+def test_observation_event_ledger_reconciles_sequential_events():
+    paths = np.array(
+        [
+            [100.0, 110.0, 120.0],
+            [100.0, 90.0, 104.0],
+            [100.0, 60.0, 80.0],
+        ]
+    )
+    params = phoenix_params(autocall_barrier_frac=1.05)
+
+    ledger = PhoenixPayoff().compute_observation_event_ledger_with_discount_curve(
+        paths,
+        params,
+        1.0,
+        lambda _time: 1.0,
+    )
+
+    assert ledger["first_autocall_event"].tolist() == [
+        [1.0, 0.0],
+        [0.0, 0.0],
+        [0.0, 0.0],
+    ]
+    assert ledger["coupon_event"].tolist() == [
+        [1.0, 0.0],
+        [0.0, 1.0],
+        [0.0, 0.0],
+    ]
+    assert ledger["survival_after_observation"].tolist() == [
+        [0.0, 0.0],
+        [1.0, 1.0],
+        [1.0, 1.0],
+    ]
+    assert ledger["protected_maturity_event"].tolist() == [0.0, 1.0, 0.0]
+    assert ledger["downside_maturity_event"].tolist() == [0.0, 0.0, 1.0]
+    assert ledger["downside_recovery_ratio"].tolist() == [0.0, 0.0, 0.8]
+
+
 def test_payoff_is_invariant_to_underlier_price_scale():
     paths = np.array([[100.0, 95.0, 80.0], [100.0, 106.0, 120.0]])
     params = phoenix_params(autocall_barrier_frac=1.05)

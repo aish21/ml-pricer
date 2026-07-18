@@ -8,6 +8,15 @@ from .surrogate_data import (
     load_phoenix_surrogate_dataset,
     save_phoenix_surrogate_dataset,
 )
+from .surrogate_hazard import (
+    PhoenixHazardTrainingConfig,
+    train_phoenix_observation_hazard_candidate,
+)
+from .surrogate_hazard_data import (
+    generate_phoenix_hazard_dataset,
+    load_phoenix_hazard_dataset,
+    save_phoenix_hazard_dataset,
+)
 from .surrogate_trainer import (
     PhoenixSurrogateTrainingConfig,
     train_event_conditioned_research_candidate,
@@ -16,6 +25,7 @@ from .surrogate_trainer import (
 
 
 DEFAULT_OUTPUT_ROOT = Path("data") / "surrogates" / "phoenix-v7"
+DEFAULT_HAZARD_OUTPUT_ROOT = Path("data") / "surrogates" / "phoenix-hazard-v1"
 
 
 def _dataset_config(
@@ -71,6 +81,17 @@ def _save_generated_dataset(dataset, output_root: Path) -> Path:
     dataset_path = dataset_directory / dataset_name
     save_phoenix_surrogate_dataset(dataset, dataset_path)
     return dataset_path
+
+
+def _hazard_training_config(args: argparse.Namespace) -> PhoenixHazardTrainingConfig:
+    return PhoenixHazardTrainingConfig(
+        max_iter=args.hazard_max_iter,
+        learning_rate=args.hazard_learning_rate,
+        max_leaf_nodes=args.hazard_max_leaf_nodes,
+        min_samples_leaf=args.hazard_min_samples_leaf,
+        l2_regularization=args.hazard_l2,
+        random_state=args.training_seed,
+    )
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -152,6 +173,33 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     add_training_arguments(research_events)
 
+    hazard_generate = subparsers.add_parser(
+        "hazard-generate",
+        help="Replay a development dataset into observation-level event labels",
+    )
+    hazard_generate.add_argument("dataset", type=Path)
+    hazard_generate.add_argument(
+        "--output-root", type=Path, default=DEFAULT_HAZARD_OUTPUT_ROOT
+    )
+
+    research_hazards = subparsers.add_parser(
+        "research-hazards",
+        help="Evaluate the observation-level hazard architecture",
+    )
+    research_hazards.add_argument("dataset", type=Path)
+    research_hazards.add_argument("hazard_dataset", type=Path)
+    research_hazards.add_argument(
+        "--report",
+        type=Path,
+        help="optional path for the development-only JSON report",
+    )
+    research_hazards.add_argument("--hazard-max-iter", type=int, default=800)
+    research_hazards.add_argument("--hazard-learning-rate", type=float, default=0.025)
+    research_hazards.add_argument("--hazard-max-leaf-nodes", type=int, default=15)
+    research_hazards.add_argument("--hazard-min-samples-leaf", type=int, default=10)
+    research_hazards.add_argument("--hazard-l2", type=float, default=0.001)
+    research_hazards.add_argument("--training-seed", type=int, default=143)
+
     full = subparsers.add_parser("full", help="Generate data and train the model")
     add_dataset_arguments(full)
     full.add_argument("--audit-contracts", type=int, default=256)
@@ -193,6 +241,49 @@ def main(argv: list[str] | None = None) -> int:
             config=_training_config(args),
             hidden_layer_sizes=tuple(args.hidden_layers),
             random_state=args.training_seed,
+        )
+        if args.report is not None:
+            report_path = Path(args.report)
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(
+                json.dumps(report, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+        print(json.dumps(report, indent=2), flush=True)
+        return 0
+
+    if args.command == "hazard-generate":
+        dataset = load_phoenix_surrogate_dataset(args.dataset)
+        hazard_dataset = generate_phoenix_hazard_dataset(dataset)
+        dataset_directory = Path(args.output_root) / "datasets"
+        dataset_name = (
+            hazard_dataset.metadata["dataset_id"].removeprefix("sha256:") + ".npz"
+        )
+        dataset_path = dataset_directory / dataset_name
+        save_phoenix_hazard_dataset(hazard_dataset, dataset_path)
+        print(
+            json.dumps(
+                {
+                    "dataset_id": hazard_dataset.metadata["dataset_id"],
+                    "base_dataset_id": hazard_dataset.metadata["base_dataset_id"],
+                    "dataset_path": str(dataset_path),
+                    "n_samples": hazard_dataset.metadata["n_samples"],
+                },
+                indent=2,
+            ),
+            flush=True,
+        )
+        return 0
+
+    if args.command == "research-hazards":
+        dataset = load_phoenix_surrogate_dataset(args.dataset)
+        hazard_dataset = load_phoenix_hazard_dataset(
+            args.hazard_dataset,
+            base=dataset,
+        )
+        _, report = train_phoenix_observation_hazard_candidate(
+            hazard_dataset,
+            _hazard_training_config(args),
         )
         if args.report is not None:
             report_path = Path(args.report)
