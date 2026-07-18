@@ -46,7 +46,7 @@ training = [
     "tqdm==4.66.2",
 ]
 research = [
-    "catboost==1.2.2",
+    "catboost==1.2.10",
     "torch==2.7.0",
     "xgboost==1.7.6",
 ]
