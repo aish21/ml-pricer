@@ -15,8 +15,9 @@ and coupon timing, but it also remains research-only after its full-development
 gate. A direct-price hybrid with compact event-summary targets was also
 rejected after equal-weight auxiliary training degraded price accuracy. Its
 price-first, separate-head successor is the first model to beat v7's repeated
-development gate, but it remains research-only pending a fresh sealed audit;
-legacy artifacts remain ineligible.
+development gate and has passed a fresh sealed audit. It remains research-only
+until a checksum-verified branched runtime artifact exists; legacy artifacts
+remain ineligible.
 
 This is an educational/demo system. It is not production trading
 infrastructure, financial advice, or a risk system suitable for live capital
@@ -146,6 +147,7 @@ docs/
   phoenix-hazard-full-development-v1.md  Frozen full-data hazard comparison
   phoenix-event-summary-hybrid-research-v1.md  Direct-price hybrid result
   phoenix-price-first-multitask-research-v1.md  Price-first development winner
+  phoenix-price-first-sealed-audit-v1.md  Fresh audit and gate decision
   phoenix-robust-selection-v7.md  V7 repeated group-validation specification
   phoenix-focused-head-v6.md  Historical v6 focused-head specification
   phoenix-uncertainty-v5.md  Historical v5 uncertainty specification
@@ -218,6 +220,8 @@ The direct-price event-summary experiment is documented in
 [docs/phoenix-event-summary-hybrid-research-v1.md](docs/phoenix-event-summary-hybrid-research-v1.md).
 Its price-first successor is documented in
 [docs/phoenix-price-first-multitask-research-v1.md](docs/phoenix-price-first-multitask-research-v1.md).
+The successor's sealed audit is documented in
+[docs/phoenix-price-first-sealed-audit-v1.md](docs/phoenix-price-first-sealed-audit-v1.md).
 
 Start the FastAPI backend locally:
 
@@ -428,7 +432,8 @@ Legacy routes kept for compatibility:
   equal-weight auxiliary training caused negative transfer and also failed the
   repeated development gate.
 - The price-first multi-task successor beat v7's repeated development score,
-  but it has not consumed a fresh audit and is not runtime eligible.
+  and passed its fresh sealed audit. It is not runtime eligible until its
+  branched network has a versioned, checksum-verified artifact and loader.
 - Scenario explanations are simple and rule-based.
 - Phase 7 Greeks are finite-difference research estimates. Discontinuous
   barriers can produce noisy Gamma and bump sensitivity even with paired paths.
@@ -441,9 +446,8 @@ Legacy routes kept for compatibility:
   fit an arbitrage-controlled volatility surface from a licensed feed.
 - Expand surrogate labels and shadow telemetry across denser barrier regions,
   market regimes, and materially larger untouched datasets.
-- Generate a fresh balanced audit from the unused `9,000,031` seed-offset
-  family and evaluate the frozen price-first model once against the existing
-  price, regional, uncertainty, output, and Greek gates.
+- Export the audit-approved branched network as a pure-NumPy, checksum-verified
+  artifact and enable it only through monitored shadow loading.
 - Add theta with explicit calendar, fixing, accrual, and market-roll rules.
 - Add volatility-skew, credit/funding, and seasoned-trade state models.
 - Add optional PIN or gateway-based access control for non-local deployments.

@@ -1,5 +1,9 @@
 # Phoenix price-first multi-task research model
 
+> Development specification. This frozen candidate subsequently passed its
+> fresh sealed audit. See
+> [`phoenix-price-first-sealed-audit-v1.md`](phoenix-price-first-sealed-audit-v1.md).
+
 This phase tests whether observation-event supervision can improve direct
 Phoenix pricing when noisy auxiliary objectives are prevented from dominating
 the shared representation. It uses development data only, cannot accept an
@@ -121,9 +125,7 @@ It remains `research_only`: development improvement is not sufficient for
 serving approval. No prior audit is reusable because those labels informed
 earlier model decisions.
 
-The next phase should generate a fresh balanced audit from the unused
-`9,000,031` seed-offset family, using 256 contracts, four regimes per contract,
-and eight independently scrambled Sobol replications of 256 paths. The frozen
-candidate should then be evaluated exactly once against the existing price,
-regional, uncertainty, output, and Greek gates. Any post-audit architecture or
-threshold change must retire that audit from promotion use.
+The specified fresh balanced audit from the `9,000,031` seed-offset family has
+now been consumed. The candidate passed every price, regional, uncertainty,
+output, and Greek gate. Its full immutable decision is documented in
+[`phoenix-price-first-sealed-audit-v1.md`](phoenix-price-first-sealed-audit-v1.md).

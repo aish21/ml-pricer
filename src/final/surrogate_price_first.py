@@ -1,27 +1,45 @@
 import math
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any, Sequence
 
 import numpy as np
 
 from .surrogate_contract import (
+    PHOENIX_EVENT_TARGET_NAMES,
     PHOENIX_PAYOFF_AWARE_TARGET_NAMES,
+    PHOENIX_PRICE_COMPONENT_NAMES,
     PHOENIX_SURROGATE_FEATURE_NAMES,
 )
 from .surrogate_hazard_data import PhoenixHazardDataset
 from .surrogate_hybrid import summarize_phoenix_observation_events
 from .surrogate_trainer import (
+    PhoenixSurrogateTrainingConfig,
     SurrogateTrainingError,
+    _acceptance,
+    _audit_uncertainty_policy,
+    _greek_validation,
     _joint_regime_moneyness_metrics,
     _moneyness_metrics,
     _regime_metrics,
     _regression_metrics,
     _repeated_group_validation,
+    _uncertainty_aware_metrics,
+    _validate_training_dataset,
 )
 
 
 PHOENIX_PRICE_FIRST_RESEARCH_VERSION = "phoenix-price-first-multitask-research-v1"
+PHOENIX_PRICE_FIRST_AUDIT_VERSION = "phoenix-price-first-sealed-audit-v1"
+PHOENIX_PRICE_FIRST_FROZEN_SPECIFICATION_COMMIT = (
+    "e1ba32e567a40ca501d1e89b8e7396dead803427"
+)
+PHOENIX_PRICE_FIRST_FROZEN_AUXILIARY_WEIGHT = 0.1
+PHOENIX_PRICE_FIRST_FROZEN_DEVELOPMENT_METRICS = {
+    "validation_mae": 0.006644006053484162,
+    "repeated_selection_score": 0.018586225678601333,
+    "development_test_mae": 0.006971920441342174,
+}
 PHOENIX_PRICE_FIRST_EVENT_TARGET_NAMES = (
     "conditional_expected_autocall_time_fraction",
     "conditional_autocall_time_variance",
@@ -225,6 +243,10 @@ class PhoenixPriceFirstSurrogate:
     feature_scale: np.ndarray
     target_mean: np.ndarray
     target_scale: np.ndarray
+
+    @property
+    def output_names(self) -> tuple[str, ...]:
+        return PHOENIX_PRICE_FIRST_OUTPUT_NAMES
 
     def predict_raw_outputs(
         self,
@@ -789,3 +811,263 @@ def train_phoenix_price_first_candidate(
         },
     }
     return surrogate, report
+
+
+def _fit_frozen_phoenix_price_first_candidate(
+    dataset: PhoenixHazardDataset,
+) -> tuple[PhoenixPriceFirstSurrogate, dict[str, Any]]:
+    config = PhoenixPriceFirstTrainingConfig()
+    event_targets, event_loss_weights = price_first_event_targets(dataset)
+    targets = np.column_stack(
+        [dataset.base.y, dataset.base.auxiliary_targets, event_targets]
+    )
+    training_mask = dataset.base.split_names == "train"
+    surrogate, fit = _fit_network(
+        dataset=dataset,
+        targets=targets,
+        event_loss_weights=event_loss_weights,
+        fit_mask=training_mask,
+        auxiliary_loss_weight=PHOENIX_PRICE_FIRST_FROZEN_AUXILIARY_WEIGHT,
+        config=config,
+        random_state=config.model_random_state,
+    )
+    _refit_focused_price_head(
+        dataset=dataset,
+        surrogate=surrogate,
+        fit_mask=training_mask,
+        config=config,
+    )
+    predictions = surrogate.predict(dataset.base.X)
+    validation_mask = dataset.base.split_names == "validation"
+    test_mask = dataset.base.split_names == "test"
+    observed = {
+        "validation_mae": float(
+            np.mean(
+                np.abs(predictions[validation_mask] - dataset.base.y[validation_mask])
+            )
+        ),
+        "repeated_selection_score": _repeated_group_validation(
+            dataset.base,
+            predictions,
+            config,
+        )["selection_score"],
+        "development_test_mae": float(
+            np.mean(np.abs(predictions[test_mask] - dataset.base.y[test_mask]))
+        ),
+    }
+    mismatches = {
+        name: {
+            "expected": expected,
+            "observed": observed[name],
+        }
+        for name, expected in PHOENIX_PRICE_FIRST_FROZEN_DEVELOPMENT_METRICS.items()
+        if not math.isclose(
+            observed[name],
+            expected,
+            rel_tol=0.0,
+            abs_tol=1e-12,
+        )
+    }
+    if mismatches:
+        raise SurrogateTrainingError(
+            "frozen price-first development fingerprint does not reproduce"
+        )
+    return surrogate, {
+        "specification_commit": PHOENIX_PRICE_FIRST_FROZEN_SPECIFICATION_COMMIT,
+        "selected_auxiliary_loss_weight": (PHOENIX_PRICE_FIRST_FROZEN_AUXILIARY_WEIGHT),
+        "development_metrics": observed,
+        "fit": fit,
+        "training_config": asdict(config),
+    }
+
+
+def _price_first_audit_metrics(
+    *,
+    dataset,
+    surrogate: PhoenixPriceFirstSurrogate,
+    uncertainty_policy: dict[str, Any],
+) -> dict[str, Any]:
+    predictions = surrogate.predict(dataset.X)
+    output_predictions = surrogate.predict_outputs(dataset.X)
+    raw_output_predictions = surrogate.predict_raw_outputs(dataset.X)
+    price_metrics = _regression_metrics(
+        dataset.y,
+        predictions,
+        dataset.label_standard_error,
+    )
+    price_metrics.update(
+        _uncertainty_aware_metrics(
+            dataset.y,
+            predictions,
+            dataset.label_standard_error,
+            uncertainty_policy,
+        )
+    )
+    regime_metrics = {}
+    for regime in sorted(set(str(value) for value in dataset.regime_names)):
+        mask = dataset.regime_names == regime
+        regime_metrics[regime] = _regression_metrics(
+            dataset.y[mask],
+            predictions[mask],
+            dataset.label_standard_error[mask],
+        )
+    moneyness_metrics = {}
+    for region in sorted(set(str(value) for value in dataset.moneyness_region_names)):
+        mask = dataset.moneyness_region_names == region
+        moneyness_metrics[region] = _regression_metrics(
+            dataset.y[mask],
+            predictions[mask],
+            dataset.label_standard_error[mask],
+        )
+
+    audited_output_names = ("price",) + PHOENIX_PAYOFF_AWARE_TARGET_NAMES
+    output_targets = np.column_stack([dataset.y, dataset.auxiliary_targets])
+    output_standard_error = np.column_stack(
+        [dataset.label_standard_error, dataset.auxiliary_standard_error]
+    )
+    output_metrics = {}
+    for name in audited_output_names:
+        index = PHOENIX_PRICE_FIRST_OUTPUT_NAMES.index(name)
+        target_index = audited_output_names.index(name)
+        output_metrics[name] = _regression_metrics(
+            output_targets[:, target_index],
+            output_predictions[:, index],
+            output_standard_error[:, target_index],
+        )
+    for component_name in PHOENIX_PRICE_COMPONENT_NAMES:
+        index = PHOENIX_PRICE_FIRST_OUTPUT_NAMES.index(component_name)
+        violations = np.maximum(-raw_output_predictions[:, index], 0.0)
+        output_metrics[component_name].update(
+            {
+                "raw_outside_bounds_fraction": float(np.mean(violations > 0.0)),
+                "raw_mean_boundary_violation": float(np.mean(violations)),
+                "raw_maximum_boundary_violation": float(np.max(violations)),
+            }
+        )
+    for event_name in PHOENIX_EVENT_TARGET_NAMES:
+        index = PHOENIX_PRICE_FIRST_OUTPUT_NAMES.index(event_name)
+        raw_values = raw_output_predictions[:, index]
+        violations = np.maximum(-raw_values, 0.0) + np.maximum(
+            raw_values - 1.0,
+            0.0,
+        )
+        output_metrics[event_name].update(
+            {
+                "raw_outside_bounds_fraction": float(np.mean(violations > 0.0)),
+                "raw_mean_boundary_violation": float(np.mean(violations)),
+                "raw_maximum_boundary_violation": float(np.max(violations)),
+            }
+        )
+    component_indices = [
+        PHOENIX_PRICE_FIRST_OUTPUT_NAMES.index(name)
+        for name in PHOENIX_PRICE_COMPONENT_NAMES
+    ]
+    component_price = np.sum(
+        output_predictions[:, component_indices],
+        axis=1,
+    )
+    output_metrics["cashflow_reconstruction"] = {
+        "mae_to_price_head": float(np.mean(np.abs(component_price - predictions))),
+        "p95_absolute_gap": float(
+            np.quantile(np.abs(component_price - predictions), 0.95)
+        ),
+    }
+    return {
+        "dataset_id": dataset.metadata["dataset_id"],
+        "n_samples": int(len(dataset.y)),
+        "uncertainty_policy": uncertainty_policy,
+        "price_metrics": price_metrics,
+        "regime_metrics": regime_metrics,
+        "moneyness_region_metrics": moneyness_metrics,
+        "regime_moneyness_metrics": _joint_regime_moneyness_metrics(
+            dataset,
+            predictions,
+        ),
+        "output_metrics": output_metrics,
+        "outputs_without_audit_labels": list(PHOENIX_PRICE_FIRST_EVENT_TARGET_NAMES),
+    }
+
+
+def audit_frozen_phoenix_price_first_candidate(
+    *,
+    development_dataset: PhoenixHazardDataset,
+    audit_dataset,
+    verbose: bool = True,
+) -> dict[str, Any]:
+    """Evaluate the frozen development winner once on an independent audit."""
+    _validate_training_dataset(
+        development_dataset.base,
+        expected_role="development",
+    )
+    _validate_training_dataset(audit_dataset, expected_role="audit")
+    if (
+        audit_dataset.metadata["dataset_id"]
+        == development_dataset.base.metadata["dataset_id"]
+    ):
+        raise SurrogateTrainingError(
+            "price-first development and audit datasets must be independent"
+        )
+    development_config = development_dataset.base.metadata.get("config", {})
+    audit_generation_config = audit_dataset.metadata.get("config", {})
+    if any(
+        development_config.get(name) == audit_generation_config.get(name)
+        for name in ("dataset_seed", "label_seed")
+    ):
+        raise SurrogateTrainingError(
+            "price-first development and audit seeds must be independent"
+        )
+
+    audit_config = PhoenixSurrogateTrainingConfig(
+        train_lightgbm_baseline=False,
+    )
+    uncertainty_policy = _audit_uncertainty_policy(
+        audit_dataset,
+        audit_config,
+    )
+    started = time.perf_counter()
+    surrogate, frozen_model = _fit_frozen_phoenix_price_first_candidate(
+        development_dataset
+    )
+    evaluation = _price_first_audit_metrics(
+        dataset=audit_dataset,
+        surrogate=surrogate,
+        uncertainty_policy=uncertainty_policy,
+    )
+    greek_validation = _greek_validation(
+        surrogate,
+        audit_dataset,
+        audit_config,
+    )
+    acceptance = _acceptance(
+        evaluation_metrics=evaluation,
+        greek_validation=greek_validation,
+        config=audit_config,
+    )
+    report = {
+        "audit_version": PHOENIX_PRICE_FIRST_AUDIT_VERSION,
+        "model_research_version": PHOENIX_PRICE_FIRST_RESEARCH_VERSION,
+        "model_specification_commit": (PHOENIX_PRICE_FIRST_FROZEN_SPECIFICATION_COMMIT),
+        "development_dataset_id": (development_dataset.base.metadata["dataset_id"]),
+        "observation_dataset_id": development_dataset.metadata["dataset_id"],
+        "audit_dataset_id": audit_dataset.metadata["dataset_id"],
+        "runtime_eligible": False,
+        "artifact_written": False,
+        "deployment_status": "research_only",
+        "audit_decision": "passed" if acceptance["passed"] else "failed",
+        "frozen_model": frozen_model,
+        "audit_generation_config": audit_generation_config,
+        "audit_uncertainty_policy": uncertainty_policy,
+        "audit_gate_config": asdict(audit_config),
+        "audit_evaluation": evaluation,
+        "greek_validation": greek_validation,
+        "acceptance": acceptance,
+        "evaluation_seconds": time.perf_counter() - started,
+    }
+    if verbose:
+        print(
+            "[PhoenixPriceFirstAudit] "
+            f"decision={report['audit_decision']} "
+            f"mae={evaluation['price_metrics']['mae']:.6f}",
+            flush=True,
+        )
+    return report

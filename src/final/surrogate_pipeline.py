@@ -20,6 +20,7 @@ from .surrogate_hazard_data import (
 from .surrogate_hybrid import train_phoenix_event_summary_hybrid_candidate
 from .surrogate_price_first import (
     PhoenixPriceFirstTrainingConfig,
+    audit_frozen_phoenix_price_first_candidate,
     train_phoenix_price_first_candidate,
 )
 from .surrogate_trainer import (
@@ -271,6 +272,20 @@ def _build_parser() -> argparse.ArgumentParser:
     research_price_first.add_argument("--validation-seed", type=int, default=42)
     research_price_first.add_argument("--torch-threads", type=int, default=1)
 
+    audit_price_first = subparsers.add_parser(
+        "audit-price-first",
+        help="Evaluate the frozen price-first winner on one sealed audit",
+    )
+    audit_price_first.add_argument("dataset", type=Path)
+    audit_price_first.add_argument("hazard_dataset", type=Path)
+    audit_price_first.add_argument("audit_dataset", type=Path)
+    audit_price_first.add_argument(
+        "--report",
+        type=Path,
+        required=True,
+        help="required path for the immutable audit report",
+    )
+
     full = subparsers.add_parser("full", help="Generate data and train the model")
     add_dataset_arguments(full)
     full.add_argument("--audit-contracts", type=int, default=256)
@@ -422,6 +437,42 @@ def main(argv: list[str] | None = None) -> int:
                 encoding="utf-8",
             )
         print(json.dumps(report, indent=2), flush=True)
+        return 0
+
+    if args.command == "audit-price-first":
+        report_path = Path(args.report)
+        if report_path.exists():
+            parser.error(
+                "the sealed price-first audit report already exists; "
+                "the audit cannot be consumed twice"
+            )
+        dataset = load_phoenix_surrogate_dataset(args.dataset)
+        hazard_dataset = load_phoenix_hazard_dataset(
+            args.hazard_dataset,
+            base=dataset,
+        )
+        audit_dataset = load_phoenix_surrogate_dataset(args.audit_dataset)
+        report = audit_frozen_phoenix_price_first_candidate(
+            development_dataset=hazard_dataset,
+            audit_dataset=audit_dataset,
+        )
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        with report_path.open("x", encoding="utf-8") as report_handle:
+            json.dump(report, report_handle, indent=2, sort_keys=True)
+            report_handle.write("\n")
+        print(
+            json.dumps(
+                {
+                    "audit_dataset_id": report["audit_dataset_id"],
+                    "audit_decision": report["audit_decision"],
+                    "price_metrics": report["audit_evaluation"]["price_metrics"],
+                    "acceptance": report["acceptance"],
+                    "report": str(report_path),
+                },
+                indent=2,
+            ),
+            flush=True,
+        )
         return 0
 
     output_root = Path(args.output_root)

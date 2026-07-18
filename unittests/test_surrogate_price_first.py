@@ -2,8 +2,10 @@ import numpy as np
 import pytest
 
 from src.final.surrogate_price_first import (
+    PHOENIX_PRICE_FIRST_FROZEN_AUXILIARY_WEIGHT,
     PHOENIX_PRICE_FIRST_EVENT_TARGET_NAMES,
     PhoenixPriceFirstTrainingConfig,
+    _price_first_audit_metrics,
     price_first_event_targets,
     train_phoenix_price_first_candidate,
 )
@@ -34,6 +36,10 @@ def test_price_first_config_rejects_duplicate_auxiliary_weights():
         PhoenixPriceFirstTrainingConfig(
             auxiliary_loss_weights=(0.03, 0.03),
         )
+
+
+def test_frozen_audit_weight_matches_the_training_only_winner():
+    assert PHOENIX_PRICE_FIRST_FROZEN_AUXILIARY_WEIGHT == 0.1
 
 
 def test_price_first_candidate_selects_weight_inside_training_groups_only():
@@ -89,4 +95,19 @@ def test_price_first_candidate_selects_weight_inside_training_groups_only():
     assert np.array_equal(
         replay.predict(dataset.base.X[:3]),
         predictions,
+    )
+    audit_metrics = _price_first_audit_metrics(
+        dataset=dataset.base,
+        surrogate=replay,
+        uncertainty_policy={
+            "confidence_level": 0.95,
+            "confidence_multiplier": 2.0,
+            "economic_price_tolerance": 0.01,
+        },
+    )
+
+    assert audit_metrics["price_metrics"]["n_samples"] == len(dataset.base.y)
+    assert "cashflow_reconstruction" in audit_metrics["output_metrics"]
+    assert audit_metrics["outputs_without_audit_labels"] == list(
+        PHOENIX_PRICE_FIRST_EVENT_TARGET_NAMES
     )

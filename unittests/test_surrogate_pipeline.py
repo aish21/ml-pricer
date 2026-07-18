@@ -94,6 +94,25 @@ def test_price_first_command_keeps_weight_selection_inside_training_data():
     assert not hasattr(args, "output_root")
 
 
+def test_price_first_audit_command_freezes_all_model_and_gate_settings():
+    args = _build_parser().parse_args(
+        [
+            "audit-price-first",
+            "development.npz",
+            "hazards.npz",
+            "audit.npz",
+            "--report",
+            "audit-report.json",
+        ]
+    )
+
+    assert args.command == "audit-price-first"
+    assert not hasattr(args, "training_seed")
+    assert not hasattr(args, "auxiliary_loss_weights")
+    assert not hasattr(args, "acceptance_audit_mae")
+    assert not hasattr(args, "output_root")
+
+
 def test_research_hazard_command_executes_without_an_output_root(monkeypatch, capsys):
     base = object()
     hazard = object()
@@ -191,3 +210,75 @@ def test_research_price_first_executes_without_an_output_root(monkeypatch, capsy
 
     assert result == 0
     assert '"status": "research_only"' in capsys.readouterr().out
+
+
+def test_price_first_audit_executes_without_mutable_settings(
+    monkeypatch,
+    tmp_path,
+    capsys,
+):
+    base = object()
+    hazard = object()
+    audit = object()
+    loaded = iter([base, audit])
+    monkeypatch.setattr(
+        surrogate_pipeline,
+        "load_phoenix_surrogate_dataset",
+        lambda _path: next(loaded),
+    )
+    monkeypatch.setattr(
+        surrogate_pipeline,
+        "load_phoenix_hazard_dataset",
+        lambda _path, *, base: hazard,
+    )
+    monkeypatch.setattr(
+        surrogate_pipeline,
+        "audit_frozen_phoenix_price_first_candidate",
+        lambda **_kwargs: {
+            "audit_dataset_id": "sha256:audit",
+            "audit_decision": "passed",
+            "audit_evaluation": {"price_metrics": {"mae": 0.01}},
+            "acceptance": {"passed": True},
+        },
+    )
+    report_path = tmp_path / "audit-report.json"
+
+    result = surrogate_pipeline.main(
+        [
+            "audit-price-first",
+            "development-dataset.npz",
+            "hazard-dataset.npz",
+            "audit-dataset.npz",
+            "--report",
+            str(report_path),
+        ]
+    )
+
+    assert result == 0
+    assert report_path.exists()
+    assert '"audit_decision": "passed"' in capsys.readouterr().out
+
+
+def test_price_first_audit_refuses_to_overwrite_a_consumed_report(
+    tmp_path,
+):
+    report_path = tmp_path / "audit-report.json"
+    report_path.write_text("{}\n", encoding="utf-8")
+
+    try:
+        surrogate_pipeline.main(
+            [
+                "audit-price-first",
+                "development-dataset.npz",
+                "hazard-dataset.npz",
+                "audit-dataset.npz",
+                "--report",
+                str(report_path),
+            ]
+        )
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:
+        raise AssertionError("consumed audit report was overwritten")
+
+    assert report_path.read_text(encoding="utf-8") == "{}\n"

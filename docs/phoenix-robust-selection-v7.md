@@ -5,8 +5,8 @@
 > promoted or audited. Its observation-level hazard successor also failed its
 > frozen full-development comparison, and a direct-price hybrid with compact
 > event summaries failed through negative transfer. A price-first multi-task
-> successor has now beaten v7 on development data but remains research-only
-> pending a fresh audit. See
+> successor has now beaten v7 on development data and passed a fresh audit, but
+> remains research-only pending a versioned runtime artifact. See
 > [`phoenix-event-conditioned-research-v1.md`](phoenix-event-conditioned-research-v1.md).
 
 V7 tests whether the v6 focused-head candidate won because of one favorable
