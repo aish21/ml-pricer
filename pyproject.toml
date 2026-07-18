@@ -48,7 +48,7 @@ training = [
 research = [
     "catboost==1.2.2",
     "torch==2.7.0",
-    "xgboost==1.7.6",
+    "xgboost==3.2.0",
 ]
 test = [
     "black==24.8.0",
