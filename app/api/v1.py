@@ -14,6 +14,11 @@ from src.final.market import (
     EquityMarketTermStructure,
     MarketDataValidationError,
 )
+from src.final.phoenix_contract import (
+    PHOENIX_SINGLE_V2_CONTRACT_VERSION,
+    PhoenixContractValidationError,
+    PhoenixSingleV2Contract,
+)
 from app.services.live_market_data import (
     LiveMarketDataError,
     MarketDataConfigurationError,
@@ -31,6 +36,7 @@ from app.services.pricing_service import (
     InvalidPricingInputError,
     PricingServiceError,
     UnsupportedProductError,
+    price_phoenix_v2_with_term_structure,
     price_phoenix_with_term_structure,
     price_phoenix_with_market_snapshot,
     price_product,
@@ -171,6 +177,33 @@ class PhoenixSingleV1TermStructurePricingRequest(BaseModel):
 
     market: EquityMarketTermStructureRequest
     terms: PhoenixSingleV1TermsRequest
+    n_paths: int = Field(default=2000, ge=1, le=20_000)
+
+
+class PhoenixSingleV2ContractRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    contract_version: Literal["phoenix-single-v2"] = PHOENIX_SINGLE_V2_CONTRACT_VERSION
+    reference_level: float = Field(gt=0.0, le=1_000_000_000.0)
+    maturity_years: float = Field(gt=0.0, le=30.0)
+    observation_times_years: list[float] = Field(min_length=1, max_length=252)
+    autocall_barrier_frac: float = Field(gt=0.0, le=3.0)
+    coupon_barrier_frac: float = Field(gt=0.0, le=3.0)
+    coupon_rate: float = Field(ge=0.0, le=1.0)
+    knock_in_frac: float = Field(gt=0.0, le=1.0)
+    prior_knock_in_breached: bool
+
+    def to_domain(self) -> PhoenixSingleV2Contract:
+        payload = self.model_dump()
+        payload["observation_times_years"] = tuple(self.observation_times_years)
+        return PhoenixSingleV2Contract(**payload)
+
+
+class PhoenixSingleV2TermStructurePricingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    market: EquityMarketTermStructureRequest
+    contract: PhoenixSingleV2ContractRequest
     n_paths: int = Field(default=2000, ge=1, le=20_000)
 
 
@@ -398,6 +431,34 @@ def price_phoenix_term_structure(
     except Exception:
         return JSONResponse(
             {"status": "error", "message": "term-structure pricing failed"},
+            status_code=500,
+        )
+
+
+@router.post("/products/phoenix/price/seasoned/term-structure")
+def price_phoenix_v2_term_structure(
+    req: PhoenixSingleV2TermStructurePricingRequest,
+):
+    try:
+        result = price_phoenix_v2_with_term_structure(
+            market=req.market.to_domain(),
+            contract=req.contract.to_domain(),
+            n_paths=req.n_paths,
+        )
+        return {"status": "success", "result": result}
+    except (
+        InvalidPricingInputError,
+        MarketDataValidationError,
+        PhoenixContractValidationError,
+    ) as exc:
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=422)
+    except UnsupportedProductError as exc:
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=400)
+    except PricingServiceError as exc:
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=503)
+    except Exception:
+        return JSONResponse(
+            {"status": "error", "message": "seasoned pricing failed"},
             status_code=500,
         )
 

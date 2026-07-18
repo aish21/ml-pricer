@@ -37,6 +37,58 @@ def simulate_gbm_paths(
     return paths
 
 
+def build_simulation_time_grid(
+    T: float,
+    n_steps: int,
+    required_times_years: tuple[float, ...] | list[float] = (),
+) -> np.ndarray:
+    """Build a monitoring grid that contains every contractual event time."""
+    if isinstance(T, bool):
+        raise MarketDataValidationError("T must be numeric")
+    try:
+        maturity = float(T)
+    except (TypeError, ValueError) as exc:
+        raise MarketDataValidationError("T must be numeric") from exc
+    if not math.isfinite(maturity) or maturity <= 0.0:
+        raise MarketDataValidationError("T must be finite and > 0")
+    if not isinstance(n_steps, int) or isinstance(n_steps, bool) or n_steps < 1:
+        raise MarketDataValidationError("n_steps must be a positive integer")
+
+    base_grid = np.linspace(0.0, maturity, n_steps + 1, dtype=np.float64)
+    required: list[float] = []
+    for raw_time in required_times_years:
+        if isinstance(raw_time, bool):
+            raise MarketDataValidationError("required times must be numeric")
+        try:
+            event_time = float(raw_time)
+        except (TypeError, ValueError) as exc:
+            raise MarketDataValidationError("required times must be numeric") from exc
+        if not math.isfinite(event_time) or event_time <= 0.0 or event_time > maturity:
+            raise MarketDataValidationError("required times must satisfy 0 < time <= T")
+        required.append(event_time)
+
+    grid = base_grid.tolist()
+    for event_time in required:
+        matching_index = next(
+            (
+                index
+                for index, grid_time in enumerate(grid)
+                if math.isclose(grid_time, event_time, rel_tol=0.0, abs_tol=1e-12)
+            ),
+            None,
+        )
+        if matching_index is None:
+            grid.append(event_time)
+        else:
+            grid[matching_index] = event_time
+    normalized = np.asarray(sorted(grid), dtype=np.float64)
+    if np.any(np.diff(normalized) <= 0.0):
+        raise MarketDataValidationError(
+            "simulation time grid must be strictly increasing"
+        )
+    return normalized
+
+
 def simulate_piecewise_gbm_paths(
     market: EquityMarketTermStructure,
     T: float,
@@ -44,6 +96,7 @@ def simulate_piecewise_gbm_paths(
     n_paths: int,
     seed: Optional[int] = None,
     standard_normal_shocks: Optional[np.ndarray] = None,
+    time_grid_years: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     """Simulate GBM using exactly integrated piecewise carry and variance."""
     if not isinstance(market, EquityMarketTermStructure):
@@ -65,6 +118,23 @@ def simulate_piecewise_gbm_paths(
     if not isinstance(n_paths, int) or isinstance(n_paths, bool) or n_paths < 1:
         raise MarketDataValidationError("n_paths must be a positive integer")
 
+    if time_grid_years is None:
+        times = np.linspace(0.0, maturity, n_steps + 1)
+    else:
+        times = np.asarray(time_grid_years, dtype=np.float64)
+        if (
+            times.ndim != 1
+            or len(times) != n_steps + 1
+            or not np.all(np.isfinite(times))
+            or not math.isclose(float(times[0]), 0.0, abs_tol=1e-12)
+            or not math.isclose(float(times[-1]), maturity, abs_tol=1e-12)
+            or np.any(np.diff(times) <= 0.0)
+        ):
+            raise MarketDataValidationError(
+                "time_grid_years must be finite, strictly increasing, start "
+                "at zero, end at T, and contain n_steps + 1 entries"
+            )
+
     if standard_normal_shocks is not None:
         shocks = np.asarray(standard_normal_shocks, dtype=np.float64)
         if shocks.shape != (n_paths, n_steps):
@@ -81,7 +151,6 @@ def simulate_piecewise_gbm_paths(
     else:
         shocks = np.random.randn(n_paths, n_steps)
 
-    times = np.linspace(0.0, maturity, n_steps + 1)
     integrated_rates = np.array(
         [
             market.integrated_risk_free_rate(start, end)

@@ -105,6 +105,22 @@ TERM_STRUCTURE_REQUEST = {
     "n_paths": 20,
 }
 
+SEASONED_REQUEST = {
+    "market": TERM_STRUCTURE_REQUEST["market"],
+    "contract": {
+        "contract_version": "phoenix-single-v2",
+        "reference_level": 650.0,
+        "maturity_years": 1.0,
+        "observation_times_years": [0.18, 0.43, 0.68, 1.0],
+        "autocall_barrier_frac": 1.05,
+        "coupon_barrier_frac": 1.0,
+        "coupon_rate": 0.02,
+        "knock_in_frac": 0.7,
+        "prior_knock_in_breached": False,
+    },
+    "n_paths": 20,
+}
+
 MARKET_REQUEST = {
     "market": {
         "symbol": "SPY",
@@ -367,6 +383,45 @@ def test_term_structure_api_returns_versioned_piecewise_result():
     assert result["model_version"] == "equity-gbm-piecewise-v1"
     assert result["market_data_version"] == "equity-market-term-structure-v1"
     assert result["market_term_structure"]["segments"][1]["volatility"] == 0.21
+
+
+def test_seasoned_api_preserves_reference_level_and_exact_schedule():
+    response = client.post(
+        "/api/v1/products/phoenix/price/seasoned/term-structure",
+        json=SEASONED_REQUEST,
+    )
+
+    assert response.status_code == 200
+    result = response.json()["result"]
+    assert result["contract_version"] == "phoenix-single-v2"
+    assert result["market_term_structure"]["spot"] == 620.0
+    assert result["contract"]["reference_level"] == 650.0
+    assert result["contract"]["observation_times_years"] == [
+        0.18,
+        0.43,
+        0.68,
+        1.0,
+    ]
+    assert result["contract"]["contract_id"].startswith("sha256:")
+    assert result["surrogate_shadow"]["status"] == "not_applicable"
+
+
+def test_seasoned_api_rejects_schedule_without_maturity_observation():
+    invalid = {
+        **SEASONED_REQUEST,
+        "contract": {
+            **SEASONED_REQUEST["contract"],
+            "observation_times_years": [0.25, 0.75],
+        },
+    }
+
+    response = client.post(
+        "/api/v1/products/phoenix/price/seasoned/term-structure",
+        json=invalid,
+    )
+
+    assert response.status_code == 422
+    assert "final observation time" in response.json()["message"]
 
 
 def test_term_structure_api_rejects_unsorted_or_short_segments():

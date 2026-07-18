@@ -145,6 +145,56 @@ def test_observation_event_ledger_reconciles_sequential_events():
     assert ledger["downside_recovery_ratio"].tolist() == [0.0, 0.0, 0.8]
 
 
+def test_explicit_schedule_uses_the_contractual_event_time():
+    path_times = np.array([0.0, 0.25, 0.4, 0.75, 1.0])
+    paths = np.array([[80.0, 80.0, 110.0, 80.0, 80.0]])
+    params = phoenix_params(
+        autocall_barrier_frac=1.05,
+        coupon_barrier_frac=1.0,
+    )
+
+    value = PhoenixPayoff().compute_payoff_with_explicit_schedule_and_discount_curve(
+        paths=paths,
+        params=params,
+        path_times_years=path_times,
+        observation_times_years=(0.4, 1.0),
+        prior_knock_in_breached=False,
+        discount_factor=lambda _time: 1.0,
+    )
+
+    assert value[0] == pytest.approx(1.02)
+
+
+def test_explicit_schedule_carries_historical_knock_in_state_forward():
+    path_times = np.array([0.0, 0.4, 1.0])
+    paths = np.array([[80.0, 80.0, 80.0]])
+    params = phoenix_params(
+        autocall_barrier_frac=2.0,
+        coupon_barrier_frac=2.0,
+    )
+    payoff = PhoenixPayoff()
+
+    protected = payoff.compute_payoff_with_explicit_schedule_and_discount_curve(
+        paths=paths,
+        params=params,
+        path_times_years=path_times,
+        observation_times_years=(0.4, 1.0),
+        prior_knock_in_breached=False,
+        discount_factor=lambda _time: 1.0,
+    )
+    knocked_in = payoff.compute_payoff_with_explicit_schedule_and_discount_curve(
+        paths=paths,
+        params=params,
+        path_times_years=path_times,
+        observation_times_years=(0.4, 1.0),
+        prior_knock_in_breached=True,
+        discount_factor=lambda _time: 1.0,
+    )
+
+    assert protected[0] == pytest.approx(1.0)
+    assert knocked_in[0] == pytest.approx(0.8)
+
+
 def test_payoff_is_invariant_to_underlier_price_scale():
     paths = np.array([[100.0, 95.0, 80.0], [100.0, 106.0, 120.0]])
     params = phoenix_params(autocall_barrier_frac=1.05)

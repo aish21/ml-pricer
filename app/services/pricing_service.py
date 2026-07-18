@@ -13,7 +13,12 @@ from src.final.market import (
 from src.final.reference_pricer import (
     DEFAULT_REFERENCE_SEED,
     price_phoenix_piecewise_reference,
+    price_phoenix_v2_piecewise_reference,
     price_reference,
+)
+from src.final.phoenix_contract import (
+    PHOENIX_SINGLE_V2_CONTRACT_VERSION,
+    PhoenixSingleV2Contract,
 )
 from app.services.product_registry import (
     ProductField,
@@ -194,6 +199,9 @@ def _build_pricing_result(
     market_snapshot: Optional[EquityMarketSnapshot] = None,
     market_term_structure: Optional[EquityMarketTermStructure] = None,
     terms: Optional[Dict[str, Any]] = None,
+    contract_version: Optional[str] = None,
+    contract_details: Optional[Dict[str, Any]] = None,
+    warnings: Optional[list[str]] = None,
 ) -> Dict[str, Any]:
     if market_snapshot is not None and market_term_structure is not None:
         raise PricingServiceError("pricing result received multiple market inputs")
@@ -205,6 +213,8 @@ def _build_pricing_result(
         raw_result["market_snapshot"] = market_snapshot.to_dict()
     if market_term_structure is not None:
         raw_result["market_term_structure"] = market_term_structure.to_dict()
+    if contract_details is not None:
+        raw_result["contract"] = contract_details
 
     result = {
         "product_key": product.key,
@@ -224,10 +234,14 @@ def _build_pricing_result(
         "latency_ms": latency_ms,
         "model": "Monte Carlo reference",
         "pricing_method": "monte_carlo_reference",
-        "contract_version": product.contract_version,
+        "contract_version": contract_version or product.contract_version,
         "model_version": model_version,
         "raw_result": raw_result,
     }
+    if contract_details is not None:
+        result["contract"] = contract_details
+    if warnings:
+        result["warnings"] = list(warnings)
     if market_snapshot is not None:
         result.update(
             {
@@ -437,4 +451,77 @@ def price_phoenix_with_term_structure(
             "used_for_price": False,
             "reason": "surrogate shadow evaluation failed",
         }
+    return result
+
+
+def price_phoenix_v2_with_term_structure(
+    market: EquityMarketTermStructure,
+    contract: PhoenixSingleV2Contract,
+    n_paths: int = 500,
+    seed: int = DEFAULT_REFERENCE_SEED,
+) -> Dict[str, Any]:
+    """Price explicit active-trade Phoenix state under piecewise market data."""
+    if not isinstance(market, EquityMarketTermStructure):
+        raise InvalidPricingInputError("invalid equity market term structure")
+    if not isinstance(contract, PhoenixSingleV2Contract):
+        raise InvalidPricingInputError("invalid Phoenix Single v2 contract")
+    try:
+        equivalent = market.equivalent_flat_parameters(contract.maturity_years)
+    except MarketDataValidationError as exc:
+        raise InvalidPricingInputError(str(exc)) from exc
+    product = get_product_definition("phoenix")
+    if product is None or not product.reference_pricing_enabled:
+        raise UnsupportedProductError("unsupported product: phoenix")
+
+    validated_paths = validate_reference_path_count(n_paths)
+    started = time.perf_counter()
+    reference = price_phoenix_v2_piecewise_reference(
+        payoff=product.payoff_class(),
+        contract=contract,
+        market=market,
+        n_paths=validated_paths,
+        seed=int(seed),
+    )
+    latency_ms = int(round((time.perf_counter() - started) * 1000))
+    normalized_params = contract.to_payoff_params(
+        risk_free_rate=equivalent["risk_free_rate"],
+        volatility=equivalent["volatility"],
+    )
+    normalized_terms = {
+        "maturity_years": contract.maturity_years,
+        "autocall_barrier_frac": contract.autocall_barrier_frac,
+        "coupon_barrier_frac": contract.coupon_barrier_frac,
+        "coupon_rate": contract.coupon_rate,
+        "knock_in_frac": contract.knock_in_frac,
+        "obs_count": len(contract.observation_times_years),
+    }
+    result = _build_pricing_result(
+        product=product,
+        normalized_params=normalized_params,
+        n_paths=validated_paths,
+        model_version=EQUITY_GBM_PIECEWISE_MODEL_VERSION,
+        reference=reference,
+        latency_ms=latency_ms,
+        market_term_structure=market,
+        terms=normalized_terms,
+        contract_version=PHOENIX_SINGLE_V2_CONTRACT_VERSION,
+        contract_details=contract.to_dict(),
+        warnings=[
+            "The request must describe an active note; already-autocalled "
+            "contracts have no remaining optionality.",
+            "Historical knock-in state is caller-supplied and is not inferred "
+            "from market data.",
+            "Knock-in monitoring from valuation onward remains discrete on the "
+            "simulation grid.",
+        ],
+    )
+    result["surrogate_shadow"] = {
+        "status": "not_applicable",
+        "mode": "shadow-only",
+        "used_for_price": False,
+        "reason": (
+            "the approved surrogate is governed only for phoenix-single-v1 "
+            "new-issue contracts"
+        ),
+    }
     return result

@@ -26,6 +26,8 @@ allocation.
 ## What It Does
 
 - Prices the validated `phoenix-single-v1` contract per unit notional.
+- Prices active `phoenix-single-v2` trades with a fixed contractual reference
+  level, exact remaining observation times, and explicit prior knock-in state.
 - Reports a deterministic Monte Carlo price, standard error, and 95% confidence
   interval.
 - Accepts immutable dated market snapshots for arbitrary equity, ETF, and
@@ -117,6 +119,7 @@ src/final/
   model_trainer.py        LightGBM training and model loading
   evaluator.py            Model vs Monte Carlo evaluation
   reference_pricer.py     Deterministic reference price and uncertainty
+  phoenix_contract.py     Active-trade Phoenix v2 state and identity
   surrogate_contract.py   Phoenix v7 feature/output/domain contract
   surrogate_data.py       Group-disjoint Sobol-labelled dataset generator
   surrogate_trainer.py    MLP/baseline evaluation and artifact promotion gates
@@ -138,6 +141,7 @@ data/
 docs/
   blackberry-terminal.md  BlackBerry terminal details and testing guide
   phoenix-single-v1.md    Versioned payoff and cashflow specification
+  phoenix-single-v2.md    Active-trade reference, schedule, and knock-in state
   equity-market-snapshot-v1.md  Dated market-data and flat-GBM v2 specification
   equity-market-term-structure-v1.md  Piecewise carry/volatility specification
   equity-research-market-v1.md  Server-built USD research calibration
@@ -228,6 +232,8 @@ Its pure-NumPy shadow artifact and runtime controls are documented in
 [docs/phoenix-price-first-shadow-artifact-v1.md](docs/phoenix-price-first-shadow-artifact-v1.md).
 The frozen out-of-time evidence and human-review gates are documented in
 [docs/phoenix-shadow-promotion-readiness-v1.md](docs/phoenix-shadow-promotion-readiness-v1.md).
+The separately versioned active-trade contract is documented in
+[docs/phoenix-single-v2.md](docs/phoenix-single-v2.md).
 
 Start the FastAPI backend locally:
 
@@ -419,8 +425,9 @@ Legacy routes kept for compatibility:
   research term structure.
 - yfinance and Yahoo Finance data are intended for personal research use; this
   is not an authoritative or commercial redistribution feed.
-- Observation dates are evenly spaced and knock-in monitoring is discrete on
-  simulated path steps.
+- V1 observation dates are evenly spaced. V2 accepts exact remaining event
+  times, but future knock-in monitoring is still discrete on simulated path
+  steps.
 - Legacy model/scaler artifacts remain committed but fail contract/feature
   compatibility checks and are not used for pricing.
 - Phoenix surrogate v7 remains a historical, `research_only` artifact. The
@@ -454,7 +461,9 @@ Legacy routes kept for compatibility:
   readiness gates, and define an operational rollback plan before considering
   a separately versioned limited canary.
 - Add theta with explicit calendar, fixing, accrual, and market-roll rules.
-- Add volatility-skew, credit/funding, and seasoned-trade state models.
+- Extend Phoenix v2 with calendar dates, fixing provenance, scenario/risk
+  routes, and validated seasoned-trade surrogate research.
+- Add volatility-skew and credit/funding models.
 - Add optional PIN or gateway-based access control for non-local deployments.
 - Move datasets and model artifacts out of normal Git history and add a versioned
   artifact registry.

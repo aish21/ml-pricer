@@ -32,6 +32,10 @@ def test_product_registry_returns_expected_supported_keys():
     assert phoenix["risk_analytics_versions"] == ["equity-risk-analytics-v1"]
     assert "equity-gbm-flat-v2" in phoenix["market_model_versions"]
     assert "equity-gbm-piecewise-v1" in phoenix["market_model_versions"]
+    assert phoenix["contract_versions"] == [
+        "phoenix-single-v1",
+        "phoenix-single-v2",
+    ]
 
 
 def test_bb_enabled_products_have_terminal_fields():

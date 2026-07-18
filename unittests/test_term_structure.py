@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from src.final.data_generator import (
+    build_simulation_time_grid,
     simulate_gbm_paths,
     simulate_piecewise_gbm_paths,
 )
@@ -160,3 +161,25 @@ def test_piecewise_simulation_is_deterministic_and_uses_term_shape():
 
     assert np.array_equal(first, second)
     assert not np.array_equal(first, flat)
+
+
+def test_contract_event_times_are_inserted_exactly_into_simulation_grid():
+    time_grid = build_simulation_time_grid(
+        1.0,
+        4,
+        required_times_years=(0.4, 0.9, 1.0),
+    )
+    market = make_term_structure()
+
+    paths = simulate_piecewise_gbm_paths(
+        market,
+        1.0,
+        len(time_grid) - 1,
+        3,
+        seed=7,
+        time_grid_years=time_grid,
+    )
+
+    assert 0.4 in time_grid
+    assert 0.9 in time_grid
+    assert paths.shape == (3, len(time_grid))

@@ -67,3 +67,7 @@ it does not belong in the numerical payoff formula.
 
 Those features require separate contract and pricing-model versions rather
 than silent changes to this definition.
+
+The active-trade [`phoenix-single-v2`](phoenix-single-v2.md) contract provides
+an explicit historical reference level, exact remaining observation times, and
+prior knock-in state without changing this frozen new-issue definition.

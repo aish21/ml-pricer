@@ -20,6 +20,7 @@ from src.final.payoffs import (
     DecumulatorPayoff,
     PhoenixPayoff,
 )
+from src.final.phoenix_contract import PHOENIX_SINGLE_V2_CONTRACT_VERSION
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -50,6 +51,7 @@ class ProductDefinition:
     legacy_price_route_enabled: bool
     enabled_for_bb: bool
     bb_fields: Tuple[ProductField, ...]
+    additional_contract_versions: Tuple[str, ...] = ()
 
 
 PHOENIX_FIELDS: tuple[ProductField, ...] = (
@@ -123,6 +125,7 @@ PRODUCT_DEFINITIONS: tuple[ProductDefinition, ...] = (
         legacy_price_route_enabled=True,
         enabled_for_bb=True,
         bb_fields=PHOENIX_FIELDS,
+        additional_contract_versions=(PHOENIX_SINGLE_V2_CONTRACT_VERSION,),
     ),
     ProductDefinition(
         key="accumulator",
@@ -269,6 +272,10 @@ def build_product_status(
         "terminal_label": product.terminal_label,
         "payoff_class": product.payoff_class.__name__,
         "contract_version": product.contract_version,
+        "contract_versions": [
+            product.contract_version,
+            *product.additional_contract_versions,
+        ],
         "parameter_names": payoff.get_parameter_names(),
         "feature_order": payoff.get_feature_order(),
         "legacy_price_route_enabled": product.legacy_price_route_enabled,

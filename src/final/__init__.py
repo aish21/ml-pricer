@@ -23,6 +23,8 @@ __all__ = [
     "EquityMarketTermStructure",
     "EquityMarketDataProvider",
     "MarketDataValidationError",
+    "PhoenixSingleV2Contract",
+    "PhoenixContractValidationError",
 ]
 
 _EXPORTS: Dict[str, Tuple[str, str]] = {
@@ -41,6 +43,14 @@ _EXPORTS: Dict[str, Tuple[str, str]] = {
     "EquityMarketTermStructure": (".market", "EquityMarketTermStructure"),
     "EquityMarketDataProvider": (".market", "EquityMarketDataProvider"),
     "MarketDataValidationError": (".market", "MarketDataValidationError"),
+    "PhoenixSingleV2Contract": (
+        ".phoenix_contract",
+        "PhoenixSingleV2Contract",
+    ),
+    "PhoenixContractValidationError": (
+        ".phoenix_contract",
+        "PhoenixContractValidationError",
+    ),
 }
 
 

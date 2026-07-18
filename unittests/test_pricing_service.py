@@ -7,11 +7,13 @@ from src.final.market import (
     EquityMarketSnapshot,
     EquityMarketTermStructure,
 )
+from src.final.phoenix_contract import PhoenixSingleV2Contract
 from app.services.model_cache import clear_model_cache
 from app.services.pricing_service import (
     InvalidPricingInputError,
     UnsupportedProductError,
     normalize_pricing_params,
+    price_phoenix_v2_with_term_structure,
     price_phoenix_with_term_structure,
     price_phoenix_with_market_snapshot,
     price_product,
@@ -59,7 +61,7 @@ def make_market_snapshot(dividend_yield=0.0, symbol="SPY"):
     )
 
 
-def make_term_structure(segments=None):
+def make_term_structure(segments=None, spot=100.0):
     timestamp = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
     return EquityMarketTermStructure(
         symbol="SPY",
@@ -67,7 +69,7 @@ def make_term_structure(segments=None):
         currency="USD",
         valuation_time=timestamp,
         market_data_time=timestamp,
-        spot=100.0,
+        spot=spot,
         segments=tuple(
             segments
             or [
@@ -94,6 +96,21 @@ def reset_model_cache():
 
 def default_params_for(product):
     return {field.name: str(field.default) for field in product.bb_fields}
+
+
+def make_v2_contract(**overrides):
+    values = {
+        "reference_level": 100.0,
+        "maturity_years": 1.0,
+        "observation_times_years": (0.2, 0.45, 0.7, 1.0),
+        "autocall_barrier_frac": 1.05,
+        "coupon_barrier_frac": 1.0,
+        "coupon_rate": 0.02,
+        "knock_in_frac": 0.7,
+        "prior_knock_in_breached": False,
+    }
+    values.update(overrides)
+    return PhoenixSingleV2Contract(**values)
 
 
 def test_pricing_service_prices_valid_phoenix_request():
@@ -234,6 +251,60 @@ def test_term_structure_pricing_is_versioned_and_attributable():
         "type": "etf",
         "currency": "USD",
     }
+
+
+def test_v2_pricing_separates_live_spot_from_contract_reference_level():
+    market = make_term_structure(spot=82.0)
+    contract = make_v2_contract(reference_level=100.0)
+
+    result = price_phoenix_v2_with_term_structure(
+        market,
+        contract,
+        n_paths=100,
+    )
+
+    assert result["contract_version"] == "phoenix-single-v2"
+    assert result["market_term_structure"]["spot"] == 82.0
+    assert result["params"]["S0"] == 100.0
+    assert result["contract"]["reference_level"] == 100.0
+    assert result["contract"]["contract_id"] == contract.contract_id
+    assert result["surrogate_shadow"]["status"] == "not_applicable"
+
+
+def test_v2_pricing_carries_prior_knock_in_into_the_remaining_value():
+    market = make_term_structure(
+        segments=[
+            EquityMarketSegment(
+                end_time_years=1.0,
+                risk_free_rate=0.0,
+                dividend_yield=0.0,
+                volatility=0.000001,
+            )
+        ],
+        spot=80.0,
+    )
+    protected = make_v2_contract(
+        observation_times_years=(1.0,),
+        autocall_barrier_frac=2.0,
+        coupon_barrier_frac=2.0,
+        prior_knock_in_breached=False,
+    )
+    breached = make_v2_contract(
+        observation_times_years=(1.0,),
+        autocall_barrier_frac=2.0,
+        coupon_barrier_frac=2.0,
+        prior_knock_in_breached=True,
+    )
+
+    protected_result = price_phoenix_v2_with_term_structure(
+        market, protected, n_paths=100
+    )
+    breached_result = price_phoenix_v2_with_term_structure(
+        market, breached, n_paths=100
+    )
+
+    assert protected_result["price"] == pytest.approx(1.0)
+    assert breached_result["price"] == pytest.approx(0.8, rel=1e-5)
 
 
 def test_term_structure_shadow_result_never_replaces_reference_price(monkeypatch):

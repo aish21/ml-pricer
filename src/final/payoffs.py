@@ -140,6 +140,161 @@ class PhoenixPayoff(BasePayoff):
 
         return present_values
 
+    def compute_payoff_with_explicit_schedule_and_discount_curve(
+        self,
+        paths: np.ndarray,
+        params: Dict[str, Any],
+        path_times_years: np.ndarray,
+        observation_times_years: Tuple[float, ...],
+        prior_knock_in_breached: bool,
+        discount_factor: Callable[[float], float],
+    ) -> np.ndarray:
+        """Return active-trade PVs using exact remaining observation times."""
+        ledger = self.compute_observation_event_ledger_with_explicit_schedule(
+            paths=paths,
+            params=params,
+            path_times_years=path_times_years,
+            observation_times_years=observation_times_years,
+            prior_knock_in_breached=prior_knock_in_breached,
+            discount_factor=discount_factor,
+        )
+        return (
+            ledger["coupon_pv"]
+            + ledger["autocall_principal_pv"]
+            + ledger["maturity_protected_pv"]
+            + ledger["maturity_downside_pv"]
+        )
+
+    def compute_observation_event_ledger_with_explicit_schedule(
+        self,
+        paths: np.ndarray,
+        params: Dict[str, Any],
+        path_times_years: np.ndarray,
+        observation_times_years: Tuple[float, ...],
+        prior_knock_in_breached: bool,
+        discount_factor: Callable[[float], float],
+    ) -> Dict[str, np.ndarray]:
+        """Return cashflows for an active note with explicit remaining state."""
+        path_array = np.asarray(paths, dtype=np.float64)
+        path_times = np.asarray(path_times_years, dtype=np.float64)
+        observations = np.asarray(observation_times_years, dtype=np.float64)
+        if path_array.ndim != 2 or path_array.shape[1] < 2:
+            raise ValueError("paths must be a two-dimensional path matrix")
+        if not np.all(np.isfinite(path_array)) or np.any(path_array <= 0.0):
+            raise ValueError("paths must contain finite positive levels")
+        if (
+            path_times.ndim != 1
+            or len(path_times) != path_array.shape[1]
+            or not np.all(np.isfinite(path_times))
+            or not math.isclose(float(path_times[0]), 0.0, abs_tol=1e-12)
+            or np.any(np.diff(path_times) <= 0.0)
+        ):
+            raise ValueError(
+                "path_times_years must align with paths and be strictly increasing"
+            )
+        if (
+            observations.ndim != 1
+            or len(observations) < 1
+            or not np.all(np.isfinite(observations))
+            or np.any(observations <= 0.0)
+            or np.any(np.diff(observations) <= 0.0)
+            or observations[-1] > path_times[-1] + 1e-12
+        ):
+            raise ValueError(
+                "observation_times_years must be finite, positive, strictly "
+                "increasing, and covered by the path grid"
+            )
+        if not isinstance(prior_knock_in_breached, bool):
+            raise ValueError("prior_knock_in_breached must be boolean")
+
+        observation_indices: list[int] = []
+        for observation_time in observations:
+            index = int(np.searchsorted(path_times, observation_time))
+            if index >= len(path_times) or not math.isclose(
+                float(path_times[index]),
+                float(observation_time),
+                rel_tol=0.0,
+                abs_tol=1e-12,
+            ):
+                raise ValueError(
+                    "every observation time must be present in the path grid"
+                )
+            observation_indices.append(index)
+
+        n_paths = path_array.shape[0]
+        obs_count = len(observation_indices)
+        reference_level = float(params["S0"])
+        autocall_barrier = reference_level * float(params["autocall_barrier_frac"])
+        coupon_barrier = reference_level * float(params["coupon_barrier_frac"])
+        coupon_rate = float(params["coupon_rate"])
+        knock_in_barrier = reference_level * float(params["knock_in_frac"])
+
+        coupon_pv = np.zeros(n_paths, dtype=np.float64)
+        autocall_principal_pv = np.zeros(n_paths, dtype=np.float64)
+        maturity_protected_pv = np.zeros(n_paths, dtype=np.float64)
+        maturity_downside_pv = np.zeros(n_paths, dtype=np.float64)
+        autocalled = np.zeros(n_paths, dtype=bool)
+        downside_redemption = np.zeros(n_paths, dtype=bool)
+        coupon_event = np.zeros((n_paths, obs_count), dtype=np.float64)
+        first_autocall_event = np.zeros((n_paths, obs_count), dtype=np.float64)
+        survival_after_observation = np.zeros((n_paths, obs_count), dtype=np.float64)
+        observation_discounts = np.zeros(obs_count, dtype=np.float64)
+        active = np.ones(n_paths, dtype=bool)
+
+        for observation_index, (time_years, path_index) in enumerate(
+            zip(observations, observation_indices)
+        ):
+            observation_discount = float(discount_factor(float(time_years)))
+            levels = path_array[:, path_index]
+            observation_discounts[observation_index] = observation_discount
+
+            coupon_due = active & (levels >= coupon_barrier)
+            coupon_pv[coupon_due] += coupon_rate * observation_discount
+            coupon_event[:, observation_index] = coupon_due
+
+            called = active & (levels >= autocall_barrier)
+            autocall_principal_pv[called] = observation_discount
+            autocalled[called] = True
+            first_autocall_event[:, observation_index] = called
+            active[called] = False
+            survival_after_observation[:, observation_index] = active
+
+        protected = np.zeros(n_paths, dtype=bool)
+        downside_recovery_ratio = np.zeros(n_paths, dtype=np.float64)
+        if np.any(active):
+            final_levels = path_array[:, -1]
+            knocked_in = np.any(path_array <= knock_in_barrier, axis=1)
+            if prior_knock_in_breached:
+                knocked_in = np.ones(n_paths, dtype=bool)
+            capital_loss = active & knocked_in & (final_levels < reference_level)
+            protected = active & ~capital_loss
+            maturity_discount = float(discount_factor(float(path_times[-1])))
+            maturity_protected_pv[protected] = maturity_discount
+            maturity_downside_pv[capital_loss] = (
+                final_levels[capital_loss] / reference_level
+            ) * maturity_discount
+            downside_redemption[capital_loss] = True
+            downside_recovery_ratio[capital_loss] = (
+                final_levels[capital_loss] / reference_level
+            )
+
+        return {
+            "coupon_pv": coupon_pv,
+            "autocall_principal_pv": autocall_principal_pv,
+            "maturity_protected_pv": maturity_protected_pv,
+            "maturity_downside_pv": maturity_downside_pv,
+            "autocall_probability": autocalled.astype(np.float64),
+            "downside_probability": downside_redemption.astype(np.float64),
+            "coupon_event": coupon_event,
+            "first_autocall_event": first_autocall_event,
+            "survival_after_observation": survival_after_observation,
+            "protected_maturity_event": protected.astype(np.float64),
+            "downside_maturity_event": downside_redemption.astype(np.float64),
+            "downside_recovery_ratio": downside_recovery_ratio,
+            "observation_times": observations.copy(),
+            "observation_discounts": observation_discounts,
+        }
+
     def compute_observation_event_ledger_with_discount_curve(
         self,
         paths: np.ndarray,
