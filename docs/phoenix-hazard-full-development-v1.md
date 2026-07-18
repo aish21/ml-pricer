@@ -85,7 +85,7 @@ The result identifies error propagation as the architectural problem. Small
 errors in every conditional hazard compound through survival probabilities and
 then affect multiple discounted cashflows.
 
-The next model phase should therefore be hybrid:
+The next model phase was therefore specified as hybrid:
 
 1. retain the v7 direct price and unconditional cashflow-component heads;
 2. add observation-level event information as auxiliary targets for a shared
@@ -98,3 +98,7 @@ Fixed-dimensional event summaries should be tested before introducing a
 custom masked neural-network loss. Useful summaries include expected first-call
 time, first-call-time variance, final survival probability, expected coupon
 count, and early-versus-late coupon mass.
+
+That fixed-summary experiment has now been completed. Equal-weight auxiliary
+training caused negative transfer and did not beat v7. See
+[`phoenix-event-summary-hybrid-research-v1.md`](phoenix-event-summary-hybrid-research-v1.md).

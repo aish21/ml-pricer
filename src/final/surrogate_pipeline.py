@@ -17,6 +17,7 @@ from .surrogate_hazard_data import (
     load_phoenix_hazard_dataset,
     save_phoenix_hazard_dataset,
 )
+from .surrogate_hybrid import train_phoenix_event_summary_hybrid_candidate
 from .surrogate_trainer import (
     PhoenixSurrogateTrainingConfig,
     train_event_conditioned_research_candidate,
@@ -91,6 +92,16 @@ def _hazard_training_config(args: argparse.Namespace) -> PhoenixHazardTrainingCo
         min_samples_leaf=args.hazard_min_samples_leaf,
         l2_regularization=args.hazard_l2,
         random_state=args.training_seed,
+    )
+
+
+def _hybrid_training_config(args: argparse.Namespace) -> PhoenixSurrogateTrainingConfig:
+    return PhoenixSurrogateTrainingConfig(
+        hidden_layer_sizes=tuple(args.hidden_layers),
+        max_iter=args.max_iter,
+        random_state=args.validation_seed,
+        train_lightgbm_baseline=False,
+        greek_validation_cases=0,
     )
 
 
@@ -201,6 +212,27 @@ def _build_parser() -> argparse.ArgumentParser:
     research_hazards.add_argument("--hazard-l2", type=float, default=0.001)
     research_hazards.add_argument("--training-seed", type=int, default=143)
 
+    research_hybrid = subparsers.add_parser(
+        "research-hybrid",
+        help="Evaluate the direct-price model with event-summary auxiliary targets",
+    )
+    research_hybrid.add_argument("dataset", type=Path)
+    research_hybrid.add_argument("hazard_dataset", type=Path)
+    research_hybrid.add_argument(
+        "--report",
+        type=Path,
+        help="optional path for the development-only JSON report",
+    )
+    research_hybrid.add_argument(
+        "--hidden-layers",
+        type=int,
+        nargs="+",
+        default=[256, 128, 64],
+    )
+    research_hybrid.add_argument("--max-iter", type=int, default=1000)
+    research_hybrid.add_argument("--training-seed", type=int, default=143)
+    research_hybrid.add_argument("--validation-seed", type=int, default=42)
+
     full = subparsers.add_parser("full", help="Generate data and train the model")
     add_dataset_arguments(full)
     full.add_argument("--audit-contracts", type=int, default=256)
@@ -288,6 +320,28 @@ def main(argv: list[str] | None = None) -> int:
         _, report = train_phoenix_observation_hazard_candidate(
             hazard_dataset,
             _hazard_training_config(args),
+        )
+        if args.report is not None:
+            report_path = Path(args.report)
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(
+                json.dumps(report, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+        print(json.dumps(report, indent=2), flush=True)
+        return 0
+
+    if args.command == "research-hybrid":
+        dataset = load_phoenix_surrogate_dataset(args.dataset)
+        hazard_dataset = load_phoenix_hazard_dataset(
+            args.hazard_dataset,
+            base=dataset,
+        )
+        _, report = train_phoenix_event_summary_hybrid_candidate(
+            hazard_dataset,
+            _hybrid_training_config(args),
+            hidden_layer_sizes=tuple(args.hidden_layers),
+            random_state=args.training_seed,
         )
         if args.report is not None:
             report_path = Path(args.report)

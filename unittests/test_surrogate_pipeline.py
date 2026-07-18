@@ -59,6 +59,23 @@ def test_hazard_commands_keep_labels_and_training_development_only():
     assert not hasattr(train_args, "output_root")
 
 
+def test_hybrid_command_uses_the_frozen_v7_layout_and_no_audit():
+    args = _build_parser().parse_args(
+        [
+            "research-hybrid",
+            "development.npz",
+            "hazards.npz",
+        ]
+    )
+
+    assert args.hidden_layers == [256, 128, 64]
+    assert args.training_seed == 143
+    assert args.validation_seed == 42
+    assert args.max_iter == 1000
+    assert not hasattr(args, "audit_dataset")
+    assert not hasattr(args, "output_root")
+
+
 def test_research_hazard_command_executes_without_an_output_root(monkeypatch, capsys):
     base = object()
     hazard = object()
@@ -81,6 +98,40 @@ def test_research_hazard_command_executes_without_an_output_root(monkeypatch, ca
     result = surrogate_pipeline.main(
         [
             "research-hazards",
+            "development-dataset.npz",
+            "hazard-dataset.npz",
+        ]
+    )
+
+    assert result == 0
+    assert '"status": "research_only"' in capsys.readouterr().out
+
+
+def test_research_hybrid_command_executes_without_an_output_root(monkeypatch, capsys):
+    base = object()
+    hazard = object()
+    monkeypatch.setattr(
+        surrogate_pipeline,
+        "load_phoenix_surrogate_dataset",
+        lambda _path: base,
+    )
+    monkeypatch.setattr(
+        surrogate_pipeline,
+        "load_phoenix_hazard_dataset",
+        lambda _path, *, base: hazard,
+    )
+    monkeypatch.setattr(
+        surrogate_pipeline,
+        "train_phoenix_event_summary_hybrid_candidate",
+        lambda _dataset, _config, **_kwargs: (
+            None,
+            {"status": "research_only"},
+        ),
+    )
+
+    result = surrogate_pipeline.main(
+        [
+            "research-hybrid",
             "development-dataset.npz",
             "hazard-dataset.npz",
         ]

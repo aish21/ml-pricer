@@ -12,7 +12,9 @@ run in monitored shadow mode against the reference price. A development-only
 event-conditioned successor is implemented but was rejected by the repeated
 validation gate. An observation-level hazard successor now preserves autocall
 and coupon timing, but it also remains research-only after its full-development
-gate; legacy artifacts remain ineligible.
+gate. A direct-price hybrid with compact event-summary targets was also
+rejected after equal-weight auxiliary training degraded price accuracy; legacy
+artifacts remain ineligible.
 
 This is an educational/demo system. It is not production trading
 infrastructure, financial advice, or a risk system suitable for live capital
@@ -140,6 +142,7 @@ docs/
   phoenix-event-conditioned-research-v1.md  Development-only architecture result
   phoenix-observation-hazard-research-v1.md  Observation-event model result
   phoenix-hazard-full-development-v1.md  Frozen full-data hazard comparison
+  phoenix-event-summary-hybrid-research-v1.md  Direct-price hybrid result
   phoenix-robust-selection-v7.md  V7 repeated group-validation specification
   phoenix-focused-head-v6.md  Historical v6 focused-head specification
   phoenix-uncertainty-v5.md  Historical v5 uncertainty specification
@@ -208,6 +211,8 @@ The observation-level successor is documented in
 [docs/phoenix-observation-hazard-research-v1.md](docs/phoenix-observation-hazard-research-v1.md).
 Its frozen full-development decision is in
 [docs/phoenix-hazard-full-development-v1.md](docs/phoenix-hazard-full-development-v1.md).
+The direct-price event-summary experiment is documented in
+[docs/phoenix-event-summary-hybrid-research-v1.md](docs/phoenix-event-summary-hybrid-research-v1.md).
 
 Start the FastAPI backend locally:
 
@@ -414,6 +419,9 @@ Legacy routes kept for compatibility:
 - The observation-hazard candidate preserves event timing and uses soft-label
   cross-entropy, but it did not beat the payoff-aware model on either its smoke
   or frozen full-development validation gate.
+- The direct-price event-summary hybrid avoided sequential pricing errors, but
+  equal-weight auxiliary training caused negative transfer and also failed the
+  repeated development gate.
 - Scenario explanations are simple and rule-based.
 - Phase 7 Greeks are finite-difference research estimates. Discontinuous
   barriers can produce noisy Gamma and bump sensitivity even with paired paths.
@@ -426,11 +434,9 @@ Legacy routes kept for compatibility:
   fit an arbitrage-controlled volatility surface from a licensed feed.
 - Expand surrogate labels and shadow telemetry across denser barrier regions,
   market regimes, and materially larger untouched datasets.
-- Add observation-level autocall, survival, and coupon-event labels so the next
-  surrogate can learn discrete event hazards instead of aggregate terminal
-  probabilities. The label contract now exists; the next model should use
-  fixed-dimensional event summaries as auxiliary targets while retaining a
-  direct price head.
+- Isolate direct-price and event-supervision objectives with separate heads, a
+  price-dominant auxiliary-loss weight, masked autocall-timing loss, and
+  training-only group folds before evaluating development validation again.
 - Add theta with explicit calendar, fixing, accrual, and market-roll rules.
 - Add volatility-skew, credit/funding, and seasoned-trade state models.
 - Add optional PIN or gateway-based access control for non-local deployments.
