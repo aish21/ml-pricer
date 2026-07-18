@@ -1,5 +1,10 @@
 # Phoenix event-summary hybrid research model
 
+> Historical equal-weight experiment. A price-first successor with separate
+> heads and masked auxiliary losses subsequently beat v7 on the development
+> gate. See
+> [`phoenix-price-first-multitask-research-v1.md`](phoenix-price-first-multitask-research-v1.md).
+
 This phase tests whether observation-event labels can improve the Phoenix v7
 representation without making price inference depend on a sequential hazard
 calculation. It uses development data only, cannot read an audit dataset, and
@@ -109,3 +114,7 @@ The next architecture experiment should isolate the training objectives:
 
 This would test event supervision without allowing noisy auxiliary targets to
 dominate price optimization.
+
+That controlled experiment has now been completed. Training-only group folds
+selected a 10% event loss weight, and the frozen price-first model beat v7's
+repeated development score without consuming an audit.

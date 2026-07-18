@@ -4,7 +4,9 @@
 > event-conditioned architecture did not beat this selector and was not
 > promoted or audited. Its observation-level hazard successor also failed its
 > frozen full-development comparison, and a direct-price hybrid with compact
-> event summaries also failed through negative transfer. See
+> event summaries failed through negative transfer. A price-first multi-task
+> successor has now beaten v7 on development data but remains research-only
+> pending a fresh audit. See
 > [`phoenix-event-conditioned-research-v1.md`](phoenix-event-conditioned-research-v1.md).
 
 V7 tests whether the v6 focused-head candidate won because of one favorable

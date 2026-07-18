@@ -18,6 +18,10 @@ from .surrogate_hazard_data import (
     save_phoenix_hazard_dataset,
 )
 from .surrogate_hybrid import train_phoenix_event_summary_hybrid_candidate
+from .surrogate_price_first import (
+    PhoenixPriceFirstTrainingConfig,
+    train_phoenix_price_first_candidate,
+)
 from .surrogate_trainer import (
     PhoenixSurrogateTrainingConfig,
     train_event_conditioned_research_candidate,
@@ -233,6 +237,40 @@ def _build_parser() -> argparse.ArgumentParser:
     research_hybrid.add_argument("--training-seed", type=int, default=143)
     research_hybrid.add_argument("--validation-seed", type=int, default=42)
 
+    research_price_first = subparsers.add_parser(
+        "research-price-first",
+        help="Evaluate price-dominant masked multi-task event supervision",
+    )
+    research_price_first.add_argument("dataset", type=Path)
+    research_price_first.add_argument("hazard_dataset", type=Path)
+    research_price_first.add_argument(
+        "--report",
+        type=Path,
+        help="optional path for the development-only JSON report",
+    )
+    research_price_first.add_argument(
+        "--hidden-layers",
+        type=int,
+        nargs="+",
+        default=[256, 128, 64],
+    )
+    research_price_first.add_argument("--auxiliary-head-width", type=int, default=32)
+    research_price_first.add_argument("--epochs", type=int, default=200)
+    research_price_first.add_argument("--batch-size", type=int, default=256)
+    research_price_first.add_argument("--learning-rate", type=float, default=0.001)
+    research_price_first.add_argument("--weight-decay", type=float, default=0.0001)
+    research_price_first.add_argument("--payoff-loss-weight", type=float, default=0.25)
+    research_price_first.add_argument(
+        "--auxiliary-loss-weights",
+        type=float,
+        nargs="+",
+        default=[0.0, 0.03, 0.1],
+    )
+    research_price_first.add_argument("--internal-folds", type=int, default=3)
+    research_price_first.add_argument("--training-seed", type=int, default=143)
+    research_price_first.add_argument("--validation-seed", type=int, default=42)
+    research_price_first.add_argument("--torch-threads", type=int, default=1)
+
     full = subparsers.add_parser("full", help="Generate data and train the model")
     add_dataset_arguments(full)
     full.add_argument("--audit-contracts", type=int, default=256)
@@ -342,6 +380,39 @@ def main(argv: list[str] | None = None) -> int:
             _hybrid_training_config(args),
             hidden_layer_sizes=tuple(args.hidden_layers),
             random_state=args.training_seed,
+        )
+        if args.report is not None:
+            report_path = Path(args.report)
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(
+                json.dumps(report, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+        print(json.dumps(report, indent=2), flush=True)
+        return 0
+
+    if args.command == "research-price-first":
+        dataset = load_phoenix_surrogate_dataset(args.dataset)
+        hazard_dataset = load_phoenix_hazard_dataset(
+            args.hazard_dataset,
+            base=dataset,
+        )
+        _, report = train_phoenix_price_first_candidate(
+            hazard_dataset,
+            PhoenixPriceFirstTrainingConfig(
+                hidden_layer_sizes=tuple(args.hidden_layers),
+                auxiliary_head_width=args.auxiliary_head_width,
+                learning_rate=args.learning_rate,
+                weight_decay=args.weight_decay,
+                batch_size=args.batch_size,
+                epochs=args.epochs,
+                model_random_state=args.training_seed,
+                validation_random_state=args.validation_seed,
+                internal_selection_folds=args.internal_folds,
+                auxiliary_loss_weights=tuple(args.auxiliary_loss_weights),
+                payoff_loss_weight=args.payoff_loss_weight,
+                torch_threads=args.torch_threads,
+            ),
         )
         if args.report is not None:
             report_path = Path(args.report)
