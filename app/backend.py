@@ -26,6 +26,7 @@ from app.services.pricing_service import (
     UnsupportedProductError,
 )
 from app.services.live_market_data import get_live_market_data_status
+from app.services.diagnostics_service import PHOENIX_DIAGNOSTICS_VERSION
 from app.services.research_market_data import get_research_market_data_status
 from app.services.surrogate_service import get_surrogate_status
 from app.services.surrogate_monitoring import get_surrogate_monitoring_status
@@ -36,7 +37,7 @@ from app.services.product_registry import (
     get_results_dir,
 )
 
-app = FastAPI(title="Neural Pricer API", version="0.5.0")
+app = FastAPI(title="Neural Pricer API", version="0.6.0")
 app.include_router(bb_api_router)
 app.include_router(api_v1_router)
 app.include_router(blackberry_router)
@@ -321,6 +322,12 @@ def health_ready():
         "status": "ready",
         "pricing_method": "monte_carlo_reference",
         "contract_version": product.contract_version if product else "unavailable",
+        "contract_versions": (
+            [product.contract_version, *product.additional_contract_versions]
+            if product
+            else []
+        ),
+        "diagnostics_version": PHOENIX_DIAGNOSTICS_VERSION,
         "market_snapshot_version": EQUITY_MARKET_SNAPSHOT_VERSION,
         "market_term_structure_version": EQUITY_MARKET_TERM_STRUCTURE_VERSION,
         "research_market_version": EQUITY_RESEARCH_MARKET_VERSION,

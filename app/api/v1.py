@@ -19,6 +19,11 @@ from src.final.phoenix_contract import (
     PhoenixContractValidationError,
     PhoenixSingleV2Contract,
 )
+from app.services.diagnostics_service import (
+    InvalidDiagnosticsInputError,
+    get_phoenix_v1_diagnostics,
+    get_phoenix_v2_diagnostics,
+)
 from app.services.live_market_data import (
     LiveMarketDataError,
     MarketDataConfigurationError,
@@ -205,6 +210,30 @@ class PhoenixSingleV2TermStructurePricingRequest(BaseModel):
     market: EquityMarketTermStructureRequest
     contract: PhoenixSingleV2ContractRequest
     n_paths: int = Field(default=2000, ge=1, le=20_000)
+
+
+class PhoenixV1DiagnosticsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    market: EquityMarketTermStructureRequest
+    terms: PhoenixSingleV1TermsRequest
+    n_paths: int = Field(default=2000, ge=100, le=5_000)
+    seed: int = Field(default=42, ge=0, le=4_294_967_295)
+    convergence_path_counts: list[int] = Field(default_factory=list, max_length=8)
+    spot_shocks_pct: list[float] = Field(default_factory=list, max_length=11)
+    volatility_shocks_abs: list[float] = Field(default_factory=list, max_length=11)
+
+
+class PhoenixV2DiagnosticsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    market: EquityMarketTermStructureRequest
+    contract: PhoenixSingleV2ContractRequest
+    n_paths: int = Field(default=2000, ge=100, le=5_000)
+    seed: int = Field(default=42, ge=0, le=4_294_967_295)
+    convergence_path_counts: list[int] = Field(default_factory=list, max_length=8)
+    spot_shocks_pct: list[float] = Field(default_factory=list, max_length=11)
+    volatility_shocks_abs: list[float] = Field(default_factory=list, max_length=11)
 
 
 class SourcedEquityMarketRequest(BaseModel):
@@ -459,6 +488,54 @@ def price_phoenix_v2_term_structure(
     except Exception:
         return JSONResponse(
             {"status": "error", "message": "seasoned pricing failed"},
+            status_code=500,
+        )
+
+
+@router.post("/products/phoenix/diagnostics/term-structure")
+def phoenix_v1_diagnostics(req: PhoenixV1DiagnosticsRequest):
+    try:
+        diagnostics = get_phoenix_v1_diagnostics(
+            market=req.market.to_domain(),
+            terms=req.terms.model_dump(),
+            n_paths=req.n_paths,
+            seed=req.seed,
+            convergence_path_counts=req.convergence_path_counts,
+            spot_shocks_pct=req.spot_shocks_pct,
+            volatility_shocks_abs=req.volatility_shocks_abs,
+        )
+        return {"status": "success", "diagnostics": diagnostics}
+    except (InvalidDiagnosticsInputError, MarketDataValidationError) as exc:
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=422)
+    except Exception:
+        return JSONResponse(
+            {"status": "error", "message": "diagnostics failed"},
+            status_code=500,
+        )
+
+
+@router.post("/products/phoenix/diagnostics/seasoned/term-structure")
+def phoenix_v2_diagnostics(req: PhoenixV2DiagnosticsRequest):
+    try:
+        diagnostics = get_phoenix_v2_diagnostics(
+            market=req.market.to_domain(),
+            contract=req.contract.to_domain(),
+            n_paths=req.n_paths,
+            seed=req.seed,
+            convergence_path_counts=req.convergence_path_counts,
+            spot_shocks_pct=req.spot_shocks_pct,
+            volatility_shocks_abs=req.volatility_shocks_abs,
+        )
+        return {"status": "success", "diagnostics": diagnostics}
+    except (
+        InvalidDiagnosticsInputError,
+        MarketDataValidationError,
+        PhoenixContractValidationError,
+    ) as exc:
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=422)
+    except Exception:
+        return JSONResponse(
+            {"status": "error", "message": "seasoned diagnostics failed"},
             status_code=500,
         )
 

@@ -293,6 +293,11 @@ def test_health_endpoints_are_available():
     assert live.json() == {"status": "alive"}
     assert ready.status_code == 200
     assert ready.json()["contract_version"] == "phoenix-single-v1"
+    assert ready.json()["contract_versions"] == [
+        "phoenix-single-v1",
+        "phoenix-single-v2",
+    ]
+    assert ready.json()["diagnostics_version"] == ("phoenix-reference-diagnostics-v1")
     assert ready.json()["surrogate_shadow"] == {
         "enabled": False,
         "mode": "shadow-only",
@@ -422,6 +427,49 @@ def test_seasoned_api_rejects_schedule_without_maturity_observation():
 
     assert response.status_code == 422
     assert "final observation time" in response.json()["message"]
+
+
+def test_v1_diagnostics_api_returns_bounded_visualization_data():
+    payload = {
+        **TERM_STRUCTURE_REQUEST,
+        "n_paths": 100,
+        "seed": 7,
+        "convergence_path_counts": [50, 100],
+        "spot_shocks_pct": [-10.0, 0.0, 10.0],
+        "volatility_shocks_abs": [0.0],
+    }
+
+    response = client.post(
+        "/api/v1/products/phoenix/diagnostics/term-structure",
+        json=payload,
+    )
+
+    assert response.status_code == 200
+    diagnostics = response.json()["diagnostics"]
+    assert diagnostics["contract_version"] == "phoenix-single-v1"
+    assert len(diagnostics["surface"]["cells"]) == 3
+    assert diagnostics["provenance"]["raw_paths_returned"] is False
+
+
+def test_v2_diagnostics_api_preserves_seasoned_contract_identity():
+    payload = {
+        **SEASONED_REQUEST,
+        "n_paths": 100,
+        "seed": 7,
+        "convergence_path_counts": [50, 100],
+        "spot_shocks_pct": [0.0],
+        "volatility_shocks_abs": [0.0],
+    }
+
+    response = client.post(
+        "/api/v1/products/phoenix/diagnostics/seasoned/term-structure",
+        json=payload,
+    )
+
+    assert response.status_code == 200
+    diagnostics = response.json()["diagnostics"]
+    assert diagnostics["contract_version"] == "phoenix-single-v2"
+    assert diagnostics["provenance"]["contract"]["contract_id"].startswith("sha256:")
 
 
 def test_term_structure_api_rejects_unsorted_or_short_segments():

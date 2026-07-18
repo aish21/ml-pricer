@@ -28,6 +28,9 @@ allocation.
 - Prices the validated `phoenix-single-v1` contract per unit notional.
 - Prices active `phoenix-single-v2` trades with a fixed contractual reference
   level, exact remaining observation times, and explicit prior knock-in state.
+- Provides Guided and Quant Streamlit workspaces with persistent results,
+  contract timelines, barrier ladders, market curves, uncertainty, cashflow,
+  convergence, distribution, and spot/volatility diagnostics.
 - Reports a deterministic Monte Carlo price, standard error, and 95% confidence
   interval.
 - Accepts immutable dated market snapshots for arbitrary equity, ETF, and
@@ -109,8 +112,10 @@ app/
   services/live_market_data.py  Normalized yfinance research-data adapter
   services/research_market_data.py  Treasury/options research calibration
   services/risk_service.py  Frozen-market scenarios and finite-difference risk
+  services/diagnostics_service.py  Bounded visualization summaries
   services/surrogate_service.py  Fail-closed shadow artifact runtime
   services/surrogate_monitoring.py  Shadow telemetry, metrics, and replay store
+  ui/                     Modular Streamlit inputs, API client, charts, and views
 
 src/final/
   payoffs.py              Core payoff implementations
@@ -142,6 +147,7 @@ docs/
   blackberry-terminal.md  BlackBerry terminal details and testing guide
   phoenix-single-v1.md    Versioned payoff and cashflow specification
   phoenix-single-v2.md    Active-trade reference, schedule, and knock-in state
+  quant-workspace-v1.md   Guided/Quant UI and diagnostic API contract
   equity-market-snapshot-v1.md  Dated market-data and flat-GBM v2 specification
   equity-market-term-structure-v1.md  Piecewise carry/volatility specification
   equity-research-market-v1.md  Server-built USD research calibration
@@ -234,6 +240,8 @@ The frozen out-of-time evidence and human-review gates are documented in
 [docs/phoenix-shadow-promotion-readiness-v1.md](docs/phoenix-shadow-promotion-readiness-v1.md).
 The separately versioned active-trade contract is documented in
 [docs/phoenix-single-v2.md](docs/phoenix-single-v2.md).
+The redesigned interactive workspace and bounded visualization-data contract
+are documented in [docs/quant-workspace-v1.md](docs/quant-workspace-v1.md).
 
 Start the FastAPI backend locally:
 
@@ -428,6 +436,8 @@ Legacy routes kept for compatibility:
 - V1 observation dates are evenly spaced. V2 accepts exact remaining event
   times, but future knock-in monitoring is still discrete on simulated path
   steps.
+- The spot/volatility surface uses deterministic piecewise GBM and is a local
+  model diagnostic, not an implied-volatility surface calibrated by strike.
 - Legacy model/scaler artifacts remain committed but fail contract/feature
   compatibility checks and are not used for pricing.
 - Phoenix surrogate v7 remains a historical, `research_only` artifact. The

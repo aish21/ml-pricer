@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "neural-pricer"
-version = "0.5.0"
+version = "0.6.0"
 description = "Versioned reference pricing and research tooling for structured products"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
