@@ -1,18 +1,19 @@
 from typing import Any, Mapping, Sequence
 
+import numpy as np
 import plotly.graph_objects as go
 
 
-INK = "#10233F"
-MUTED = "#637089"
-GRID = "#DDE3EC"
-MARKET = "#1E88E5"
-REFERENCE = "#6D5BD0"
-COUPON = "#00A896"
-AUTOCALL = "#F59E0B"
-RISK = "#D1495B"
-POSITIVE = "#11875D"
-PAPER = "#FFFFFF"
+INK = "#111216"
+MUTED = "#767981"
+GRID = "rgba(126, 127, 132, .22)"
+MARKET = "#7197AA"
+REFERENCE = "#A35B52"
+COUPON = "#4F938B"
+AUTOCALL = "#C3A260"
+RISK = "#BC5B5B"
+POSITIVE = "#5C9A7D"
+PAPER = "rgba(0,0,0,0)"
 
 PLOTLY_CONFIG = {
     "displayModeBar": True,
@@ -26,18 +27,22 @@ PLOTLY_CONFIG = {
 def _layout(
     title: str,
     *,
+    subtitle: str | None = None,
     height: int = 360,
     x_title: str | None = None,
     y_title: str | None = None,
 ) -> dict[str, Any]:
+    title_text = f"<b>{title}</b>"
+    if subtitle:
+        title_text += f"<br><span style='font-size:12px'>{subtitle}</span>"
     return {
-        "title": {"text": title, "x": 0.0, "font": {"size": 17, "color": INK}},
+        "title": {"text": title_text, "x": 0.0, "font": {"size": 17}},
         "height": height,
         "paper_bgcolor": PAPER,
         "plot_bgcolor": PAPER,
-        "font": {"family": "Inter, Arial, sans-serif", "color": INK},
-        "margin": {"l": 48, "r": 24, "t": 58, "b": 48},
-        "hoverlabel": {"bgcolor": INK, "font_color": "white"},
+        "font": {"family": "IBM Plex Sans, Arial, sans-serif"},
+        "margin": {"l": 54, "r": 30, "t": 82 if subtitle else 62, "b": 78},
+        "hoverlabel": {"bgcolor": INK, "font_color": "#F8F6FF"},
         "xaxis": {
             "title": x_title,
             "gridcolor": GRID,
@@ -52,10 +57,10 @@ def _layout(
         },
         "legend": {
             "orientation": "h",
-            "yanchor": "bottom",
-            "y": 1.02,
-            "xanchor": "right",
-            "x": 1.0,
+            "yanchor": "top",
+            "y": -0.2,
+            "xanchor": "left",
+            "x": 0.0,
         },
     }
 
@@ -64,20 +69,30 @@ def price_uncertainty_figure(result: Mapping[str, Any]) -> go.Figure:
     price = float(result["price"])
     interval = result.get("confidence_interval") or [price, price]
     lower, upper = float(interval[0]), float(interval[1])
+    delta = price - 1.0
+    relationship = (
+        f"{abs(delta):.2%} {'above' if delta > 0 else 'below'} par"
+        if abs(delta) > 1e-9
+        else "at par"
+    )
     figure = go.Figure(
         go.Scatter(
             x=[price],
-            y=["Reference value"],
+            y=["Model value"],
             mode="markers+text",
-            text=[f"{price:.6f}"],
+            text=[f"{price:.4f} · {relationship}"],
             textposition="top center",
-            marker={"size": 15, "color": MARKET},
+            marker={
+                "size": 17,
+                "color": MARKET,
+                "line": {"color": "#F8F6FF", "width": 2},
+            },
             error_x={
                 "type": "data",
                 "symmetric": False,
                 "array": [max(upper - price, 0.0)],
                 "arrayminus": [max(price - lower, 0.0)],
-                "color": INK,
+                "color": MARKET,
                 "thickness": 2,
                 "width": 8,
             },
@@ -85,6 +100,7 @@ def price_uncertainty_figure(result: Mapping[str, Any]) -> go.Figure:
                 "Price %{x:.6f}<br>95% interval "
                 f"[{lower:.6f}, {upper:.6f}]<extra></extra>"
             ),
+            showlegend=False,
         )
     )
     figure.add_vline(
@@ -96,10 +112,21 @@ def price_uncertainty_figure(result: Mapping[str, Any]) -> go.Figure:
     )
     figure.update_layout(
         **_layout(
-            "Reference price and Monte Carlo uncertainty",
-            height=300,
+            "What is the note worth today?",
+            subtitle=(
+                "The dot is the estimate; the whisker is simulation noise; "
+                "par = 1.00."
+            ),
+            height=325,
             x_title="Present value per unit notional",
         )
+    )
+    padding = max(0.025, upper - lower, abs(delta) * 0.25)
+    figure.update_xaxes(
+        range=[
+            min(lower, 1.0) - padding,
+            max(upper, 1.0) + padding,
+        ]
     )
     figure.update_yaxes(showgrid=False)
     return figure
@@ -114,33 +141,185 @@ def barrier_ladder_figure(levels: Sequence[Mapping[str, Any]]) -> go.Figure:
         "risk": RISK,
     }
     ordered = sorted(levels, key=lambda item: float(item["level"]))
+    values_by_kind = {str(item.get("kind")): float(item["level"]) for item in ordered}
+    live_spot = values_by_kind.get("market")
     figure = go.Figure()
+    all_values = [float(item["level"]) for item in ordered]
+    lower_bound = min(all_values) * 0.9
+    upper_bound = max(all_values) * 1.08
+    knock_in = values_by_kind.get("risk")
+    coupon = values_by_kind.get("coupon")
+    autocall = values_by_kind.get("autocall")
+    if knock_in is not None:
+        figure.add_hrect(
+            y0=lower_bound,
+            y1=knock_in,
+            fillcolor="rgba(240,93,122,.10)",
+            line_width=0,
+            annotation_text="loss-linked zone",
+            annotation_position="top left",
+        )
+    if knock_in is not None and coupon is not None and coupon > knock_in:
+        figure.add_hrect(
+            y0=knock_in,
+            y1=coupon,
+            fillcolor="rgba(139,92,246,.06)",
+            line_width=0,
+            annotation_text="below reward line",
+            annotation_position="top left",
+        )
+    if coupon is not None:
+        reward_top = autocall if autocall is not None else upper_bound
+        if reward_top > coupon:
+            figure.add_hrect(
+                y0=coupon,
+                y1=reward_top,
+                fillcolor="rgba(45,212,191,.08)",
+                line_width=0,
+                annotation_text="reward can pay",
+                annotation_position="top left",
+            )
+    if autocall is not None:
+        figure.add_hrect(
+            y0=autocall,
+            y1=upper_bound,
+            fillcolor="rgba(246,200,95,.10)",
+            line_width=0,
+            annotation_text="early finish can trigger",
+            annotation_position="top left",
+        )
     for item in ordered:
+        level = float(item["level"])
+        kind = str(item.get("kind"))
+        distance = (
+            (level / live_spot - 1.0) if live_spot is not None and live_spot else None
+        )
+        hover_distance = (
+            f"<br>{distance:+.1%} versus live spot"
+            if distance is not None and kind != "market"
+            else ""
+        )
+        figure.add_hline(
+            y=level,
+            line_color=colors.get(kind, MUTED),
+            line_width=2 if kind != "market" else 3,
+            line_dash="solid" if kind == "market" else "dot",
+            opacity=0.75,
+        )
         figure.add_trace(
             go.Scatter(
-                x=[float(item["level"])],
-                y=[str(item["name"])],
+                x=[0.54],
+                y=[level],
                 mode="markers+text",
-                text=[f"{float(item['level']):,.2f}"],
+                text=[f"{item['name']} · {level:,.2f}"],
                 textposition="middle right",
                 marker={
-                    "size": 15,
-                    "color": colors.get(str(item.get("kind")), MUTED),
-                    "line": {"color": "white", "width": 2},
+                    "size": 16 if kind == "market" else 13,
+                    "color": colors.get(kind, MUTED),
+                    "symbol": "diamond" if kind == "market" else "circle",
+                    "line": {"color": "#F8F6FF", "width": 2},
                 },
                 name=str(item["name"]),
                 showlegend=False,
-                hovertemplate="%{y}: %{x:,.4f}<extra></extra>",
+                hovertemplate=(
+                    f"{item['name']}: {level:,.4f}{hover_distance}<extra></extra>"
+                ),
             )
         )
     figure.update_layout(
         **_layout(
-            "Contract barrier ladder",
-            height=350,
-            x_title="Underlier level",
+            "Where is spot relative to every rule?",
+            subtitle="Read bottom to top. The diamond is today's live spot.",
+            height=430,
+            y_title="Underlier level",
         )
     )
-    figure.update_yaxes(showgrid=False)
+    figure.update_xaxes(visible=False, range=[0.0, 1.0], fixedrange=True)
+    figure.update_yaxes(range=[lower_bound, upper_bound], showgrid=False)
+    return figure
+
+
+def learning_paths_figure(
+    *,
+    volatility_pct: float,
+    autocall_level: float,
+    coupon_level: float,
+    knock_in_level: float,
+) -> go.Figure:
+    """Small deterministic path toy used only to explain Monte Carlo."""
+    volatility = max(float(volatility_pct), 0.0) / 100.0
+    months = np.arange(13)
+    dt = 1.0 / 12.0
+    rng = np.random.default_rng(17)
+    shocks = rng.standard_normal((12, 12))
+    log_returns = -0.5 * volatility**2 * dt + volatility * np.sqrt(dt) * shocks
+    paths = 100.0 * np.exp(
+        np.c_[np.zeros(log_returns.shape[0]), np.cumsum(log_returns, axis=1)]
+    )
+    figure = go.Figure()
+    for index, path in enumerate(paths):
+        crossed_safety = float(np.min(path)) <= float(knock_in_level)
+        reached_early_finish = float(np.max(path[1:])) >= float(autocall_level)
+        outcome = (
+            "crossed the safety line"
+            if crossed_safety
+            else (
+                "reached the early-finish line"
+                if reached_early_finish
+                else "stayed between the outer lines"
+            )
+        )
+        highlight = index < 3
+        color = (
+            RISK
+            if crossed_safety and highlight
+            else (
+                AUTOCALL
+                if reached_early_finish and highlight
+                else (MARKET if highlight else "rgba(125,220,255,.16)")
+            )
+        )
+        figure.add_trace(
+            go.Scatter(
+                x=months,
+                y=path,
+                mode="lines",
+                line={
+                    "color": color,
+                    "width": 2.5 if highlight else 1,
+                },
+                name=f"Pretend story {index + 1}",
+                showlegend=False,
+                hovertemplate=(
+                    f"Story {index + 1}<br>Month %{{x}}"
+                    f"<br>Price %{{y:.1f}}<br>{outcome}<extra></extra>"
+                ),
+            )
+        )
+    for level, label, color, dash in (
+        (autocall_level, "Early finish", AUTOCALL, "dash"),
+        (coupon_level, "Reward", COUPON, "dot"),
+        (knock_in_level, "Safety", RISK, "dashdot"),
+    ):
+        figure.add_hline(
+            y=float(level),
+            line_color=color,
+            line_dash=dash,
+            annotation_text=label,
+            annotation_position="right",
+        )
+    figure.update_layout(
+        **_layout(
+            "How can the same starting price end differently?",
+            subtitle=(
+                "Hover over a path. Brighter paths show different rule outcomes."
+            ),
+            height=460,
+            x_title="Months from today",
+            y_title="Price, starting at 100",
+        )
+    )
+    figure.update_xaxes(dtick=1)
     return figure
 
 
@@ -161,6 +340,7 @@ def contract_timeline_figure(
             hovertemplate=(
                 "Observation %{text}<br>%{x:.4f} years from valuation<extra></extra>"
             ),
+            showlegend=False,
         )
     )
     figure.add_vline(
@@ -172,9 +352,10 @@ def contract_timeline_figure(
     )
     figure.update_layout(
         **_layout(
-            "Remaining observation timeline",
+            "When can the note make a decision?",
+            subtitle="Each numbered point is a rule-check; maturity is the final day.",
             height=270,
-            x_title="Years from valuation",
+            x_title="Years from today",
         )
     )
     figure.update_yaxes(visible=False, range=[-0.2, 0.2])
@@ -188,12 +369,12 @@ def term_structure_figure(market: Mapping[str, Any]) -> go.Figure:
         return go.Figure()
     ends = [0.0] + [float(segment["end_time_years"]) for segment in segments]
     series = (
-        ("Risk-free rate", "risk_free_rate", MARKET),
-        ("Dividend yield", "dividend_yield", COUPON),
-        ("Volatility", "volatility", AUTOCALL),
+        ("Risk-free rate", "risk_free_rate", MARKET, "y"),
+        ("Dividend yield", "dividend_yield", COUPON, "y"),
+        ("Volatility", "volatility", AUTOCALL, "y2"),
     )
     figure = go.Figure()
-    for label, field, color in series:
+    for label, field, color, axis in series:
         values = [float(segments[0][field])] + [
             float(segment[field]) for segment in segments
         ]
@@ -204,16 +385,29 @@ def term_structure_figure(market: Mapping[str, Any]) -> go.Figure:
                 mode="lines",
                 line={"shape": "hv", "width": 3, "color": color},
                 name=label,
+                yaxis=axis,
                 hovertemplate=f"{label}: %{{y:.3f}}%<br>t=%{{x:.3f}}y<extra></extra>",
             )
         )
     figure.update_layout(
         **_layout(
-            "Deterministic market term structure",
-            height=380,
+            "What market assumptions change through time?",
+            subtitle=(
+                "Rates and distributions use the left scale; wiggliness uses the right."
+            ),
+            height=420,
             x_title="Years",
-            y_title="Annualized value (%)",
+            y_title="Rate / distribution yield (%)",
         )
+    )
+    figure.update_layout(
+        yaxis2={
+            "title": "Volatility (%)",
+            "overlaying": "y",
+            "side": "right",
+            "showgrid": False,
+            "zeroline": False,
+        }
     )
     return figure
 
@@ -249,9 +443,12 @@ def convergence_figure(diagnostics: Mapping[str, Any]) -> go.Figure:
     )
     figure.update_layout(
         **_layout(
-            "Monte Carlo convergence",
-            height=370,
-            x_title="Nested path count",
+            "Did the computer use enough pretend futures?",
+            subtitle=(
+                "A settling line and narrowing band mean less simulation wobble."
+            ),
+            height=410,
+            x_title="Number of pretend futures",
             y_title="Present value",
         )
     )
@@ -272,28 +469,39 @@ def cashflow_figure(diagnostics: Mapping[str, Any]) -> go.Figure:
         "maturity_protected_pv": MARKET,
         "maturity_downside_pv": RISK,
     }
+    values = [float(row["expected_pv"]) for row in rows]
+    total = sum(values)
+    shares = [(value / total if total else 0.0) for value in values]
     figure = go.Figure(
         go.Bar(
             x=[
                 labels.get(str(row["component"]), str(row["component"])) for row in rows
             ],
-            y=[float(row["expected_pv"]) for row in rows],
+            y=values,
             error_y={
                 "type": "data",
                 "array": [float(row["standard_error"]) for row in rows],
-                "color": INK,
+                "color": MUTED,
             },
             marker={
                 "color": [colors.get(str(row["component"]), MUTED) for row in rows]
             },
-            text=[f"{float(row['expected_pv']):.4f}" for row in rows],
+            text=[
+                f"{value:.4f}<br>{share:.0%}" for value, share in zip(values, shares)
+            ],
             textposition="outside",
-            hovertemplate="%{x}<br>Expected PV %{y:.6f}<extra></extra>",
+            customdata=shares,
+            hovertemplate=(
+                "%{x}<br>Expected PV %{y:.6f}"
+                "<br>%{customdata:.1%} of total value<extra></extra>"
+            ),
+            showlegend=False,
         )
     )
     figure.update_layout(
         **_layout(
-            "Expected present value by cashflow source",
+            "Which payments create today's value?",
+            subtitle="Bars show expected present value; labels also show each share.",
             height=390,
             y_title="PV per unit notional",
         )
@@ -302,26 +510,57 @@ def cashflow_figure(diagnostics: Mapping[str, Any]) -> go.Figure:
 
 
 def distribution_figure(diagnostics: Mapping[str, Any]) -> go.Figure:
-    histogram = (diagnostics.get("distribution") or {}).get("histogram") or {}
+    distribution = diagnostics.get("distribution") or {}
+    histogram = distribution.get("histogram") or {}
     edges = [float(value) for value in histogram.get("bin_edges") or []]
     counts = [int(value) for value in histogram.get("counts") or []]
     centers = [(left + right) / 2.0 for left, right in zip(edges[:-1], edges[1:])]
     widths = [right - left for left, right in zip(edges[:-1], edges[1:])]
+    total = sum(counts)
+    percentages = [count / total * 100.0 if total else 0.0 for count in counts]
     figure = go.Figure(
         go.Bar(
             x=centers,
-            y=counts,
+            y=percentages,
             width=widths,
-            marker={"color": REFERENCE, "line": {"color": PAPER, "width": 1}},
-            hovertemplate="Payoff around %{x:.4f}<br>Paths %{y:,}<extra></extra>",
+            marker={
+                "color": percentages,
+                "colorscale": [
+                    [0.0, "rgba(139,92,246,.28)"],
+                    [1.0, REFERENCE],
+                ],
+                "line": {"color": "rgba(248,246,255,.42)", "width": 1},
+            },
+            customdata=counts,
+            hovertemplate=(
+                "Payoff around %{x:.4f}<br>%{y:.2f}% of paths"
+                "<br>%{customdata:,} pretend futures<extra></extra>"
+            ),
         )
     )
+    quantiles = {
+        float(row["probability"]): float(row["value"])
+        for row in distribution.get("quantiles") or []
+    }
+    for probability, label, color, position in (
+        (0.05, "5% tail", RISK, "top left"),
+        (0.5, "median", AUTOCALL, "top right"),
+    ):
+        if probability in quantiles:
+            figure.add_vline(
+                x=quantiles[probability],
+                line_color=color,
+                line_dash="dot",
+                annotation_text=label,
+                annotation_position=position,
+            )
     figure.update_layout(
         **_layout(
-            "Discounted payoff distribution",
+            "What outcomes did the simulation produce?",
+            subtitle="Height is the share of paths; dotted lines mark useful percentiles.",
             height=370,
-            x_title="Pathwise discounted payoff",
-            y_title="Path count",
+            x_title="Discounted payoff per unit notional",
+            y_title="Share of pretend futures (%)",
         )
     )
     return figure
@@ -331,16 +570,39 @@ def surface_figure(diagnostics: Mapping[str, Any]) -> go.Figure:
     surface = diagnostics.get("surface") or {}
     x_values = [float(value) for value in surface.get("spot_shocks_pct") or []]
     y_values = [float(value) for value in surface.get("volatility_shocks_abs") or []]
-    cells = {
+    cell_rows = [
+        cell for cell in surface.get("cells") or [] if cell.get("price") is not None
+    ]
+    base_row = next(
+        (
+            cell
+            for cell in cell_rows
+            if float(cell["spot_shock_pct"]) == 0.0
+            and float(cell["volatility_shock_abs"]) == 0.0
+        ),
+        None,
+    )
+    base_price = float(base_row["price"]) if base_row is not None else 0.0
+    prices = {
         (
             float(cell["volatility_shock_abs"]),
             float(cell["spot_shock_pct"]),
         ): float(cell["price"])
-        for cell in surface.get("cells") or []
-        if cell.get("price") is not None
+        for cell in cell_rows
+    }
+    changes = {
+        (
+            float(cell["volatility_shock_abs"]),
+            float(cell["spot_shock_pct"]),
+        ): float(cell.get("price_change", float(cell["price"]) - base_price))
+        for cell in cell_rows
     }
     z_values = [
-        [cells.get((volatility, spot)) for spot in x_values] for volatility in y_values
+        [changes.get((volatility, spot)) for spot in x_values]
+        for volatility in y_values
+    ]
+    price_values = [
+        [prices.get((volatility, spot)) for spot in x_values] for volatility in y_values
     ]
     figure = go.Figure(
         go.Heatmap(
@@ -348,20 +610,31 @@ def surface_figure(diagnostics: Mapping[str, Any]) -> go.Figure:
             y=[value * 100.0 for value in y_values],
             z=z_values,
             colorscale=[
-                [0.0, "#DCEBFA"],
-                [0.5, "#6D9EEB"],
-                [1.0, "#10233F"],
+                [0.0, RISK],
+                [0.5, "#24213C"],
+                [1.0, COUPON],
             ],
-            colorbar={"title": "PV"},
+            zmid=0.0,
+            customdata=price_values,
+            text=[
+                [f"{price:.4f}" if price is not None else "" for price in row]
+                for row in price_values
+            ],
+            texttemplate="%{text}",
+            colorbar={"title": "Change"},
             hovertemplate=(
                 "Spot shock %{x:.1f}%<br>Vol shift %{y:.1f} pts"
-                "<br>Price %{z:.6f}<extra></extra>"
+                "<br>Price %{customdata:.6f}"
+                "<br>Change %{z:+.6f}<extra></extra>"
             ),
         )
     )
     figure.update_layout(
         **_layout(
-            "Spot / volatility valuation surface",
+            "What changes the note's value most?",
+            subtitle=(
+                "Cell text is price. Color is change versus today's base market."
+            ),
             height=430,
             x_title="Spot shock (%)",
             y_title="Volatility shift (points)",
@@ -389,7 +662,8 @@ def scenario_figure(result: Mapping[str, Any]) -> go.Figure:
     )
     figure.update_layout(
         **_layout(
-            "Paired-path scenario bridge",
+            "How did this scenario change the note?",
+            subtitle="The middle bar isolates scenario P&L using paired random paths.",
             height=360,
             y_title="PV per unit notional",
         )
@@ -424,7 +698,8 @@ def risk_figure(result: Mapping[str, Any]) -> go.Figure:
     )
     figure.update_layout(
         **_layout(
-            "Finite-difference sensitivities",
+            "Which small market nudge matters most?",
+            subtitle="Brighter bars clear the 95% simulation-noise test.",
             height=390,
             y_title="Reported sensitivity",
         )

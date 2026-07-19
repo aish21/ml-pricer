@@ -5,7 +5,7 @@ from app.ui.workspace import render_workspace
 
 
 st.set_page_config(
-    page_title="Neural Pricer",
+    page_title="ML Pricer",
     page_icon="◈",
     layout="wide",
     initial_sidebar_state="expanded",

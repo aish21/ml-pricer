@@ -3,7 +3,7 @@ requires = ["setuptools==69.5.1", "wheel==0.43.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "neural-pricer"
+name = "ml-pricer"
 version = "0.6.0"
 description = "Versioned reference pricing and research tooling for structured products"
 readme = "README.md"
@@ -28,8 +28,9 @@ api = [
 frontend = [
     "pandas==2.2.2",
     "plotly==5.19.0",
+    "pyarrow==21.0.0",
     "requests==2.34.2",
-    "streamlit==1.33.0",
+    "streamlit==1.59.0",
 ]
 surrogate = [
     "joblib==1.4.2",

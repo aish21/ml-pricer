@@ -552,6 +552,34 @@ def test_research_market_build_endpoint_returns_calibrated_structure(monkeypatch
         "equity-research-market-v1"
     )
     assert result["market_calibration"]["research_only"] is True
+    pricing_response = client.post(
+        "/api/v1/products/phoenix/price/term-structure",
+        json={
+            "market": result["market_term_structure"],
+            "terms": TERM_STRUCTURE_REQUEST["terms"],
+            "n_paths": 100,
+        },
+    )
+    assert pricing_response.status_code == 200
+
+
+def test_term_structure_api_rejects_inconsistent_derived_market_metadata():
+    first_response = client.post(
+        "/api/v1/products/phoenix/price/term-structure",
+        json=TERM_STRUCTURE_REQUEST,
+    )
+    market = {
+        **first_response.json()["result"]["market_term_structure"],
+        "term_structure_id": f"sha256:{'0' * 64}",
+    }
+
+    response = client.post(
+        "/api/v1/products/phoenix/price/term-structure",
+        json={**TERM_STRUCTURE_REQUEST, "market": market},
+    )
+
+    assert response.status_code == 422
+    assert "term_structure_id does not match" in response.json()["message"]
 
 
 def test_research_market_phoenix_endpoint_prices_calibrated_structure(monkeypatch):

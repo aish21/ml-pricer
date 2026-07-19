@@ -1,6 +1,6 @@
 # Research Market Data
 
-Neural Pricer 0.4 uses yfinance for credential-free research and hobby market
+ML Pricer 0.6 uses yfinance for credential-free research and hobby market
 data. The adapter remains behind `LiveMarketDataService`; payoff and Monte Carlo
 modules never import yfinance or call Yahoo Finance directly.
 

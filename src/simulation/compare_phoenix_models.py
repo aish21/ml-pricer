@@ -1,6 +1,7 @@
 import os
 import json
 import time
+from pathlib import Path
 import numpy as np
 import pandas as pd
 import lightgbm as lgb
@@ -8,8 +9,9 @@ import xgboost as xgb
 import catboost as cb
 import matplotlib.pyplot as plt
 
-MODEL_DIR = "C:\\Users\\aisha\\OneDrive\\Desktop\\GitHub\\neural-pricer\\src\\models"
-RESULTS_DIR = "C:\\Users\\aisha\\OneDrive\\Desktop\\GitHub\\neural-pricer\\src\\results\\phoenix_compare"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+MODEL_DIR = PROJECT_ROOT / "src" / "models"
+RESULTS_DIR = PROJECT_ROOT / "src" / "results" / "phoenix_compare"
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
 # Monte Carlo control parameters

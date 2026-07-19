@@ -1,8 +1,9 @@
-import os
+﻿import os
+from urllib.parse import urlsplit, urlunsplit
 
 import streamlit as st
 
-from app.ui.api_client import FrontendApiError, NeuralPricerApi
+from app.ui.api_client import FrontendApiError, MlPricerApi
 from app.ui.inputs import render_configuration, render_sidebar
 from app.ui.payloads import PricingConfiguration, diagnostic_grids
 from app.ui.results import render_pricing_results
@@ -11,6 +12,25 @@ from app.ui.results import render_pricing_results
 API_URL = os.getenv(
     "API_URL",
     "https://aish-ml-pricer-backend.up.railway.app",
+)
+
+
+def browser_facing_api_url(
+    service_url: str,
+    configured_public_url: str | None = None,
+) -> str:
+    if configured_public_url and configured_public_url.strip():
+        return configured_public_url.strip().rstrip("/")
+    parsed = urlsplit(service_url)
+    if parsed.hostname == "backend":
+        port = f":{parsed.port}" if parsed.port else ""
+        return urlunsplit((parsed.scheme or "http", f"localhost{port}", "", "", ""))
+    return service_url.rstrip("/")
+
+
+PUBLIC_API_URL = browser_facing_api_url(
+    API_URL,
+    os.getenv("API_PUBLIC_URL"),
 )
 
 
@@ -28,17 +48,29 @@ def _initialize_state() -> None:
             st.session_state[name] = value
 
 
-def _render_header() -> None:
+def _render_header(experience_mode: str) -> None:
+    if experience_mode == "Guided":
+        eyebrow = "Learn structured-product pricing from zero"
+        title = "Build a pretend note, one tiny step at a time."
+        body = (
+            "No finance knowledge needed. Pick something to watch, draw a few "
+            "rules, let the computer imagine possible futures, and learn how "
+            "those pieces become a price."
+        )
+    else:
+        eyebrow = "Structured-product research workspace"
+        title = "Price the contract. See the mechanics."
+        body = (
+            "A deterministic Monte Carlo reference pricer for Phoenix notes, "
+            "with explicit market provenance, contract state, uncertainty, "
+            "cashflow decomposition, and interactive risk diagnostics."
+        )
     st.markdown(
-        """
-        <div class="np-hero">
-          <div class="np-eyebrow">Structured-product research workspace</div>
-          <h1>Price the contract. See the mechanics.</h1>
-          <p>
-            A deterministic Monte Carlo reference pricer for Phoenix notes,
-            with explicit market provenance, contract state, uncertainty,
-            cashflow decomposition, and interactive risk diagnostics.
-          </p>
+        f"""
+        <div class="mlp-hero">
+          <div class="mlp-eyebrow">{eyebrow}</div>
+          <h1>{title}</h1>
+          <p>{body}</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -69,7 +101,7 @@ def _render_empty_state() -> None:
         with column:
             st.markdown(
                 f"""
-                <div class="np-card">
+                <div class="mlp-card">
                   <h4>{title}</h4>
                   <p>{body}</p>
                 </div>
@@ -83,7 +115,7 @@ def _render_empty_state() -> None:
 
 
 def _run_pricing(
-    client: NeuralPricerApi,
+    client: MlPricerApi,
     config: PricingConfiguration,
 ) -> None:
     if config.market_source == "Research market":
@@ -120,16 +152,19 @@ def _run_pricing(
 
 def render_workspace() -> None:
     _initialize_state()
-    client = NeuralPricerApi(API_URL)
+    client = MlPricerApi(API_URL)
     experience_mode, n_paths, seed = render_sidebar()
-    st.sidebar.caption(f"API · {API_URL}")
-    if st.sidebar.button("Check API connection", use_container_width=True):
+    st.sidebar.markdown(f"[Open backend API docs ↗]({PUBLIC_API_URL}/docs)")
+    st.sidebar.caption(
+        "Browser-facing API link; the internal Docker service address stays hidden."
+    )
+    if st.sidebar.button("Check API connection", width="stretch"):
         if client.health():
             st.sidebar.success("Pricing API is ready.")
         else:
             st.sidebar.error("Pricing API is unavailable.")
 
-    _render_header()
+    _render_header(experience_mode)
     config, input_error = render_configuration(
         experience_mode=experience_mode,
         n_paths=n_paths,
@@ -139,9 +174,13 @@ def render_workspace() -> None:
         st.error(input_error)
     if config is not None:
         try:
-            with st.spinner(
-                "Freezing the market, pricing paths, and building diagnostics…"
-            ):
+            spinner = (
+                "Collecting today's numbers, imagining futures, and checking "
+                "your rules…"
+                if experience_mode == "Guided"
+                else "Freezing the market, pricing paths, and building diagnostics…"
+            )
+            with st.spinner(spinner):
                 _run_pricing(client, config)
             st.toast("Pricing workspace updated", icon="✅")
         except FrontendApiError as exc:
@@ -156,7 +195,13 @@ def render_workspace() -> None:
     diagnostics = st.session_state.get("diagnostics_result")
     stored_config = st.session_state.get("pricing_configuration")
     market = st.session_state.get("frozen_market")
-    if result and diagnostics and stored_config and market:
+    if (
+        result
+        and diagnostics
+        and stored_config
+        and market
+        and stored_config.experience_mode == experience_mode
+    ):
         render_pricing_results(
             client,
             result=result,
@@ -164,5 +209,5 @@ def render_workspace() -> None:
             config=stored_config,
             market=market,
         )
-    else:
+    elif experience_mode == "Quant":
         _render_empty_state()

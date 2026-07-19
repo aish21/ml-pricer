@@ -1,1 +1,1 @@
-"""Modular Streamlit workspace for the Neural Pricer frontend."""
+"""Modular Streamlit workspace for the ML Pricer frontend."""

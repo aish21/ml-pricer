@@ -161,9 +161,17 @@ class EquityMarketTermStructureRequest(BaseModel):
     calendar: str = Field(min_length=1, max_length=32)
     day_count: str = Field(min_length=1, max_length=16)
     source: str = Field(min_length=1, max_length=128)
+    term_structure_id: str | None = Field(
+        default=None,
+        min_length=71,
+        max_length=71,
+        pattern=r"^sha256:[0-9a-f]{64}$",
+    )
+    age_seconds: float | None = Field(default=None, ge=0.0)
+    max_time_years: float | None = Field(default=None, gt=0.0, le=50.0)
 
     def to_domain(self) -> EquityMarketTermStructure:
-        return EquityMarketTermStructure(
+        market = EquityMarketTermStructure(
             symbol=self.symbol,
             underlier_type=self.underlier_type,
             currency=self.currency,
@@ -175,6 +183,28 @@ class EquityMarketTermStructureRequest(BaseModel):
             day_count=self.day_count,
             source=self.source,
         )
+        if (
+            self.term_structure_id is not None
+            and self.term_structure_id != market.term_structure_id
+        ):
+            raise MarketDataValidationError(
+                "term_structure_id does not match the supplied market inputs"
+            )
+        if (
+            self.age_seconds is not None
+            and abs(self.age_seconds - market.age_seconds) > 1e-6
+        ):
+            raise MarketDataValidationError(
+                "age_seconds does not match the supplied market timestamps"
+            )
+        if (
+            self.max_time_years is not None
+            and abs(self.max_time_years - market.max_time_years) > 1e-12
+        ):
+            raise MarketDataValidationError(
+                "max_time_years does not match the final market segment"
+            )
+        return market
 
 
 class PhoenixSingleV1TermStructurePricingRequest(BaseModel):

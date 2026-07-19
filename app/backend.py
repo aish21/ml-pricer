@@ -37,7 +37,7 @@ from app.services.product_registry import (
     get_results_dir,
 )
 
-app = FastAPI(title="Neural Pricer API", version="0.6.0")
+app = FastAPI(title="ML Pricer API", version="0.6.0")
 app.include_router(bb_api_router)
 app.include_router(api_v1_router)
 app.include_router(blackberry_router)
@@ -303,7 +303,7 @@ def payoff_explanation(payoff_type: str):
 @app.get("/")
 def root():
     return {
-        "service": "neural-pricer",
+        "service": "ml-pricer",
         "status": "online",
         "version": app.version,
         "docs": "/docs",

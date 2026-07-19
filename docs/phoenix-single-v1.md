@@ -1,7 +1,7 @@
 # Phoenix Single v1 contract
 
 `phoenix-single-v1` is the first quantitatively validated product contract in
-Neural Pricer. It is generic across single equity-like underliers; SPY is the
+ML Pricer. It is generic across single equity-like underliers; SPY is the
 planned first market-data and calibration universe, not a hardcoded payoff
 dependency.
 

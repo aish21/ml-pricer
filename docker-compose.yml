@@ -1,3 +1,5 @@
+name: ml-pricer
+
 services:
   backend:
     build:
@@ -8,7 +10,7 @@ services:
       MODEL_RESULTS_DIR: /srv/app/final/results
       MODEL_HISTORY_FILE: /srv/app/data/pricing_history.csv
       PHOENIX_SURROGATE_DIR: /srv/app/data/surrogates/phoenix-price-first-v1/artifacts
-      PHOENIX_SURROGATE_SHADOW_ENABLED: ${PHOENIX_SURROGATE_SHADOW_ENABLED:-false}
+      PHOENIX_SURROGATE_SHADOW_ENABLED: ${PHOENIX_SURROGATE_SHADOW_ENABLED:-true}
       PHOENIX_SURROGATE_ALLOW_UNAPPROVED: ${PHOENIX_SURROGATE_ALLOW_UNAPPROVED:-false}
       PHOENIX_SURROGATE_TELEMETRY_ENABLED: ${PHOENIX_SURROGATE_TELEMETRY_ENABLED:-true}
       PHOENIX_SURROGATE_TELEMETRY_DB: /srv/app/data/surrogate_shadow_observations.sqlite3
@@ -27,6 +29,7 @@ services:
     image: ml-pricer-frontend:latest
     environment:
       API_URL: http://backend:8000
+      API_PUBLIC_URL: http://localhost:8000
     depends_on:
       backend:
         condition: service_healthy

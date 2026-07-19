@@ -27,3 +27,10 @@ def test_api_extra_declares_yfinance_repair_dependencies():
     api_dependencies = set(project["project"]["optional-dependencies"]["api"])
 
     assert {"scipy==1.13.0", "yfinance==1.5.1"} <= api_dependencies
+
+
+def test_frontend_pins_modern_streamlit_arrow_compatibility_boundary():
+    project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text("utf-8"))
+    frontend_dependencies = set(project["project"]["optional-dependencies"]["frontend"])
+
+    assert {"streamlit==1.59.0", "pyarrow==21.0.0"} <= frontend_dependencies

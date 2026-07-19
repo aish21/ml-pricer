@@ -174,7 +174,20 @@ def write_price_first_artifact(root, monkeypatch, *, audit_passed=True):
         "audit_acceptance": {
             "passed": audit_passed,
             "evaluation_dataset_id": PHOENIX_PRICE_FIRST_AUDIT_DATASET_ID,
-            "checks": {"audit_mae": {"passed": audit_passed}},
+            "checks": {
+                "audit_mae": {
+                    "passed": audit_passed,
+                    "value": 0.006,
+                },
+                "audit_p95_absolute_error": {
+                    "passed": audit_passed,
+                    "value": 0.018,
+                },
+                "audit_r2": {
+                    "passed": audit_passed,
+                    "value": 0.998,
+                },
+            },
         },
         "training_config": {"model_random_state": 143},
         "training_domain": {
@@ -244,6 +257,7 @@ def test_status_and_shadow_evaluation_load_approved_checksum_artifact(tmp_path):
     assert shadow["absolute_error"] == pytest.approx(0.02)
     assert shadow["error_to_reference_standard_error"] == pytest.approx(2.0)
     assert shadow["input_diagnostics"]["maximum_standardized_feature_distance"] >= 0.0
+    assert "validation_metrics" not in shadow
 
 
 def test_research_only_artifact_requires_explicit_override(tmp_path):
@@ -339,6 +353,13 @@ def test_audit_approved_price_first_artifact_loads_in_shadow_only(
     assert shadow["status"] == "success"
     assert shadow["used_for_price"] is False
     assert shadow["surrogate_price"] == pytest.approx(1.0)
+    assert shadow["validation_metrics"] == {
+        "passed": True,
+        "evaluation_dataset_id": PHOENIX_PRICE_FIRST_AUDIT_DATASET_ID,
+        "mean_absolute_error": pytest.approx(0.006),
+        "p95_absolute_error": pytest.approx(0.018),
+        "r_squared": pytest.approx(0.998),
+    }
     assert set(shadow["cashflow_components"]) == {
         "coupon_pv",
         "autocall_principal_pv",

@@ -1,8 +1,8 @@
-# Neural Pricer
+# ML Pricer
 
 ML-powered exotic derivatives pricing with a retro BlackBerry quant terminal.
 
-Neural Pricer is an experimental pricing platform for exotic and structured
+ML Pricer is an experimental pricing platform for exotic and structured
 derivatives. The current product path exposes a versioned, single-underlier
 Phoenix contract priced by deterministic Monte Carlo through a FastAPI backend,
 a Streamlit frontend, and a local BlackBerry Bold 9780-compatible terminal. A
@@ -28,9 +28,11 @@ allocation.
 - Prices the validated `phoenix-single-v1` contract per unit notional.
 - Prices active `phoenix-single-v2` trades with a fixed contractual reference
   level, exact remaining observation times, and explicit prior knock-in state.
-- Provides Guided and Quant Streamlit workspaces with persistent results,
-  contract timelines, barrier ladders, market curves, uncertainty, cashflow,
-  convergence, distribution, and spot/volatility diagnostics.
+- Provides a five-step, child-level Guided pricing lesson and a compact Quant
+  workspace, with a literal-basics glossary, one-box editable underlier
+  suggestions, switchable light/dark themes, persistent results, chart-reading
+  keys, contract timelines, zoned barrier maps, market curves, uncertainty,
+  cashflow, convergence, distribution, and spot/volatility diagnostics.
 - Reports a deterministic Monte Carlo price, standard error, and 95% confidence
   interval.
 - Accepts immutable dated market snapshots for arbitrary equity, ETF, and
@@ -259,6 +261,7 @@ Start the Streamlit frontend:
 
 ```powershell
 $env:API_URL="http://127.0.0.1:8000"
+$env:API_PUBLIC_URL="http://127.0.0.1:8000"
 streamlit run app/frontend.py
 ```
 
@@ -442,7 +445,9 @@ Legacy routes kept for compatibility:
   compatibility checks and are not used for pricing.
 - Phoenix surrogate v7 remains a historical, `research_only` artifact. The
   default runtime root now targets the exact audit-approved price-first model,
-  but shadow inference is still disabled by default.
+  and the Docker workspace enables its comparison in shadow mode by default.
+  Direct non-Compose runtimes remain fail-closed unless shadow inference is
+  explicitly enabled.
 - The event-conditioned research candidate is also `research_only`. It improved
   interpretability, but its repeated development score was worse than v7, so it
   was neither audited nor added to the runtime artifact format.
@@ -493,10 +498,12 @@ Research market data works without credentials or configuration. See
 limits.
 
 The optional surrogate shadow uses `PHOENIX_SURROGATE_SHADOW_ENABLED` and
-`PHOENIX_SURROGATE_DIR`. The default directory targets the audit-approved
-price-first artifact. Its exact artifact ID and audit bindings are mandatory;
-the research-only `PHOENIX_SURROGATE_ALLOW_UNAPPROVED` override applies only to
-legacy artifacts. See
+`PHOENIX_SURROGATE_DIR`. Docker Compose enables it by default so the workspace
+can display Monte Carlo-versus-ML evidence; set the flag to `false` to turn it
+off. The default directory targets the audit-approved price-first artifact.
+Its exact artifact ID and audit bindings are mandatory; the research-only
+`PHOENIX_SURROGATE_ALLOW_UNAPPROVED` override applies only to legacy artifacts.
+See
 [docs/phoenix-price-first-shadow-artifact-v1.md](docs/phoenix-price-first-shadow-artifact-v1.md).
 `PHOENIX_SURROGATE_TELEMETRY_ENABLED` controls the bounded local observation
 store used by the metrics endpoint and replay command.

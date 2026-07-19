@@ -1,7 +1,7 @@
 import pytest
 import requests
 
-from app.ui.api_client import FrontendApiError, NeuralPricerApi
+from app.ui.api_client import FrontendApiError, MlPricerApi
 
 
 class FakeResponse:
@@ -29,7 +29,7 @@ class FakeSession:
 
 def test_api_client_routes_seasoned_contract_to_v2_endpoint():
     session = FakeSession(FakeResponse({"status": "success", "result": {"price": 0.9}}))
-    client = NeuralPricerApi("http://pricing", session=session)
+    client = MlPricerApi("http://pricing", session=session)
 
     result = client.price(
         market={"spot": 90.0},
@@ -52,7 +52,7 @@ def test_api_client_surfaces_sanitized_backend_message():
             status_code=422,
         )
     )
-    client = NeuralPricerApi("http://pricing", session=session)
+    client = MlPricerApi("http://pricing", session=session)
 
     with pytest.raises(FrontendApiError, match="invalid schedule"):
         client.build_research_market(
@@ -62,9 +62,42 @@ def test_api_client_surfaces_sanitized_backend_message():
         )
 
 
+def test_api_client_identifies_the_first_invalid_request_field():
+    session = FakeSession(
+        FakeResponse(
+            {
+                "detail": [
+                    {
+                        "type": "extra_forbidden",
+                        "loc": ["body", "market", "unexpected"],
+                        "msg": "Extra inputs are not permitted",
+                        "input": "sensitive value",
+                    }
+                ]
+            },
+            ok=False,
+            status_code=422,
+        )
+    )
+    client = MlPricerApi("http://pricing", session=session)
+
+    with pytest.raises(
+        FrontendApiError,
+        match="market.unexpected.*Extra inputs are not permitted",
+    ) as error:
+        client.price(
+            market={},
+            terms={},
+            contract=None,
+            n_paths=500,
+        )
+
+    assert "sensitive value" not in str(error.value)
+
+
 def test_api_client_hides_transport_details():
     session = FakeSession(error=requests.ConnectionError("secret upstream detail"))
-    client = NeuralPricerApi("http://pricing", session=session)
+    client = MlPricerApi("http://pricing", session=session)
 
     with pytest.raises(FrontendApiError, match="could not be reached") as error:
         client.price(

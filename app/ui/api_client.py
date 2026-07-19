@@ -7,7 +7,33 @@ class FrontendApiError(RuntimeError):
     pass
 
 
-class NeuralPricerApi:
+def _backend_error_message(body: Any, status_code: int) -> str:
+    if not isinstance(body, Mapping):
+        return f"The pricing request failed (HTTP {status_code})."
+    message = body.get("message")
+    if isinstance(message, str) and message.strip():
+        return message.strip()
+    detail = body.get("detail")
+    if isinstance(detail, str) and detail.strip():
+        return detail.strip()
+    if isinstance(detail, list) and detail:
+        first = detail[0]
+        if isinstance(first, Mapping):
+            location = first.get("loc")
+            field = ""
+            if isinstance(location, (list, tuple)):
+                field = ".".join(
+                    str(part) for part in location if str(part) not in {"body"}
+                )
+            validation_message = first.get("msg")
+            if isinstance(validation_message, str) and validation_message.strip():
+                if field:
+                    return f"Invalid request field '{field}': {validation_message}."
+                return f"Invalid pricing request: {validation_message}."
+    return f"The pricing request failed (HTTP {status_code})."
+
+
+class MlPricerApi:
     def __init__(
         self,
         base_url: str,
@@ -43,12 +69,7 @@ class NeuralPricerApi:
                 "The pricing service returned an unreadable response."
             ) from exc
         if not response.ok:
-            message = (
-                body.get("message")
-                if isinstance(body, Mapping)
-                else f"HTTP {response.status_code}"
-            )
-            raise FrontendApiError(str(message or "The pricing request failed."))
+            raise FrontendApiError(_backend_error_message(body, response.status_code))
         if not isinstance(body, dict):
             raise FrontendApiError("The pricing service returned an invalid response.")
         return body

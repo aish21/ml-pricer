@@ -294,7 +294,7 @@ class TreasuryCurveProvider:
                     self.feed_url,
                     params=params,
                     timeout=self.settings.request_timeout_seconds,
-                    headers={"User-Agent": "neural-pricer-research/0.4"},
+                    headers={"User-Agent": "ml-pricer-research/0.6"},
                 )
                 response.raise_for_status()
                 content = bytes(response.content)

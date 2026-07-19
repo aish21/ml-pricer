@@ -1,7 +1,8 @@
-from typing import Any
+﻿from typing import Any
 
 import streamlit as st
 
+from app.ui.guided import render_guided_configuration
 from app.ui.payloads import (
     FrontendInputError,
     PricingConfiguration,
@@ -11,6 +12,7 @@ from app.ui.payloads import (
     even_observation_schedule,
     parse_observation_schedule,
 )
+from app.ui.underliers import render_underlier_picker
 
 
 PRESETS: dict[str, dict[str, float]] = {
@@ -36,23 +38,36 @@ PRESETS: dict[str, dict[str, float]] = {
 
 
 def render_sidebar() -> tuple[str, int, int]:
-    st.sidebar.markdown("## Neural Pricer")
+    st.sidebar.markdown("## ML Pricer")
     st.sidebar.caption("Structured-product research workspace")
     experience_mode = st.sidebar.radio(
         "Experience",
         ["Guided", "Quant"],
         help="Guided mode explains the finance. Quant mode exposes numerical controls.",
     )
-    st.sidebar.selectbox("Contract preset", list(PRESETS), key="contract_preset")
     if experience_mode == "Guided":
+        st.sidebar.markdown(
+            """
+            <div class="mlp-sidebar-lesson">
+              <b>Learning journey</b>
+              <span>Pick → Time → Rules → Simulate → Price</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         n_paths = st.sidebar.select_slider(
-            "Monte Carlo quality",
+            "How many pretend futures?",
             options=[500, 1_000, 2_000, 5_000],
             value=2_000,
-            format_func=lambda value: f"{value:,} paths",
+            format_func=lambda value: f"{value:,} stories",
+            help=(
+                "More stories usually make the answer steadier, but the "
+                "computer takes a little longer."
+            ),
         )
         seed = 42
     else:
+        st.sidebar.selectbox("Contract preset", list(PRESETS), key="contract_preset")
         n_paths = int(
             st.sidebar.selectbox(
                 "Monte Carlo paths",
@@ -69,10 +84,16 @@ def render_sidebar() -> tuple[str, int, int]:
             )
         )
     st.sidebar.markdown("---")
-    st.sidebar.caption(
-        "Reference prices remain Monte Carlo estimates. Inspect confidence "
-        "intervals before interpreting small differences."
-    )
+    if experience_mode == "Guided":
+        st.sidebar.caption(
+            "You do not need to know any finance words. Every step explains "
+            "what a choice means."
+        )
+    else:
+        st.sidebar.caption(
+            "Reference prices remain Monte Carlo estimates. Inspect confidence "
+            "intervals before interpreting small differences."
+        )
     return experience_mode, int(n_paths), seed
 
 
@@ -82,15 +103,10 @@ def _market_fields(
     experience_mode: str,
     maturity: float,
 ) -> tuple[str, str, str, dict[str, Any] | None]:
-    symbol = st.text_input(
-        "Underlier",
-        value="SPY",
-        help="An equity or ETF symbol such as SPY, QQQ, or AAPL.",
+    symbol, underlier_type = render_underlier_picker(
+        market_source=market_source,
+        key_prefix="quant_underlier",
     )
-    available_types = ["ETF", "Equity"]
-    if market_source == "Manual flat market":
-        available_types.append("Index")
-    underlier_type = st.selectbox("Underlier type", available_types)
     if market_source == "Research market":
         st.caption(
             "The server builds a USD research curve from Treasury data, "
@@ -154,6 +170,9 @@ def render_configuration(
     n_paths: int,
     seed: int,
 ) -> tuple[PricingConfiguration | None, str | None]:
+    if experience_mode == "Guided":
+        return render_guided_configuration(n_paths=n_paths, seed=seed)
+
     trade_stage = st.radio(
         "Trade state",
         ["New issue", "Seasoned trade"],
@@ -275,7 +294,7 @@ def render_configuration(
 
         submitted = st.form_submit_button(
             "Price and build diagnostics",
-            use_container_width=True,
+            width="stretch",
         )
 
     if not submitted:

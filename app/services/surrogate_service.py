@@ -437,6 +437,40 @@ def get_surrogate_status(
     }
 
 
+def _validation_metrics(manifest: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Expose a small, presentation-safe subset of the frozen audit evidence."""
+    acceptance = manifest.get("audit_acceptance")
+    if not isinstance(acceptance, Mapping) or acceptance.get("passed") is not True:
+        return None
+    checks = acceptance.get("checks")
+    if not isinstance(checks, Mapping):
+        return None
+
+    values: dict[str, float] = {}
+    for public_name, check_name in (
+        ("mean_absolute_error", "audit_mae"),
+        ("p95_absolute_error", "audit_p95_absolute_error"),
+        ("r_squared", "audit_r2"),
+    ):
+        check = checks.get(check_name)
+        if not isinstance(check, Mapping) or check.get("passed") is not True:
+            continue
+        try:
+            value = float(check["value"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if math.isfinite(value):
+            values[public_name] = value
+
+    if not values:
+        return None
+    return {
+        "passed": True,
+        "evaluation_dataset_id": acceptance.get("evaluation_dataset_id"),
+        **values,
+    }
+
+
 def evaluate_surrogate_shadow(
     *,
     market: EquityMarketTermStructure,
@@ -540,7 +574,7 @@ def evaluate_surrogate_shadow(
         "error_to_reference_standard_error": (
             absolute_error / standard_error if standard_error > 0.0 else None
         ),
-        "latency_ms": int(round((time.perf_counter() - started) * 1_000)),
+        "latency_ms": round((time.perf_counter() - started) * 1_000, 3),
         "input_diagnostics": {
             "maximum_standardized_feature_distance": float(
                 np.max(standardized_distances)
@@ -555,6 +589,9 @@ def evaluate_surrogate_shadow(
             ][:5],
         },
     }
+    validation_metrics = _validation_metrics(bundle.manifest)
+    if validation_metrics is not None:
+        result["validation_metrics"] = validation_metrics
     if has_payoff_outputs:
         result["cashflow_components"] = {
             name: output_map[name] for name in PHOENIX_PRICE_COMPONENT_NAMES
