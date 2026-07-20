@@ -4,6 +4,9 @@
 barrier reverse convertible are ready for an ML shadow model. It cannot promote
 or serve a model.
 
+This report is kept as the original failed baseline. The follow-up is documented
+in [expanded surrogate experiment v2](expanded-surrogate-experiment-v2.md).
+
 ## Protocol
 
 - Development and audit datasets use disjoint deterministic seeds.

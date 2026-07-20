@@ -44,9 +44,14 @@ seasoned trades, then plots the exact hurdle at every remaining observation.
 ## ML boundary
 
 The approved v1 model is not valid for v3. v3 remains Monte Carlo reference
-priced. The first expanded-product candidate passed R², label-quality, and
-latency gates but failed MAE and P95 error gates, so it was rejected and no
-runtime artifact was created.
+priced. The first expanded-product candidate failed the MAE and P95 error
+gates. The v2 experiment added boundary-focused sampling, payoff-distance
+features, and validation-only model selection. Its fresh sealed audit passed
+every unchanged gate with MAE 0.01409 and P95 absolute error 0.03846.
+
+That result creates a research package, not a serving decision. The manifest
+still has `runtime_approved = false`, and the API continues to return Monte
+Carlo as the reference price.
 
 ## Limitations
 

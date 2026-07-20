@@ -35,7 +35,7 @@ from .reference_pricer import (
 )
 
 
-EXPERIMENT_VERSION = "expanded-surrogate-experiment-v1"
+EXPERIMENT_VERSION = "expanded-surrogate-experiment-v2"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT_ROOT = REPO_ROOT / "final" / "research_candidates"
 
@@ -43,12 +43,14 @@ DEFAULT_OUTPUT_ROOT = REPO_ROOT / "final" / "research_candidates"
 @dataclass(frozen=True)
 class ExperimentConfig:
     development_samples: int = 700
+    validation_samples: int = 180
     audit_samples: int = 220
     development_paths: int = 768
     audit_paths: int = 2_048
     monitoring_steps: int = 64
     seed: int = 20_260_719
     trees: int = 500
+    barrier_focus_probability: float = 0.60
     maximum_mae: float = 0.015
     maximum_p95_absolute_error: float = 0.04
     minimum_r2: float = 0.90
@@ -61,7 +63,10 @@ class ProductExperiment:
     key: str
     contract_version: str
     feature_order: tuple[str, ...]
-    sampler: Callable[[np.random.Generator, int, int], tuple[np.ndarray, float, float]]
+    sampler: Callable[
+        [np.random.Generator, int, int, float],
+        tuple[np.ndarray, float, float],
+    ]
     domain: dict[str, Any]
 
 
@@ -105,9 +110,9 @@ def _sample_phoenix_v3(
     random: np.random.Generator,
     paths: int,
     monitoring_steps: int,
+    barrier_focus_probability: float,
 ) -> tuple[np.ndarray, float, float]:
     reference = 100.0
-    spot_ratio = random.uniform(0.55, 1.35)
     maturity = random.uniform(0.5, 2.0)
     rate = random.uniform(0.0, 0.07)
     dividend = random.uniform(0.0, 0.04)
@@ -118,6 +123,13 @@ def _sample_phoenix_v3(
     final_autocall = random.uniform(coupon_barrier, first_autocall)
     autocall_schedule = tuple(np.linspace(first_autocall, final_autocall, observations))
     knock_in = random.uniform(0.45, min(0.85, coupon_barrier))
+    if random.random() < barrier_focus_probability:
+        anchor = random.choice(
+            np.asarray([1.0, first_autocall, final_autocall, coupon_barrier, knock_in])
+        )
+        spot_ratio = float(np.clip(anchor + random.normal(0.0, 0.035), 0.55, 1.35))
+    else:
+        spot_ratio = random.uniform(0.55, 1.35)
     coupon_rate = random.uniform(0.005, 0.04)
     memory_coupon = bool(random.integers(0, 2))
     unpaid_coupon_count = int(random.integers(0, 4)) if memory_coupon else 0
@@ -164,6 +176,12 @@ def _sample_phoenix_v3(
             float(memory_coupon),
             unpaid_coupon_count,
             float(prior_knock_in),
+            spot_ratio - first_autocall,
+            spot_ratio - final_autocall,
+            spot_ratio - coupon_barrier,
+            spot_ratio - knock_in,
+            first_autocall - final_autocall,
+            coupon_rate * (1 + unpaid_coupon_count),
         ],
         dtype=np.float64,
     )
@@ -174,9 +192,9 @@ def _sample_barrier_reverse_convertible(
     random: np.random.Generator,
     paths: int,
     monitoring_steps: int,
+    barrier_focus_probability: float,
 ) -> tuple[np.ndarray, float, float]:
     reference = 100.0
-    spot_ratio = random.uniform(0.55, 1.35)
     maturity = random.uniform(0.25, 2.0)
     rate = random.uniform(0.0, 0.07)
     dividend = random.uniform(0.0, 0.04)
@@ -185,6 +203,11 @@ def _sample_barrier_reverse_convertible(
     coupon_rate = random.uniform(0.005, 0.04)
     strike = random.uniform(0.90, 1.10)
     knock_in = random.uniform(0.45, min(0.90, strike))
+    if random.random() < barrier_focus_probability:
+        anchor = random.choice(np.asarray([1.0, strike, knock_in]))
+        spot_ratio = float(np.clip(anchor + random.normal(0.0, 0.035), 0.55, 1.35))
+    else:
+        spot_ratio = random.uniform(0.55, 1.35)
     prior_knock_in = bool(random.random() < 0.15)
     contract = BarrierReverseConvertibleV1Contract(
         reference_level=reference,
@@ -221,6 +244,10 @@ def _sample_barrier_reverse_convertible(
             knock_in,
             coupon_count,
             float(prior_knock_in),
+            spot_ratio - strike,
+            spot_ratio - knock_in,
+            strike - knock_in,
+            coupon_rate * coupon_count,
         ],
         dtype=np.float64,
     )
@@ -246,6 +273,12 @@ PRODUCTS = (
             "memory_coupon",
             "unpaid_coupon_count",
             "prior_knock_in_breached",
+            "spot_minus_first_autocall",
+            "spot_minus_final_autocall",
+            "spot_minus_coupon_barrier",
+            "spot_minus_knock_in",
+            "autocall_stepdown",
+            "coupon_including_unpaid",
         ),
         sampler=_sample_phoenix_v3,
         domain={
@@ -268,6 +301,10 @@ PRODUCTS = (
             "knock_in_frac",
             "coupon_count",
             "prior_knock_in_breached",
+            "spot_minus_strike",
+            "spot_minus_knock_in",
+            "strike_minus_knock_in",
+            "total_coupon_rate",
         ),
         sampler=_sample_barrier_reverse_convertible,
         domain={
@@ -286,9 +323,18 @@ def _dataset(
     paths: int,
     monitoring_steps: int,
     seed: int,
+    barrier_focus_probability: float,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, str]:
     random = np.random.default_rng(seed)
-    rows = [product.sampler(random, paths, monitoring_steps) for _ in range(samples)]
+    rows = [
+        product.sampler(
+            random,
+            paths,
+            monitoring_steps,
+            barrier_focus_probability,
+        )
+        for _ in range(samples)
+    ]
     features = np.stack([row[0] for row in rows])
     labels = np.asarray([row[1] for row in rows], dtype=np.float64)
     standard_errors = np.asarray([row[2] for row in rows], dtype=np.float64)
@@ -308,6 +354,74 @@ def _latency_ms(model: LGBMRegressor, features: np.ndarray) -> float:
     return float(np.median(observations))
 
 
+def _candidate_specs(
+    config: ExperimentConfig,
+) -> tuple[tuple[str, dict[str, Any]], ...]:
+    shared = {
+        "n_estimators": config.trees,
+        "subsample": 0.9,
+        "subsample_freq": 1,
+        "colsample_bytree": 0.9,
+        "n_jobs": -1,
+        "random_state": config.seed,
+        "verbosity": -1,
+    }
+    return (
+        (
+            "balanced_l1",
+            {
+                **shared,
+                "objective": "regression_l1",
+                "learning_rate": 0.025,
+                "num_leaves": 31,
+                "min_child_samples": 15,
+                "reg_lambda": 0.01,
+            },
+        ),
+        (
+            "boundary_l1",
+            {
+                **shared,
+                "objective": "regression_l1",
+                "learning_rate": 0.02,
+                "num_leaves": 63,
+                "min_child_samples": 10,
+                "reg_alpha": 0.0025,
+                "reg_lambda": 0.05,
+            },
+        ),
+        (
+            "smooth_l2",
+            {
+                **shared,
+                "objective": "regression",
+                "learning_rate": 0.02,
+                "num_leaves": 63,
+                "min_child_samples": 12,
+                "reg_lambda": 0.05,
+            },
+        ),
+    )
+
+
+def _selection_metrics(
+    labels: np.ndarray,
+    predictions: np.ndarray,
+    config: ExperimentConfig,
+) -> dict[str, float]:
+    errors = np.abs(predictions - labels)
+    mae = float(mean_absolute_error(labels, predictions))
+    p95 = float(np.quantile(errors, 0.95))
+    mae_scale = max(config.maximum_mae, 1e-12)
+    p95_scale = max(config.maximum_p95_absolute_error, 1e-12)
+    return {
+        "mae": mae,
+        "p95_absolute_error": p95,
+        "r2": float(r2_score(labels, predictions)),
+        "selection_score": mae / mae_scale + p95 / p95_scale,
+    }
+
+
 def _run_product(
     product: ProductExperiment,
     config: ExperimentConfig,
@@ -319,30 +433,42 @@ def _run_product(
         paths=config.development_paths,
         monitoring_steps=config.monitoring_steps,
         seed=config.seed + 101,
+        barrier_focus_probability=config.barrier_focus_probability,
+    )
+    validation = _dataset(
+        product,
+        samples=config.validation_samples,
+        paths=config.development_paths,
+        monitoring_steps=config.monitoring_steps,
+        seed=config.seed + 20_001,
+        barrier_focus_probability=config.barrier_focus_probability,
     )
     audit = _dataset(
         product,
         samples=config.audit_samples,
         paths=config.audit_paths,
         monitoring_steps=config.monitoring_steps,
-        seed=config.seed + 10_001,
+        seed=config.seed + 50_001,
+        barrier_focus_probability=config.barrier_focus_probability,
     )
     development_x, development_y, development_se, development_id = development
+    validation_x, validation_y, validation_se, validation_id = validation
     audit_x, audit_y, audit_se, audit_id = audit
-    model = LGBMRegressor(
-        objective="regression_l1",
-        n_estimators=config.trees,
-        learning_rate=0.025,
-        num_leaves=31,
-        min_child_samples=15,
-        subsample=0.9,
-        colsample_bytree=0.9,
-        reg_lambda=0.01,
-        n_jobs=-1,
-        random_state=config.seed,
-        verbosity=-1,
+    candidates: dict[str, tuple[LGBMRegressor, dict[str, float], dict[str, Any]]] = {}
+    for name, parameters in _candidate_specs(config):
+        candidate = LGBMRegressor(**parameters)
+        candidate.fit(development_x, development_y)
+        candidate_predictions = candidate.booster_.predict(validation_x)
+        candidates[name] = (
+            candidate,
+            _selection_metrics(validation_y, candidate_predictions, config),
+            parameters,
+        )
+    selected_name = min(
+        candidates,
+        key=lambda name: candidates[name][1]["selection_score"],
     )
-    model.fit(development_x, development_y)
+    model, selected_validation, selected_parameters = candidates[selected_name]
     predictions = model.booster_.predict(audit_x)
     errors = np.abs(predictions - audit_y)
     metrics = {
@@ -394,13 +520,15 @@ def _run_product(
         "product_key": product.key,
         "contract_version": product.contract_version,
         "development_dataset_id": development_id,
+        "validation_dataset_id": validation_id,
         "audit_dataset_id": audit_id,
         "configuration": {
             **config.__dict__,
             "learner": {
                 "class": "lightgbm.LGBMRegressor",
                 "library_version": lightgbm.__version__,
-                "objective": "regression_l1",
+                "selected_candidate": selected_name,
+                "parameters": selected_parameters,
             },
             "feature_order": list(product.feature_order),
             "domain": product.domain,
@@ -408,9 +536,23 @@ def _run_product(
         "datasets": {
             "development_samples": config.development_samples,
             "development_paths_per_label": config.development_paths,
+            "validation_samples": config.validation_samples,
+            "validation_paths_per_label": config.development_paths,
             "audit_samples": config.audit_samples,
             "audit_paths_per_label": config.audit_paths,
             "development_mean_label_standard_error": float(np.mean(development_se)),
+            "validation_mean_label_standard_error": float(np.mean(validation_se)),
+        },
+        "development_selection": {
+            "selected_candidate": selected_name,
+            "selected_metrics": selected_validation,
+            "candidates": {
+                name: {
+                    "metrics": values[1],
+                    "parameters": values[2],
+                }
+                for name, values in candidates.items()
+            },
         },
         "sealed_audit": {
             "passed": passed,
@@ -440,7 +582,9 @@ def _run_product(
             json.dumps(experiment_payload, indent=2, sort_keys=True),
             encoding="utf-8",
         )
-        experiment_payload["package_path"] = str(package_dir.relative_to(REPO_ROOT))
+        experiment_payload["package_path"] = package_dir.relative_to(
+            REPO_ROOT
+        ).as_posix()
         latest_path.write_text(
             json.dumps(experiment_payload, indent=2, sort_keys=True),
             encoding="utf-8",
@@ -475,11 +619,13 @@ def run_expanded_surrogate_experiments(
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--development-samples", type=int, default=700)
+    parser.add_argument("--validation-samples", type=int, default=180)
     parser.add_argument("--audit-samples", type=int, default=220)
     parser.add_argument("--development-paths", type=int, default=768)
     parser.add_argument("--audit-paths", type=int, default=2_048)
     parser.add_argument("--monitoring-steps", type=int, default=64)
     parser.add_argument("--trees", type=int, default=500)
+    parser.add_argument("--barrier-focus-probability", type=float, default=0.60)
     parser.add_argument("--seed", type=int, default=20_260_719)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     return parser
@@ -489,16 +635,19 @@ def main() -> None:
     arguments = _parser().parse_args()
     config = ExperimentConfig(
         development_samples=arguments.development_samples,
+        validation_samples=arguments.validation_samples,
         audit_samples=arguments.audit_samples,
         development_paths=arguments.development_paths,
         audit_paths=arguments.audit_paths,
         monitoring_steps=arguments.monitoring_steps,
         trees=arguments.trees,
         seed=arguments.seed,
+        barrier_focus_probability=arguments.barrier_focus_probability,
     )
     if (
         min(
             config.development_samples,
+            config.validation_samples,
             config.audit_samples,
             config.development_paths,
             config.audit_paths,
@@ -508,6 +657,8 @@ def main() -> None:
         < 1
     ):
         raise SystemExit("all experiment sizes must be positive")
+    if not 0.0 <= config.barrier_focus_probability <= 1.0:
+        raise SystemExit("barrier focus probability must be between zero and one")
     summary = run_expanded_surrogate_experiments(
         config=config,
         output_root=arguments.output_root,

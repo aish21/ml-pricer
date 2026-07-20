@@ -47,9 +47,13 @@ and explanatory result story.
 ## ML and model boundary
 
 This product is Monte Carlo reference-only. Its first expanded-product
-LightGBM candidate passed R², label-quality, and latency gates but missed the
-unchanged MAE and P95 limits. It was rejected; no model package or runtime
-integration was created.
+LightGBM candidate missed the MAE and P95 limits. The v2 experiment added
+boundary-focused sampling, payoff-distance features, and validation-only model
+selection. Its fresh sealed audit passed every unchanged gate with MAE 0.01328
+and P95 absolute error 0.03525.
+
+The resulting package is still a research candidate. Its manifest has
+`runtime_approved = false`, and it is not loaded by the pricing API.
 
 The reference model still omits issuer credit/default, funding, tax, fees,
 liquidity, calendars, settlement, continuous-barrier correction, volatility

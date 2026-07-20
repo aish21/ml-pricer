@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from app.services.market_snapshot_store import (
+    get_market_snapshot_store_status,
     get_research_market_snapshot,
     list_research_market_snapshots,
     save_research_market_snapshot,
@@ -47,9 +48,20 @@ def test_market_snapshot_store_is_immutable_and_returns_bounded_metadata(tmp_pat
 
     loaded = get_research_market_snapshot(SNAPSHOT_ID, db_path=database)
     recent = list_research_market_snapshots(limit=500, db_path=database)
+    status = get_market_snapshot_store_status(
+        db_path=database,
+        now=datetime(2026, 7, 19, 12, 0, tzinfo=timezone.utc),
+    )
 
     assert first["snapshot_id"] == SNAPSHOT_ID
     assert first["immutable"] is True
     assert loaded["created_at"] == created.isoformat()
     assert loaded["market_calibration"]["quality"]["status"] == "first"
     assert recent == [first]
+    assert status == {
+        "available": True,
+        "snapshot_count": 1,
+        "latest_created_at": created.isoformat(),
+        "latest_market_data_time": "2026-07-19T10:00:00+00:00",
+        "latest_market_data_age_hours": 2.0,
+    }

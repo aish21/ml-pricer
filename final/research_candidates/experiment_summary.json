@@ -1,13 +1,14 @@
 {
-  "elapsed_seconds": 19.785165600000255,
-  "experiment_version": "expanded-surrogate-experiment-v1",
-  "generated_at": "2026-07-19T06:49:27.797993+00:00",
+  "elapsed_seconds": 29.53940280000097,
+  "experiment_version": "expanded-surrogate-experiment-v2",
+  "generated_at": "2026-07-20T08:50:33.326683+00:00",
   "products": [
     {
-      "audit_dataset_id": "sha256:e7b85ca8bbd7b04535301ffc972b28769541fb116ac0e3304c2944d8d41c991e",
+      "audit_dataset_id": "sha256:839f790b3abe34c67728681613ee66d2de2a1ebae4b62ba2eba1ad7185706913",
       "configuration": {
         "audit_paths": 4096,
         "audit_samples": 300,
+        "barrier_focus_probability": 0.6,
         "development_paths": 1024,
         "development_samples": 2500,
         "domain": {
@@ -29,12 +30,32 @@
           "observation_count",
           "memory_coupon",
           "unpaid_coupon_count",
-          "prior_knock_in_breached"
+          "prior_knock_in_breached",
+          "spot_minus_first_autocall",
+          "spot_minus_final_autocall",
+          "spot_minus_coupon_barrier",
+          "spot_minus_knock_in",
+          "autocall_stepdown",
+          "coupon_including_unpaid"
         ],
         "learner": {
           "class": "lightgbm.LGBMRegressor",
           "library_version": "4.6.0",
-          "objective": "regression_l1"
+          "parameters": {
+            "colsample_bytree": 0.9,
+            "learning_rate": 0.025,
+            "min_child_samples": 15,
+            "n_estimators": 1000,
+            "n_jobs": -1,
+            "num_leaves": 31,
+            "objective": "regression_l1",
+            "random_state": 20260719,
+            "reg_lambda": 0.01,
+            "subsample": 0.9,
+            "subsample_freq": 1,
+            "verbosity": -1
+          },
+          "selected_candidate": "balanced_l1"
         },
         "maximum_mae": 0.015,
         "maximum_mean_label_standard_error": 0.01,
@@ -43,67 +64,151 @@
         "minimum_r2": 0.9,
         "monitoring_steps": 64,
         "seed": 20260719,
-        "trees": 1000
+        "trees": 1000,
+        "validation_samples": 500
       },
       "contract_version": "phoenix-single-v3",
       "datasets": {
         "audit_paths_per_label": 4096,
         "audit_samples": 300,
-        "development_mean_label_standard_error": 0.004747170199827582,
+        "development_mean_label_standard_error": 0.005009429292953622,
         "development_paths_per_label": 1024,
-        "development_samples": 2500
+        "development_samples": 2500,
+        "validation_mean_label_standard_error": 0.00494784189344779,
+        "validation_paths_per_label": 1024,
+        "validation_samples": 500
       },
-      "development_dataset_id": "sha256:be53540f7ba56a2030fedd181a40c80b1ce7a55566d1f7f926a17609114b8754",
-      "experiment_id": "sha256:206bb01d17c72a4b3620e54d58395d2c3a7aa271ea6eff9050c117a48a72df2d",
-      "experiment_version": "expanded-surrogate-experiment-v1",
-      "package_path": null,
+      "development_dataset_id": "sha256:f1c3fad67628b952d59905dac72d95a3cd92ef9e8e8956da52411b6d082ecece",
+      "development_selection": {
+        "candidates": {
+          "balanced_l1": {
+            "metrics": {
+              "mae": 0.015084678148204016,
+              "p95_absolute_error": 0.04478581605258178,
+              "r2": 0.9803318717646156,
+              "selection_score": 2.125290611194812
+            },
+            "parameters": {
+              "colsample_bytree": 0.9,
+              "learning_rate": 0.025,
+              "min_child_samples": 15,
+              "n_estimators": 1000,
+              "n_jobs": -1,
+              "num_leaves": 31,
+              "objective": "regression_l1",
+              "random_state": 20260719,
+              "reg_lambda": 0.01,
+              "subsample": 0.9,
+              "subsample_freq": 1,
+              "verbosity": -1
+            }
+          },
+          "boundary_l1": {
+            "metrics": {
+              "mae": 0.015782781135657464,
+              "p95_absolute_error": 0.048427960097255154,
+              "r2": 0.9779889725830284,
+              "selection_score": 2.26288441147521
+            },
+            "parameters": {
+              "colsample_bytree": 0.9,
+              "learning_rate": 0.02,
+              "min_child_samples": 10,
+              "n_estimators": 1000,
+              "n_jobs": -1,
+              "num_leaves": 63,
+              "objective": "regression_l1",
+              "random_state": 20260719,
+              "reg_alpha": 0.0025,
+              "reg_lambda": 0.05,
+              "subsample": 0.9,
+              "subsample_freq": 1,
+              "verbosity": -1
+            }
+          },
+          "smooth_l2": {
+            "metrics": {
+              "mae": 0.015253821853582976,
+              "p95_absolute_error": 0.04680306061593128,
+              "r2": 0.9787724290388945,
+              "selection_score": 2.1869979723038138
+            },
+            "parameters": {
+              "colsample_bytree": 0.9,
+              "learning_rate": 0.02,
+              "min_child_samples": 12,
+              "n_estimators": 1000,
+              "n_jobs": -1,
+              "num_leaves": 63,
+              "objective": "regression",
+              "random_state": 20260719,
+              "reg_lambda": 0.05,
+              "subsample": 0.9,
+              "subsample_freq": 1,
+              "verbosity": -1
+            }
+          }
+        },
+        "selected_candidate": "balanced_l1",
+        "selected_metrics": {
+          "mae": 0.015084678148204016,
+          "p95_absolute_error": 0.04478581605258178,
+          "r2": 0.9803318717646156,
+          "selection_score": 2.125290611194812
+        }
+      },
+      "experiment_id": "sha256:06ae0c3d3b1f8dc42bd8d441ce9bab5bc90823fb4452710782e86c14d616c114",
+      "experiment_version": "expanded-surrogate-experiment-v2",
+      "package_path": "final/research_candidates/phoenix_v3/06ae0c3d3b1f8dc42bd8d441ce9bab5bc90823fb4452710782e86c14d616c114",
       "product_key": "phoenix_v3",
       "runtime_approved": false,
       "sealed_audit": {
         "checks": {
           "mae": {
             "maximum": 0.015,
-            "passed": false,
-            "value": 0.016954042454106255
+            "passed": true,
+            "value": 0.014093350359785
           },
           "mean_label_standard_error": {
             "maximum": 0.01,
             "passed": true,
-            "value": 0.0023245613091023446
+            "value": 0.0024974470152107353
           },
           "median_inference_latency_ms": {
             "maximum": 5.0,
             "passed": true,
-            "value": 0.12324999988777563
+            "value": 0.10680000559659675
           },
           "p95_absolute_error": {
             "maximum": 0.04,
-            "passed": false,
-            "value": 0.056087662112044974
+            "passed": true,
+            "value": 0.03846150635330896
           },
           "r2": {
             "minimum": 0.9,
             "passed": true,
-            "value": 0.9647455904053955
+            "value": 0.9820920681436465
           }
         },
         "metrics": {
-          "mae": 0.016954042454106255,
-          "mean_label_standard_error": 0.0023245613091023446,
-          "median_inference_latency_ms": 0.12324999988777563,
-          "p95_absolute_error": 0.056087662112044974,
-          "p95_label_standard_error": 0.004625275991563703,
-          "r2": 0.9647455904053955
+          "mae": 0.014093350359785,
+          "mean_label_standard_error": 0.0024974470152107353,
+          "median_inference_latency_ms": 0.10680000559659675,
+          "p95_absolute_error": 0.03846150635330896,
+          "p95_label_standard_error": 0.004573894006935347,
+          "r2": 0.9820920681436465
         },
-        "passed": false
+        "passed": true
       },
-      "status": "rejected"
+      "status": "research_candidate",
+      "validation_dataset_id": "sha256:505d2fc4ec8bed5bc60ddc6f71a43590c79b7c856fc7beece9b1b7b0b4700983"
     },
     {
-      "audit_dataset_id": "sha256:888da0a505ca155ece2f06c159803074ac26ae3bd3e8a627371c13087d37bd6f",
+      "audit_dataset_id": "sha256:f5286e6cb088d14b323b1a75b059e508bfb7decee91fe6dd9ef319008011dd64",
       "configuration": {
         "audit_paths": 4096,
         "audit_samples": 300,
+        "barrier_focus_probability": 0.6,
         "development_paths": 1024,
         "development_samples": 2500,
         "domain": {
@@ -121,12 +226,30 @@
           "strike_frac",
           "knock_in_frac",
           "coupon_count",
-          "prior_knock_in_breached"
+          "prior_knock_in_breached",
+          "spot_minus_strike",
+          "spot_minus_knock_in",
+          "strike_minus_knock_in",
+          "total_coupon_rate"
         ],
         "learner": {
           "class": "lightgbm.LGBMRegressor",
           "library_version": "4.6.0",
-          "objective": "regression_l1"
+          "parameters": {
+            "colsample_bytree": 0.9,
+            "learning_rate": 0.025,
+            "min_child_samples": 15,
+            "n_estimators": 1000,
+            "n_jobs": -1,
+            "num_leaves": 31,
+            "objective": "regression_l1",
+            "random_state": 20260719,
+            "reg_lambda": 0.01,
+            "subsample": 0.9,
+            "subsample_freq": 1,
+            "verbosity": -1
+          },
+          "selected_candidate": "balanced_l1"
         },
         "maximum_mae": 0.015,
         "maximum_mean_label_standard_error": 0.01,
@@ -135,61 +258,144 @@
         "minimum_r2": 0.9,
         "monitoring_steps": 64,
         "seed": 20260719,
-        "trees": 1000
+        "trees": 1000,
+        "validation_samples": 500
       },
       "contract_version": "barrier-reverse-convertible-v1",
       "datasets": {
         "audit_paths_per_label": 4096,
         "audit_samples": 300,
-        "development_mean_label_standard_error": 0.004019671746642563,
+        "development_mean_label_standard_error": 0.004247485881144026,
         "development_paths_per_label": 1024,
-        "development_samples": 2500
+        "development_samples": 2500,
+        "validation_mean_label_standard_error": 0.004090575676513714,
+        "validation_paths_per_label": 1024,
+        "validation_samples": 500
       },
-      "development_dataset_id": "sha256:192b6cb4a1db3aa6f19b030fa9a2cafc56ec6b5558834900d1b6cc775064fa08",
-      "experiment_id": "sha256:331aabc2437d4da253a3f6cad6838647c1a089fc509b348fd2cb802777ab6d4c",
-      "experiment_version": "expanded-surrogate-experiment-v1",
-      "package_path": null,
+      "development_dataset_id": "sha256:4bb9ddc64a2fa453e064092ad1da92517fde277e7594a6dd055b699f24c56eb4",
+      "development_selection": {
+        "candidates": {
+          "balanced_l1": {
+            "metrics": {
+              "mae": 0.01498862576573742,
+              "p95_absolute_error": 0.03780576352184492,
+              "r2": 0.9776696770830482,
+              "selection_score": 1.944385805761951
+            },
+            "parameters": {
+              "colsample_bytree": 0.9,
+              "learning_rate": 0.025,
+              "min_child_samples": 15,
+              "n_estimators": 1000,
+              "n_jobs": -1,
+              "num_leaves": 31,
+              "objective": "regression_l1",
+              "random_state": 20260719,
+              "reg_lambda": 0.01,
+              "subsample": 0.9,
+              "subsample_freq": 1,
+              "verbosity": -1
+            }
+          },
+          "boundary_l1": {
+            "metrics": {
+              "mae": 0.015156518010703465,
+              "p95_absolute_error": 0.0384365857531326,
+              "r2": 0.9772056222447876,
+              "selection_score": 1.9713491778752128
+            },
+            "parameters": {
+              "colsample_bytree": 0.9,
+              "learning_rate": 0.02,
+              "min_child_samples": 10,
+              "n_estimators": 1000,
+              "n_jobs": -1,
+              "num_leaves": 63,
+              "objective": "regression_l1",
+              "random_state": 20260719,
+              "reg_alpha": 0.0025,
+              "reg_lambda": 0.05,
+              "subsample": 0.9,
+              "subsample_freq": 1,
+              "verbosity": -1
+            }
+          },
+          "smooth_l2": {
+            "metrics": {
+              "mae": 0.014921108221439803,
+              "p95_absolute_error": 0.038831779980306604,
+              "r2": 0.9787383495328028,
+              "selection_score": 1.965535047603652
+            },
+            "parameters": {
+              "colsample_bytree": 0.9,
+              "learning_rate": 0.02,
+              "min_child_samples": 12,
+              "n_estimators": 1000,
+              "n_jobs": -1,
+              "num_leaves": 63,
+              "objective": "regression",
+              "random_state": 20260719,
+              "reg_lambda": 0.05,
+              "subsample": 0.9,
+              "subsample_freq": 1,
+              "verbosity": -1
+            }
+          }
+        },
+        "selected_candidate": "balanced_l1",
+        "selected_metrics": {
+          "mae": 0.01498862576573742,
+          "p95_absolute_error": 0.03780576352184492,
+          "r2": 0.9776696770830482,
+          "selection_score": 1.944385805761951
+        }
+      },
+      "experiment_id": "sha256:fdd30cb2852928faa9f88a46c1deecc908ba4c0651a86368d23fc0e284ef0606",
+      "experiment_version": "expanded-surrogate-experiment-v2",
+      "package_path": "final/research_candidates/barrier_reverse_convertible/fdd30cb2852928faa9f88a46c1deecc908ba4c0651a86368d23fc0e284ef0606",
       "product_key": "barrier_reverse_convertible",
       "runtime_approved": false,
       "sealed_audit": {
         "checks": {
           "mae": {
             "maximum": 0.015,
-            "passed": false,
-            "value": 0.018469220386251522
+            "passed": true,
+            "value": 0.013276724819048962
           },
           "mean_label_standard_error": {
             "maximum": 0.01,
             "passed": true,
-            "value": 0.0021046632644812
+            "value": 0.0022053430440488477
           },
           "median_inference_latency_ms": {
             "maximum": 5.0,
             "passed": true,
-            "value": 0.10010000005422626
+            "value": 0.11324999650241807
           },
           "p95_absolute_error": {
             "maximum": 0.04,
-            "passed": false,
-            "value": 0.052879468513357675
+            "passed": true,
+            "value": 0.03524553787169205
           },
           "r2": {
             "minimum": 0.9,
             "passed": true,
-            "value": 0.9671123176891623
+            "value": 0.9830211666190142
           }
         },
         "metrics": {
-          "mae": 0.018469220386251522,
-          "mean_label_standard_error": 0.0021046632644812,
-          "median_inference_latency_ms": 0.10010000005422626,
-          "p95_absolute_error": 0.052879468513357675,
-          "p95_label_standard_error": 0.003828594268168811,
-          "r2": 0.9671123176891623
+          "mae": 0.013276724819048962,
+          "mean_label_standard_error": 0.0022053430440488477,
+          "median_inference_latency_ms": 0.11324999650241807,
+          "p95_absolute_error": 0.03524553787169205,
+          "p95_label_standard_error": 0.003867495868787928,
+          "r2": 0.9830211666190142
         },
-        "passed": false
+        "passed": true
       },
-      "status": "rejected"
+      "status": "research_candidate",
+      "validation_dataset_id": "sha256:56fc549ce50cfa20959ae5d6a4ea149c0cdacba2c237fd90f159053b3b249f32"
     }
   ],
   "runtime_policy_changed": false

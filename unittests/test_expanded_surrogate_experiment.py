@@ -14,6 +14,7 @@ def test_expanded_experiment_never_promotes_and_does_not_package_failed_models(
     summary = run_expanded_surrogate_experiments(
         config=ExperimentConfig(
             development_samples=12,
+            validation_samples=6,
             audit_samples=8,
             development_paths=16,
             audit_paths=32,
@@ -31,6 +32,17 @@ def test_expanded_experiment_never_promotes_and_does_not_package_failed_models(
     }
     assert all(item["status"] == "rejected" for item in summary["products"])
     assert not list(output.rglob("model.joblib"))
+    assert all(
+        item["development_selection"]["selected_candidate"]
+        in {"balanced_l1", "boundary_l1", "smooth_l2"}
+        for item in summary["products"]
+    )
+    assert all(
+        item["development_dataset_id"]
+        != item["validation_dataset_id"]
+        != item["audit_dataset_id"]
+        for item in summary["products"]
+    )
     stored = json.loads((output / "experiment_summary.json").read_text())
     evidence = get_expanded_surrogate_evidence(output / "experiment_summary.json")
     assert stored["runtime_policy_changed"] is False

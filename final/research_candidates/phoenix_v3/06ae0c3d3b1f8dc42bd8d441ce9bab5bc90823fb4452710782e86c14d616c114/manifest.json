@@ -154,7 +154,6 @@
   },
   "experiment_id": "sha256:06ae0c3d3b1f8dc42bd8d441ce9bab5bc90823fb4452710782e86c14d616c114",
   "experiment_version": "expanded-surrogate-experiment-v2",
-  "package_path": "final/research_candidates/phoenix_v3/06ae0c3d3b1f8dc42bd8d441ce9bab5bc90823fb4452710782e86c14d616c114",
   "product_key": "phoenix_v3",
   "runtime_approved": false,
   "sealed_audit": {

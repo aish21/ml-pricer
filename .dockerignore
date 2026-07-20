@@ -20,6 +20,7 @@ venv/
 data/
 docs/
 final/results/
+final/research_candidates/**/model.joblib
 notebooks/
 clients/
 unittests/

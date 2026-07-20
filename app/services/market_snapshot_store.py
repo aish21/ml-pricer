@@ -182,3 +182,59 @@ def list_research_market_snapshots(
     finally:
         connection.close()
     return [_snapshot_metadata(row) for row in rows]
+
+
+def get_market_snapshot_store_status(
+    *,
+    db_path: Path | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Return bounded operational metadata without exposing stored payloads."""
+    try:
+        connection = _connect(db_path)
+        try:
+            count = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM research_market_snapshots"
+                ).fetchone()[0]
+            )
+            latest = connection.execute(
+                """
+                SELECT created_at, market_data_time
+                FROM research_market_snapshots
+                ORDER BY created_at DESC, snapshot_id DESC
+                LIMIT 1
+                """
+            ).fetchone()
+        finally:
+            connection.close()
+    except (MarketSnapshotStoreError, sqlite3.Error):
+        return {
+            "available": False,
+            "snapshot_count": None,
+            "latest_created_at": None,
+            "latest_market_data_time": None,
+            "latest_market_data_age_hours": None,
+        }
+
+    latest_created_at = str(latest["created_at"]) if latest is not None else None
+    latest_market_data_time = (
+        str(latest["market_data_time"]) if latest is not None else None
+    )
+    age_hours = None
+    if latest_market_data_time is not None:
+        try:
+            market_time = datetime.fromisoformat(
+                latest_market_data_time.replace("Z", "+00:00")
+            ).astimezone(timezone.utc)
+            current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+            age_hours = max(0.0, (current - market_time).total_seconds() / 3_600.0)
+        except ValueError:
+            age_hours = None
+    return {
+        "available": True,
+        "snapshot_count": count,
+        "latest_created_at": latest_created_at,
+        "latest_market_data_time": latest_market_data_time,
+        "latest_market_data_age_hours": age_hours,
+    }

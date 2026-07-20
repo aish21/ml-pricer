@@ -23,7 +23,7 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
       - name: Install tested dependency groups
-        run: python -m pip install --upgrade pip && python -m pip install -e ".[api,training,test]"
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[api,frontend,training,test]"
       - name: Static checks
         run: |
           python -m black --check app src unittests

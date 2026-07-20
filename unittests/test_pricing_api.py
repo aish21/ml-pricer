@@ -331,6 +331,7 @@ def test_health_endpoints_are_available():
     assert live.status_code == 200
     assert live.json() == {"status": "alive"}
     assert ready.status_code == 200
+    assert ready.headers["X-Request-ID"]
     assert ready.json()["contract_version"] == "phoenix-single-v1"
     assert ready.json()["contract_versions"] == [
         "phoenix-single-v1",
@@ -350,6 +351,25 @@ def test_health_endpoints_are_available():
         "available": False,
         "reason": "disabled",
     }
+    assert ready.json()["market_snapshot_store"]["available"] is True
+    assert ready.json()["operations_monitoring"]["version"] == (
+        "operations-monitoring-v1"
+    )
+
+
+def test_operations_metrics_expose_process_health_without_request_payloads():
+    client.get("/")
+    response = client.get("/health/metrics")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["operations"]["version"] == "operations-monitoring-v1"
+    assert payload["operations"]["requests"]["total"] >= 1
+    assert payload["operations"]["requests"]["server_error_rate"] >= 0.0
+    assert payload["market_snapshot_store"]["available"] is True
+    assert "X-Request-ID" in response.headers
+    assert "payload" not in payload["operations"]
 
 
 def test_surrogate_monitoring_metrics_report_disabled_by_default():
