@@ -398,7 +398,14 @@ def test_surrogate_promotion_readiness_is_non_promoting_when_disabled():
     assert readiness["policy"]["policy_id"].startswith("sha256:")
 
 
-def test_surrogate_evidence_combines_audit_and_disabled_live_monitoring():
+def test_surrogate_evidence_combines_audit_and_disabled_live_monitoring(monkeypatch):
+    monkeypatch.setattr(
+        "app.api.v1.get_surrogate_audit_evidence",
+        lambda: {
+            "available": True,
+            "sealed_audit": {"passed": True},
+        },
+    )
     response = client.get("/api/v1/surrogate-shadow/evidence")
 
     assert response.status_code == 200
