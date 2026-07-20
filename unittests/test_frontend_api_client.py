@@ -44,6 +44,48 @@ def test_api_client_routes_seasoned_contract_to_v2_endpoint():
     )
 
 
+def test_api_client_routes_richer_contract_to_v3_endpoints():
+    session = FakeSession(FakeResponse({"status": "success", "result": {"price": 1.0}}))
+    client = MlPricerApi("http://pricing", session=session)
+    contract = {"contract_version": "phoenix-single-v3"}
+
+    client.price(market={}, terms={}, contract=contract, n_paths=500)
+
+    assert session.calls[0][1].endswith(
+        "/api/v1/products/phoenix/price/richer/term-structure"
+    )
+
+
+def test_api_client_routes_reverse_convertible_to_focused_endpoint():
+    session = FakeSession(FakeResponse({"status": "success", "result": {"price": 1.0}}))
+    client = MlPricerApi("http://pricing", session=session)
+
+    client.price_barrier_reverse_convertible(
+        market={"spot": 100.0},
+        contract={"contract_version": "barrier-reverse-convertible-v1"},
+        n_paths=500,
+    )
+
+    assert session.calls[0][1].endswith(
+        "/api/v1/products/barrier-reverse-convertible/price/term-structure"
+    )
+
+
+def test_api_client_loads_bounded_ml_evidence_snapshot():
+    session = FakeSession(
+        FakeResponse({"status": "success", "evidence": {"audit": {"available": True}}})
+    )
+    client = MlPricerApi("http://pricing", session=session)
+
+    evidence = client.ml_evidence(monitoring_limit=999_999, series_limit=0)
+
+    assert evidence["audit"]["available"] is True
+    assert session.calls[0][0] == "GET"
+    assert session.calls[0][1].endswith(
+        "/api/v1/surrogate-shadow/evidence" "?monitoring_limit=100000&series_limit=1"
+    )
+
+
 def test_api_client_surfaces_sanitized_backend_message():
     session = FakeSession(
         FakeResponse(

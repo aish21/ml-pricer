@@ -3,6 +3,7 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from src.final.market import (
@@ -25,11 +26,16 @@ os.environ.setdefault(
     "MODEL_HISTORY_FILE",
     str(Path(tempfile.gettempdir()) / "ml_pricer_test_api_history.csv"),
 )
+os.environ.setdefault(
+    "MARKET_SNAPSHOT_STORE_FILE",
+    str(Path(tempfile.gettempdir()) / "ml_pricer_test_market_snapshots.sqlite3"),
+)
 
 from app.backend import app
 
 
 client = TestClient(app)
+TEST_CALIBRATION_ID = f"sha256:{'a' * 64}"
 
 VALID_REQUEST = {
     "payoff_type": "phoenix",
@@ -115,6 +121,39 @@ SEASONED_REQUEST = {
         "autocall_barrier_frac": 1.05,
         "coupon_barrier_frac": 1.0,
         "coupon_rate": 0.02,
+        "knock_in_frac": 0.7,
+        "prior_knock_in_breached": False,
+    },
+    "n_paths": 20,
+}
+
+RICHER_REQUEST = {
+    "market": TERM_STRUCTURE_REQUEST["market"],
+    "contract": {
+        "contract_version": "phoenix-single-v3",
+        "reference_level": 650.0,
+        "maturity_years": 1.0,
+        "observation_times_years": [0.18, 0.43, 0.68, 1.0],
+        "autocall_barrier_fracs": [1.10, 1.05, 1.0, 0.95],
+        "coupon_barrier_frac": 0.8,
+        "coupon_rate": 0.02,
+        "knock_in_frac": 0.6,
+        "prior_knock_in_breached": False,
+        "memory_coupon": True,
+        "unpaid_coupon_count": 2,
+    },
+    "n_paths": 20,
+}
+
+BARRIER_REVERSE_CONVERTIBLE_REQUEST = {
+    "market": TERM_STRUCTURE_REQUEST["market"],
+    "contract": {
+        "contract_version": "barrier-reverse-convertible-v1",
+        "reference_level": 620.0,
+        "maturity_years": 1.0,
+        "coupon_times_years": [0.25, 0.5, 0.75, 1.0],
+        "coupon_rate_per_period": 0.02,
+        "strike_frac": 1.0,
         "knock_in_frac": 0.7,
         "prior_knock_in_breached": False,
     },
@@ -241,7 +280,7 @@ def make_research_market_result():
         market=market,
         calibration={
             "calibration_version": "equity-research-market-v1",
-            "calibration_id": "sha256:test-calibration",
+            "calibration_id": TEST_CALIBRATION_ID,
             "term_structure_id": market.term_structure_id,
             "research_only": True,
             "methods": {
@@ -292,10 +331,12 @@ def test_health_endpoints_are_available():
     assert live.status_code == 200
     assert live.json() == {"status": "alive"}
     assert ready.status_code == 200
+    assert ready.headers["X-Request-ID"]
     assert ready.json()["contract_version"] == "phoenix-single-v1"
     assert ready.json()["contract_versions"] == [
         "phoenix-single-v1",
         "phoenix-single-v2",
+        "phoenix-single-v3",
     ]
     assert ready.json()["diagnostics_version"] == ("phoenix-reference-diagnostics-v1")
     assert ready.json()["surrogate_shadow"] == {
@@ -310,6 +351,25 @@ def test_health_endpoints_are_available():
         "available": False,
         "reason": "disabled",
     }
+    assert ready.json()["market_snapshot_store"]["available"] is True
+    assert ready.json()["operations_monitoring"]["version"] == (
+        "operations-monitoring-v1"
+    )
+
+
+def test_operations_metrics_expose_process_health_without_request_payloads():
+    client.get("/")
+    response = client.get("/health/metrics")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["operations"]["version"] == "operations-monitoring-v1"
+    assert payload["operations"]["requests"]["total"] >= 1
+    assert payload["operations"]["requests"]["server_error_rate"] >= 0.0
+    assert payload["market_snapshot_store"]["available"] is True
+    assert "X-Request-ID" in response.headers
+    assert "payload" not in payload["operations"]
 
 
 def test_surrogate_monitoring_metrics_report_disabled_by_default():
@@ -336,6 +396,26 @@ def test_surrogate_promotion_readiness_is_non_promoting_when_disabled():
     assert readiness["runtime_eligible"] is False
     assert readiness["automatic_promotion_permitted"] is False
     assert readiness["policy"]["policy_id"].startswith("sha256:")
+
+
+def test_surrogate_evidence_combines_audit_and_disabled_live_monitoring(monkeypatch):
+    monkeypatch.setattr(
+        "app.api.v1.get_surrogate_audit_evidence",
+        lambda: {
+            "available": True,
+            "sealed_audit": {"passed": True},
+        },
+    )
+    response = client.get("/api/v1/surrogate-shadow/evidence")
+
+    assert response.status_code == 200
+    evidence = response.json()["evidence"]
+    assert evidence["audit"]["available"] is True
+    assert evidence["audit"]["sealed_audit"]["passed"] is True
+    assert evidence["monitoring"]["reason"] == "disabled"
+    assert evidence["series"]["reason"] == "disabled"
+    assert evidence["readiness"]["decision"] == "insufficient_evidence"
+    assert evidence["readiness"]["automatic_promotion_permitted"] is False
 
 
 def test_product_focused_phoenix_api_uses_dated_market_snapshot():
@@ -427,6 +507,56 @@ def test_seasoned_api_rejects_schedule_without_maturity_observation():
 
     assert response.status_code == 422
     assert "final observation time" in response.json()["message"]
+
+
+def test_richer_phoenix_api_prices_memory_and_stepdown_contract():
+    response = client.post(
+        "/api/v1/products/phoenix/price/richer/term-structure",
+        json=RICHER_REQUEST,
+    )
+
+    assert response.status_code == 200
+    result = response.json()["result"]
+    assert result["contract_version"] == "phoenix-single-v3"
+    assert result["contract"]["memory_coupon"] is True
+    assert result["contract"]["unpaid_coupon_count"] == 2
+    assert result["contract"]["autocall_stepdown"] == pytest.approx(0.15)
+    assert result["surrogate_shadow"]["status"] == "not_applicable"
+
+
+def test_barrier_reverse_convertible_api_prices_and_explains_model_status():
+    response = client.post(
+        "/api/v1/products/barrier-reverse-convertible/price/term-structure",
+        json=BARRIER_REVERSE_CONVERTIBLE_REQUEST,
+    )
+
+    assert response.status_code == 200
+    result = response.json()["result"]
+    assert result["product_key"] == "barrier_reverse_convertible"
+    assert result["contract_version"] == "barrier-reverse-convertible-v1"
+    assert result["contract"]["remaining_coupon_count"] == 4
+    assert result["surrogate_shadow"]["status"] == "not_available"
+
+
+def test_barrier_reverse_convertible_diagnostics_decompose_downside_paths():
+    payload = {
+        **BARRIER_REVERSE_CONVERTIBLE_REQUEST,
+        "n_paths": 100,
+        "seed": 7,
+        "convergence_path_counts": [50, 100],
+        "spot_shocks_pct": [0.0],
+        "volatility_shocks_abs": [0.0],
+    }
+    response = client.post(
+        "/api/v1/products/barrier-reverse-convertible/diagnostics/term-structure",
+        json=payload,
+    )
+
+    assert response.status_code == 200
+    diagnostics = response.json()["diagnostics"]
+    assert diagnostics["contract_version"] == "barrier-reverse-convertible-v1"
+    assert len(diagnostics["cashflows"]["components"]) == 3
+    assert diagnostics["cashflows"]["contractual_coupon_count"] == 4
 
 
 def test_v1_diagnostics_api_returns_bounded_visualization_data():
@@ -597,7 +727,7 @@ def test_research_market_phoenix_endpoint_prices_calibrated_structure(monkeypatc
     result = response.json()["result"]
     assert result["model_version"] == "equity-gbm-piecewise-v1"
     assert result["market_calibration_version"] == "equity-research-market-v1"
-    assert result["market_calibration"]["calibration_id"] == ("sha256:test-calibration")
+    assert result["market_calibration"]["calibration_id"] == TEST_CALIBRATION_ID
     assert result["market_term_structure"]["spot"] == 620.25
 
 
@@ -695,10 +825,10 @@ def test_research_scenario_and_risk_apis_preserve_calibration(monkeypatch):
     assert scenario.status_code == 200
     assert risk.status_code == 200
     assert scenario.json()["result"]["provenance"]["market_calibration_id"] == (
-        "sha256:test-calibration"
+        TEST_CALIBRATION_ID
     )
     assert risk.json()["result"]["provenance"]["market_calibration_id"] == (
-        "sha256:test-calibration"
+        TEST_CALIBRATION_ID
     )
 
 

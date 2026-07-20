@@ -9,14 +9,20 @@ from app.frontend_support import compact_nonzero_shock
 from app.ui.api_client import FrontendApiError, MlPricerApi
 from app.ui.charts import (
     PLOTLY_CONFIG,
+    audit_error_heatmap_figure,
+    audit_slice_figure,
+    autocall_schedule_figure,
     barrier_ladder_figure,
+    calibration_option_figure,
     cashflow_figure,
     contract_timeline_figure,
     convergence_figure,
     distribution_figure,
+    latency_comparison_figure,
     price_uncertainty_figure,
     risk_figure,
     scenario_figure,
+    shadow_error_history_figure,
     surface_figure,
     term_structure_figure,
 )
@@ -25,6 +31,30 @@ from app.ui.payloads import (
     barrier_levels,
     even_observation_schedule,
 )
+
+
+ML_LESSON_STAGES: dict[str, tuple[str, str, str]] = {
+    "1 · Teacher makes answers": (
+        "Monte Carlo is the careful teacher",
+        "For each practice note, it invents many possible price journeys, "
+        "follows the payment rules, and averages the results into one price.",
+        "Slow and a little noisy, but transparent enough to be our reference.",
+    ),
+    "2 · Student practises": (
+        "ML studies questions paired with teacher answers",
+        "Each question contains market numbers and note rules. The student "
+        "changes its internal weights whenever its guessed price misses the "
+        "teacher's price.",
+        "It learns a pricing pattern. It does not memorise a list of stock tips.",
+    ),
+    "3 · Student sits an exam": (
+        "We test examples the student never saw while practising",
+        "A sealed test set tells us how far the student's prices miss the "
+        "teacher on fresh contracts. Live shadow mode then repeats the check "
+        "on real requests.",
+        "The student can be fast and still fail if its answers are not accurate.",
+    ),
+}
 
 
 def _chart(
@@ -91,6 +121,10 @@ def _safe_float(value: Any) -> float | None:
     return numeric if math.isfinite(numeric) else None
 
 
+def ml_lesson_stage(stage: str) -> tuple[str, str, str]:
+    return ML_LESSON_STAGES[stage]
+
+
 def _ml_comparison_summary(result: Mapping[str, Any]) -> dict[str, Any]:
     shadow = result.get("surrogate_shadow")
     if not isinstance(shadow, Mapping) or shadow.get("status") != "success":
@@ -102,9 +136,7 @@ def _ml_comparison_summary(result: Mapping[str, Any]) -> dict[str, Any]:
                 else "disabled"
             ),
             "reason": (
-                str(shadow.get("reason", ""))
-                if isinstance(shadow, Mapping)
-                else ""
+                str(shadow.get("reason", "")) if isinstance(shadow, Mapping) else ""
             ),
         }
 
@@ -292,62 +324,100 @@ def _render_ml_comparison(
     relative_gap = comparison["relative_gap"]
     speedup = comparison["speedup"]
     interval_label = comparison["inside_reference_interval"]
-    metrics = st.columns(5)
-    metrics[0].metric(
-        "Slow reference" if guided else "Monte Carlo reference",
-        _metric_text(comparison["reference_price"]),
-        help="A path-simulation benchmark, not an executable traded quote.",
-    )
-    metrics[1].metric(
-        "Learned shortcut" if guided else "ML surrogate",
-        _metric_text(comparison["ml_price"]),
-        delta=f"{comparison['signed_gap']:+.6f} vs MC",
-        help="The neural surrogate learned the mapping from inputs to prices.",
-    )
-    metrics[2].metric(
-        "Difference" if guided else "Absolute gap",
-        _metric_text(comparison["absolute_gap"]),
-        help="Absolute difference between the ML estimate and Monte Carlo reference.",
-    )
-    metrics[3].metric(
-        "Difference in %" if guided else "Relative gap",
-        f"{relative_gap:.3%}" if relative_gap is not None else "—",
-    )
-    metrics[4].metric(
-        "Shortcut speed" if guided else "Observed speed-up",
-        f"{speedup:,.1f}×" if speedup is not None else "Too fast to time",
-        help="Reference latency divided by ML inference latency for this request.",
-    )
     interval_text = (
         "inside"
         if interval_label is True
-        else "outside"
-        if interval_label is False
-        else "not compared with"
+        else "outside" if interval_label is False else "not compared with"
     )
-    st.markdown(
-        f"""
-        <div class="mlp-ml-explainer">
-          <div>
-            <span>What is happening?</span>
-            <p>Monte Carlo prices thousands of invented paths. The ML model has
-            learned a much faster approximation from a large collection of
-            contracts that were priced in advance.</p>
-          </div>
-          <div>
-            <span>Can ML change the answer?</span>
-            <p>No. It runs in <b>shadow mode</b>: we measure it, but the served
-            price remains Monte Carlo. This ML estimate is {interval_text} the
-            reference simulation’s 95% noise interval.</p>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    if guided:
+        gap_text = (
+            f"{relative_gap:.2%}" if relative_gap is not None else "not available"
+        )
+        speed_text = f"{speedup:,.1f}×" if speedup is not None else "still measuring"
+        st.markdown(
+            f"""
+            <div class="mlp-answer-race">
+              <span class="mlp-section-label">Same question · two calculators</span>
+              <div class="mlp-answer-lanes">
+                <div>
+                  <small>The careful teacher</small>
+                  <strong>{escape(_metric_text(comparison["reference_price"]))}</strong>
+                  <p>Monte Carlo builds and checks thousands of pretend futures.</p>
+                </div>
+                <i>compared with</i>
+                <div>
+                  <small>The fast student</small>
+                  <strong>{escape(_metric_text(comparison["ml_price"]))}</strong>
+                  <p>ML uses the shortcut it learned from the teacher's examples.</p>
+                </div>
+              </div>
+              <p class="mlp-answer-verdict">
+                The answers are <b>{escape(gap_text)} apart</b>. The student was
+                <b>{escape(speed_text)} faster</b> on this request. We still show
+                the teacher's answer because the student is practising in
+                <b>shadow mode</b>, not making the final decision.
+              </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            "Important: the ML model predicts the note's estimated value. It "
+            "does not predict tomorrow's stock direction or promise a profit. "
+            f"Its answer is {interval_text} the teacher's simulation-noise range."
+        )
+    else:
+        metrics = st.columns(5)
+        metrics[0].metric(
+            "Monte Carlo reference",
+            _metric_text(comparison["reference_price"]),
+            help="A path-simulation benchmark, not an executable traded quote.",
+        )
+        metrics[1].metric(
+            "ML surrogate",
+            _metric_text(comparison["ml_price"]),
+            delta=f"{comparison['signed_gap']:+.6f} vs MC",
+            help="The neural surrogate learned the mapping from inputs to prices.",
+        )
+        metrics[2].metric(
+            "Absolute gap",
+            _metric_text(comparison["absolute_gap"]),
+            help="Absolute difference between the ML estimate and Monte Carlo reference.",
+        )
+        metrics[3].metric(
+            "Relative gap",
+            f"{relative_gap:.3%}" if relative_gap is not None else "—",
+        )
+        metrics[4].metric(
+            "Observed speed-up",
+            f"{speedup:,.1f}×" if speedup is not None else "Too fast to time",
+            help="Reference latency divided by ML inference latency for this request.",
+        )
+        st.markdown(
+            f"""
+            <div class="mlp-ml-explainer">
+              <div>
+                <span>What is happening?</span>
+                <p>Monte Carlo prices thousands of invented paths. The ML model has
+                learned a much faster approximation from a large collection of
+                contracts that were priced in advance.</p>
+              </div>
+              <div>
+                <span>Can ML change the answer?</span>
+                <p>No. It runs in <b>shadow mode</b>: we measure it, but the served
+                price remains Monte Carlo. This ML estimate is {interval_text} the
+                reference simulation’s 95% noise interval.</p>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
     validation = comparison["validation_metrics"]
     if validation:
-        with st.expander("How did this ML model perform on examples it never trained on?"):
+        with st.expander(
+            "How did this ML model perform on examples it never trained on?"
+        ):
             st.write(
                 "These frozen audit numbers come from a held-out dataset. "
                 "Lower error is better; R² closer to 1 means the model explains "
@@ -687,6 +757,48 @@ def _render_contract_and_market(
             else None
         ),
     )
+    contract = config.contract or {}
+    if contract.get("contract_version") == "phoenix-single-v3":
+        memory_coupon = bool(contract.get("memory_coupon"))
+        unpaid_coupon_count = int(contract.get("unpaid_coupon_count", 0))
+        autocall_barriers = list(contract.get("autocall_barrier_fracs") or [])
+        first_barrier = float(autocall_barriers[0])
+        final_barrier = float(autocall_barriers[-1])
+        st.markdown("#### Richer contract mechanics")
+        columns = st.columns(3)
+        columns[0].metric(
+            "Coupon memory",
+            "On" if memory_coupon else "Off",
+            help=(
+                "When on, missed coupons accumulate and can be recovered at a "
+                "later successful coupon observation."
+            ),
+        )
+        columns[1].metric(
+            "Coupons carried in",
+            str(unpaid_coupon_count),
+            help="Missed memory coupons already outstanding at valuation.",
+        )
+        columns[2].metric(
+            "Autocall step-down",
+            f"{first_barrier:.0%} → {final_barrier:.0%}",
+            help=("The early-exit hurdle can become lower at later observations."),
+        )
+        if memory_coupon:
+            st.info(
+                "A missed coupon is remembered, not guaranteed. Stored coupons "
+                "pay only if a later active observation reaches the coupon line; "
+                "the note can still mature without recovering them."
+            )
+        _chart(
+            autocall_schedule_figure(
+                observations,
+                autocall_barriers,
+                reference_level=reference_level,
+                coupon_barrier_frac=float(config.terms["coupon_barrier_frac"]),
+            ),
+            key="autocall_schedule",
+        )
     left, right = st.columns([1.15, 0.85], gap="large")
     with left:
         if config.experience_mode == "Guided":
@@ -731,6 +843,70 @@ def _render_contract_and_market(
             f"{market.get('currency')} · {market.get('source')}"
         )
         st.code(str(market.get("term_structure_id", "request-derived market")))
+
+    calibration = result.get("market_calibration")
+    if isinstance(calibration, Mapping) and calibration:
+        quality = calibration.get("quality") or {}
+        freshness = quality.get("freshness") or {}
+        coverage = quality.get("coverage") or {}
+        snapshot = result.get("market_snapshot_record") or {}
+        st.markdown("#### Research market quality")
+        st.caption(
+            "These checks describe the inputs that were frozen for this run. "
+            "Passing them means usable research data—not an executable dealer quote."
+        )
+        quality_columns = st.columns(4)
+        quality_columns[0].metric(
+            "Quality checks",
+            f"{int(quality.get('passed_checks', 0))}/{int(quality.get('total_checks', 0))}",
+        )
+        quality_columns[1].metric(
+            "Quote age",
+            f"{float(freshness.get('quote_age_seconds', 0.0)) / 60.0:.1f} min",
+        )
+        quality_columns[2].metric(
+            "Widest option spread",
+            f"{float(coverage.get('maximum_combined_spread_fraction', 0.0)):.1%}",
+        )
+        quality_columns[3].metric(
+            "Option tenors",
+            str(int(coverage.get("option_tenors", 0))),
+        )
+        _chart(
+            calibration_option_figure(calibration),
+            key="calibration_options",
+        )
+        _render_table(
+            [
+                {
+                    "check": str(check.get("name", "")).replace("_", " "),
+                    "passed": bool(check.get("passed")),
+                    "value": check.get("value"),
+                    "limit": (
+                        f"≤ {check['maximum']}"
+                        if check.get("maximum") is not None
+                        else f"≥ {check.get('minimum')}"
+                    ),
+                    "units": check.get("units"),
+                }
+                for check in quality.get("checks") or []
+            ],
+            [
+                ("check", "Check"),
+                ("passed", "Pass"),
+                ("value", "Observed"),
+                ("limit", "Research limit"),
+                ("units", "Units"),
+            ],
+        )
+        if snapshot:
+            st.caption(
+                f"Immutable snapshot {snapshot.get('snapshot_id')} · "
+                f"stored {snapshot.get('created_at')}"
+            )
+        with st.expander("Why this is still research data"):
+            for warning in calibration.get("warnings") or []:
+                st.markdown(f"- {warning}")
 
     if config.experience_mode == "Quant":
         st.markdown("#### Normalized pricing parameters")
@@ -1016,6 +1192,616 @@ def _render_risk_workspace(
         _render_risk_lab(client, config=config, market=market)
 
 
+def _readiness_target(check: Mapping[str, Any]) -> str:
+    if check.get("minimum") is not None:
+        return f"≥ {_metric_text(check['minimum'], 4)}"
+    if check.get("maximum") is not None:
+        return f"≤ {_metric_text(check['maximum'], 4)}"
+    return "Policy rule"
+
+
+def _render_guided_ml_school(result: Mapping[str, Any] | None) -> None:
+    st.markdown(
+        """
+        <div class="mlp-model-school mlp-model-school-result">
+          <span class="mlp-section-label">First, forget the jargon</span>
+          <h3>ML is a fast student copying a careful teacher.</h3>
+          <div class="mlp-school-flow">
+            <div><b>Note + market</b><small>the question</small></div>
+            <i>→</i>
+            <div><b>Monte Carlo</b><small>teacher makes an answer</small></div>
+            <i>→</i>
+            <div><b>ML model</b><small>student learns the shortcut</small></div>
+          </div>
+          <p>
+            In this project, the student's target is one number: <b>the note's
+            estimated price today</b>. It is not predicting tomorrow's share
+            price and it is not deciding whether anyone should invest.
+          </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    chosen_stage = st.radio(
+        "Tap through the ML lesson",
+        list(ML_LESSON_STAGES),
+        key="guided_ml_lesson_stage",
+        horizontal=True,
+    )
+    title, body, takeaway = ml_lesson_stage(str(chosen_stage))
+    st.markdown(
+        f"""
+        <div class="mlp-lesson-stage">
+          <span>{escape(str(chosen_stage))}</span>
+          <strong>{escape(title)}</strong>
+          <p>{escape(body)}</p>
+          <aside>{escape(takeaway)}</aside>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    answer = st.radio(
+        "Quick check: if the underlier rises tomorrow, what has the ML model proved?",
+        [
+            "Nothing about its pricing accuracy yet",
+            "That it predicted the rise",
+            "That the note must make money",
+        ],
+        index=None,
+        key="guided_ml_result_check",
+        horizontal=True,
+    )
+    if answer is None:
+        st.caption("Choose an answer. This is a learning check, not a test.")
+    elif answer == "Nothing about its pricing accuracy yet":
+        st.success(
+            "Exactly. We judge this ML model by how closely it prices fresh "
+            "notes—not by tomorrow's market direction."
+        )
+    else:
+        st.info(
+            "Not quite. This model predicts the note's estimated price, not the "
+            "next market move or a guaranteed investment result."
+        )
+
+    comparison = _ml_comparison_summary(result or {})
+    if comparison.get("available"):
+        st.markdown(
+            f"""
+            <div class="mlp-current-lesson">
+              <span>On the note you just built</span>
+              <p>The teacher answered
+              <b>{escape(_metric_text(comparison["reference_price"]))}</b> and
+              the student answered
+              <b>{escape(_metric_text(comparison["ml_price"]))}</b>. Their gap is
+              <b>{escape(_metric_text(comparison["absolute_gap"]))}</b> per unit.
+              The teacher's answer is still the one in charge.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def _render_guided_ml_evidence_snapshot(evidence: Mapping[str, Any]) -> None:
+    audit = evidence.get("audit") or {}
+    monitoring = evidence.get("monitoring") or {}
+    series = evidence.get("series") or {}
+    readiness = evidence.get("readiness") or {}
+    if not audit.get("available"):
+        st.warning(str(audit.get("reason", "The model report card is unavailable.")))
+        return
+
+    artifact = audit.get("artifact") or {}
+    sealed = audit.get("sealed_audit") or {}
+    price_metrics = sealed.get("price_metrics") or {}
+    st.markdown("### The student's report card")
+    st.write(
+        "We do not trust the student because one answer looked good. We give it "
+        "questions it never saw during practice, then watch it quietly on new "
+        "requests while the teacher stays in charge."
+    )
+    st.markdown(
+        """
+        <div class="mlp-evidence-split">
+          <div><span>1 · Fresh exam</span><strong>Unseen questions</strong>
+          <p>These notes were hidden while the model practised. That makes the
+          score harder to fake by memorising.</p></div>
+          <div><span>2 · Quiet practice</span><strong>Shadow mode</strong>
+          <p>Both calculators answer live requests. We record the gap, but only
+          Monte Carlo supplies the reference price.</p></div>
+          <div><span>3 · Safety lock</span><strong>Human review</strong>
+          <p>Passing rules can only make the model ready for review. This screen
+          cannot put ML in charge.</p></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    exam_columns = st.columns(3)
+    exam_columns[0].metric(
+        "Fresh exam questions",
+        f"{int(price_metrics.get('n_samples') or audit.get('datasets', {}).get('audit_samples') or 0):,}",
+        help="Notes hidden from the ML model during training.",
+    )
+    exam_columns[1].metric(
+        "Average miss per 1.00",
+        _metric_text(price_metrics.get("mae")),
+        help="On average, how far the student's price was from the teacher's price.",
+    )
+    exam_columns[2].metric(
+        "95-in-100 miss limit",
+        _metric_text(price_metrics.get("p95_absolute_error")),
+        help="About 95% of absolute pricing misses were no larger than this.",
+    )
+    st.caption(
+        "For the two error numbers, smaller is better. They are measured per "
+        "1.00 of note principal, so 0.010000 means one cent per dollar."
+    )
+
+    live_available = monitoring.get("available") is True
+    live_overall = monitoring.get("overall") or {}
+    st.markdown("#### How is the student doing on new requests?")
+    live_columns = st.columns(4)
+    live_columns[0].metric(
+        "Requests watched",
+        f"{int(live_overall.get('n_observations') or 0):,}",
+    )
+    live_columns[1].metric(
+        "Average live miss",
+        _metric_text(live_overall.get("mae")),
+    )
+    live_columns[2].metric(
+        "Large live miss",
+        _metric_text(live_overall.get("p95_absolute_error")),
+    )
+    live_columns[3].metric(
+        "Typical speed advantage",
+        (
+            f"{float(live_overall['median_speedup']):,.1f}×"
+            if live_overall.get("median_speedup") is not None
+            else "Still collecting"
+        ),
+    )
+    observations = series.get("observations") or []
+    if not live_available or not observations:
+        st.info(
+            "There are not enough fresh shadow-mode requests for a useful trend "
+            "yet. The sealed exam still counts; the live report card is simply "
+            "waiting for more examples."
+        )
+
+    decision = str(readiness.get("decision", "insufficient_evidence"))
+    st.markdown("#### Is the student ready to be considered for more responsibility?")
+    if decision == "ready_for_review":
+        st.success(
+            "All frozen safety checks passed. This means ready for an independent "
+            "human review—not automatically ready to replace Monte Carlo."
+        )
+    elif decision == "not_ready":
+        st.error(
+            "No. There is enough evidence to judge it, and at least one safety "
+            "check failed. Monte Carlo remains in charge."
+        )
+    else:
+        st.warning(
+            "Not yet. We need more varied, independent live examples. Waiting is "
+            "the safe answer; Monte Carlo remains in charge."
+        )
+    st.caption(
+        str(
+            readiness.get(
+                "next_action",
+                "Collect broader independent evidence before changing runtime policy.",
+            )
+        )
+    )
+
+    with st.expander("Show me the report-card pictures"):
+        st.write(
+            "Each dot or square is a group of unseen questions. Look for small, "
+            "even errors rather than one impressive average hiding weak corners."
+        )
+        left, right = st.columns(2, gap="large")
+        with left:
+            _chart(audit_slice_figure(audit), key="guided_audit_slice_evidence")
+        with right:
+            _chart(
+                audit_error_heatmap_figure(audit),
+                key="guided_audit_joint_evidence",
+            )
+        if live_available and observations:
+            left, right = st.columns(2, gap="large")
+            with left:
+                _chart(
+                    shadow_error_history_figure(series),
+                    key="guided_shadow_error_history",
+                )
+            with right:
+                _chart(
+                    latency_comparison_figure(series),
+                    key="guided_shadow_latency_evidence",
+                )
+
+    with st.expander("Open the technical model-audit details"):
+        st.caption(
+            f"{artifact.get('model_version')} · {artifact.get('contract_version')} · "
+            f"{artifact.get('runtime_policy')} · sealed audit "
+            f"{'passed' if sealed.get('passed') else 'did not pass'} · "
+            f"R² {_metric_text(price_metrics.get('r2'), 4)}"
+        )
+        evidence_counts = readiness.get("evidence") or {}
+        count_columns = st.columns(4)
+        count_columns[0].metric(
+            "Distinct cases",
+            f"{int(evidence_counts.get('n_distinct_cases') or 0):,}",
+        )
+        count_columns[1].metric(
+            "Symbols",
+            f"{int(evidence_counts.get('n_unique_symbols') or 0):,}",
+        )
+        count_columns[2].metric(
+            "Market dates",
+            f"{int(evidence_counts.get('n_distinct_market_dates') or 0):,}",
+        )
+        count_columns[3].metric(
+            "Evidence span",
+            (
+                f"{float(evidence_counts['observation_span_days']):.1f} days"
+                if evidence_counts.get("observation_span_days") is not None
+                else "Collecting"
+            ),
+        )
+        checks = readiness.get("checks") or {}
+        check_rows = [
+            {
+                "gate": name.replace("_", " ").title(),
+                "kind": str(check.get("kind", "")).title(),
+                "observed": _metric_text(check.get("value"), 4),
+                "target": _readiness_target(check),
+                "passed": bool(check.get("passed")),
+            }
+            for name, check in checks.items()
+            if isinstance(check, Mapping)
+        ]
+        if check_rows:
+            _render_table(
+                check_rows,
+                [
+                    ("gate", "Gate"),
+                    ("kind", "Type"),
+                    ("observed", "Observed"),
+                    ("target", "Required"),
+                    ("passed", "Pass"),
+                ],
+            )
+
+        expansion = evidence.get("expansion_experiments") or {}
+        if expansion.get("available"):
+            st.markdown("##### Research models for additional products")
+            experiment_rows = []
+            for candidate in expansion.get("products") or []:
+                candidate_audit = candidate.get("sealed_audit") or {}
+                metrics = candidate_audit.get("metrics") or {}
+                experiment_rows.append(
+                    {
+                        "product": str(candidate.get("product_key", "")).replace(
+                            "_", " "
+                        ),
+                        "contract": candidate.get("contract_version"),
+                        "audit": (
+                            "Passed" if candidate_audit.get("passed") else "Rejected"
+                        ),
+                        "mae": metrics.get("mae"),
+                        "p95": metrics.get("p95_absolute_error"),
+                        "runtime": (
+                            "Approved"
+                            if candidate.get("runtime_approved")
+                            else "Reference only"
+                        ),
+                    }
+                )
+            _render_table(
+                experiment_rows,
+                [
+                    ("product", "Product"),
+                    ("contract", "Contract"),
+                    ("audit", "Sealed audit"),
+                    ("mae", "MAE"),
+                    ("p95", "P95 error"),
+                    ("runtime", "Runtime"),
+                ],
+                number_formats={"mae": ".6f", "p95": ".6f"},
+            )
+
+    st.download_button(
+        "Download the full evidence snapshot",
+        data=json.dumps(evidence, indent=2, sort_keys=True).encode("utf-8"),
+        file_name="ml-pricer-evidence.json",
+        mime="application/json",
+    )
+
+
+def _render_ml_evidence(
+    client: MlPricerApi,
+    *,
+    guided: bool,
+    result: Mapping[str, Any] | None = None,
+) -> None:
+    heading = (
+        "## Is the learned shortcut earning our trust?"
+        if guided
+        else "## ML Evidence Lab"
+    )
+    st.markdown(heading)
+    st.write(
+        (
+            "A good-looking answer once is not enough. We separate the model’s "
+            "closed-book exam from what it does on new requests over time."
+        )
+        if guided
+        else (
+            "Frozen sealed-audit evidence, bounded live shadow telemetry, drift "
+            "diagnostics, and non-promoting readiness gates."
+        )
+    )
+    if guided:
+        _render_guided_ml_school(result)
+        st.markdown("### Now check the evidence")
+        st.write(
+            "The lesson above explains the idea. The report below contains the "
+            "actual stored scores for this project's ML model."
+        )
+    refresh = st.button(
+        "Refresh evidence",
+        key="refresh_ml_evidence",
+        help="Reload the sealed artifact report and the latest shadow observations.",
+    )
+    if refresh or (
+        st.session_state.get("ml_evidence_snapshot") is None
+        and st.session_state.get("ml_evidence_error") is None
+    ):
+        try:
+            with st.spinner("Loading model evidence…"):
+                st.session_state["ml_evidence_snapshot"] = client.ml_evidence()
+                st.session_state.pop("ml_evidence_error", None)
+        except FrontendApiError as exc:
+            st.session_state["ml_evidence_error"] = str(exc)
+            st.session_state["ml_evidence_snapshot"] = None
+
+    evidence = st.session_state.get("ml_evidence_snapshot")
+    if not isinstance(evidence, Mapping):
+        st.error(
+            st.session_state.get(
+                "ml_evidence_error",
+                "The ML evidence snapshot is not available.",
+            )
+        )
+        return
+    if guided:
+        _render_guided_ml_evidence_snapshot(evidence)
+        return
+
+    audit = evidence.get("audit") or {}
+    monitoring = evidence.get("monitoring") or {}
+    series = evidence.get("series") or {}
+    readiness = evidence.get("readiness") or {}
+    if not audit.get("available"):
+        st.warning(str(audit.get("reason", "The sealed audit is unavailable.")))
+        return
+
+    artifact = audit.get("artifact") or {}
+    sealed = audit.get("sealed_audit") or {}
+    price_metrics = sealed.get("price_metrics") or {}
+    st.markdown(
+        """
+        <div class="mlp-evidence-split">
+          <div><span>Closed-book exam</span><strong>Sealed audit</strong>
+          <p>A fixed dataset the selected model was not allowed to train on.
+          These numbers do not change when you price another note.</p></div>
+          <div><span>Work after graduation</span><strong>Live shadow evidence</strong>
+          <p>New requests observed while Monte Carlo remains in charge.
+          This is where drift, outages and real runtime behaviour appear.</p></div>
+          <div><span>Safety decision</span><strong>Promotion gates</strong>
+          <p>Frozen rules can permit human review, but this screen can never
+          promote the model or replace the reference pricer.</p></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("#### Sealed audit report card")
+    audit_columns = st.columns(4)
+    audit_columns[0].metric(
+        "Held-out examples",
+        f"{int(price_metrics.get('n_samples') or audit.get('datasets', {}).get('audit_samples') or 0):,}",
+    )
+    audit_columns[1].metric(
+        "Mean absolute error", _metric_text(price_metrics.get("mae"))
+    )
+    audit_columns[2].metric(
+        "95th-percentile error",
+        _metric_text(price_metrics.get("p95_absolute_error")),
+    )
+    audit_columns[3].metric("R²", _metric_text(price_metrics.get("r2"), 4))
+    st.caption(
+        f"{artifact.get('model_version')} · {artifact.get('contract_version')} · "
+        f"{artifact.get('runtime_policy')} · audit "
+        f"{'passed' if sealed.get('passed') else 'did not pass'}"
+    )
+    left, right = st.columns(2, gap="large")
+    with left:
+        _chart(audit_slice_figure(audit), key="audit_slice_evidence")
+    with right:
+        _chart(audit_error_heatmap_figure(audit), key="audit_joint_evidence")
+
+    expansion = evidence.get("expansion_experiments") or {}
+    if expansion.get("available"):
+        st.markdown("#### Product-expansion experiments")
+        st.caption(
+            "These candidates cover newer payoff contracts. Passing packages "
+            "a research artifact only; runtime approval remains a separate decision."
+        )
+        experiment_rows = []
+        for candidate in expansion.get("products") or []:
+            candidate_audit = candidate.get("sealed_audit") or {}
+            metrics = candidate_audit.get("metrics") or {}
+            experiment_rows.append(
+                {
+                    "product": str(candidate.get("product_key", "")).replace("_", " "),
+                    "contract": candidate.get("contract_version"),
+                    "audit": (
+                        "Passed" if candidate_audit.get("passed") else "Rejected"
+                    ),
+                    "mae": metrics.get("mae"),
+                    "p95": metrics.get("p95_absolute_error"),
+                    "r2": metrics.get("r2"),
+                    "runtime": (
+                        "Approved"
+                        if candidate.get("runtime_approved")
+                        else "Reference only"
+                    ),
+                }
+            )
+        _render_table(
+            experiment_rows,
+            [
+                ("product", "Product"),
+                ("contract", "Contract"),
+                ("audit", "Sealed audit"),
+                ("mae", "MAE"),
+                ("p95", "P95 error"),
+                ("r2", "R²"),
+                ("runtime", "Runtime"),
+            ],
+            number_formats={"mae": ".6f", "p95": ".6f", "r2": ".4f"},
+        )
+        st.caption(
+            f"{expansion.get('experiment_version')} · generated "
+            f"{expansion.get('generated_at')} · runtime policy unchanged"
+        )
+
+    st.markdown("#### Live shadow report card")
+    live_available = monitoring.get("available") is True
+    live_overall = monitoring.get("overall") or {}
+    live_columns = st.columns(5)
+    live_columns[0].metric(
+        "Observed requests",
+        f"{int(live_overall.get('n_observations') or 0):,}",
+    )
+    live_columns[1].metric("Live MAE", _metric_text(live_overall.get("mae")))
+    live_columns[2].metric(
+        "Live P95 error",
+        _metric_text(live_overall.get("p95_absolute_error")),
+    )
+    live_columns[3].metric(
+        "Median speed-up",
+        (
+            f"{float(live_overall['median_speedup']):,.1f}×"
+            if live_overall.get("median_speedup") is not None
+            else "Collecting"
+        ),
+    )
+    drift = monitoring.get("feature_drift") or {}
+    live_columns[4].metric(
+        "Inputs beyond 4σ",
+        (
+            f"{float(drift['above_four_sigma_fraction']):.1%}"
+            if drift.get("above_four_sigma_fraction") is not None
+            else "Collecting"
+        ),
+    )
+    observations = series.get("observations") or []
+    if live_available and observations:
+        left, right = st.columns(2, gap="large")
+        with left:
+            _chart(shadow_error_history_figure(series), key="shadow_error_history")
+        with right:
+            _chart(latency_comparison_figure(series), key="shadow_latency_evidence")
+    else:
+        st.info(
+            "The sealed audit is valid, but there are not yet enough new-schema "
+            "live observations for history and speed charts. Price new-issue "
+            "Phoenix notes to collect shadow evidence."
+        )
+
+    st.markdown("#### Promotion-readiness gates")
+    decision = str(readiness.get("decision", "insufficient_evidence"))
+    if decision == "ready_for_review":
+        st.success(
+            "Every frozen gate passed. The artifact is ready for independent "
+            "human review—not automatic production promotion."
+        )
+    elif decision == "not_ready":
+        st.error(
+            "There is enough evidence to judge the model, and at least one "
+            "quality, drift, integrity or operations gate failed."
+        )
+    else:
+        st.warning(
+            "There is not enough independent live evidence yet. The correct "
+            "decision is to keep Monte Carlo in charge and collect broader cases."
+        )
+    evidence_counts = readiness.get("evidence") or {}
+    count_columns = st.columns(4)
+    count_columns[0].metric(
+        "Cases",
+        f"{int(evidence_counts.get('n_distinct_cases') or 0):,}",
+    )
+    count_columns[1].metric(
+        "Symbols",
+        f"{int(evidence_counts.get('n_unique_symbols') or 0):,}",
+    )
+    count_columns[2].metric(
+        "Market dates",
+        f"{int(evidence_counts.get('n_distinct_market_dates') or 0):,}",
+    )
+    count_columns[3].metric(
+        "Evidence span",
+        (
+            f"{float(evidence_counts['observation_span_days']):.1f} days"
+            if evidence_counts.get("observation_span_days") is not None
+            else "Collecting"
+        ),
+    )
+    checks = readiness.get("checks") or {}
+    check_rows = [
+        {
+            "gate": name.replace("_", " ").title(),
+            "kind": str(check.get("kind", "")).title(),
+            "observed": _metric_text(check.get("value"), 4),
+            "target": _readiness_target(check),
+            "passed": bool(check.get("passed")),
+        }
+        for name, check in checks.items()
+        if isinstance(check, Mapping)
+    ]
+    if check_rows:
+        _render_table(
+            check_rows,
+            [
+                ("gate", "Gate"),
+                ("kind", "Type"),
+                ("observed", "Observed"),
+                ("target", "Required"),
+                ("passed", "Pass"),
+            ],
+        )
+    st.caption(
+        str(
+            readiness.get(
+                "next_action",
+                "Collect broader independent evidence before changing runtime policy.",
+            )
+        )
+    )
+    st.download_button(
+        "Download ML evidence snapshot",
+        data=json.dumps(evidence, indent=2, sort_keys=True).encode("utf-8"),
+        file_name="ml-pricer-evidence.json",
+        mime="application/json",
+    )
+
+
 def _render_audit(
     *,
     result: Mapping[str, Any],
@@ -1068,6 +1854,188 @@ def _render_audit(
     )
 
 
+def _render_barrier_reverse_convertible_results(
+    *,
+    result: Mapping[str, Any],
+    diagnostics: Mapping[str, Any],
+    config: PricingConfiguration,
+    market: Mapping[str, Any],
+) -> None:
+    contract = result.get("contract") or config.contract or {}
+    reference = float(contract["reference_level"])
+    strike_level = reference * float(contract["strike_frac"])
+    knock_in_level = reference * float(contract["knock_in_frac"])
+    cashflows = diagnostics.get("cashflows") or {}
+    coupon_times = list(contract.get("coupon_times_years") or [])
+    st.markdown(
+        f"### {config.symbol} · Barrier reverse convertible · " f"{config.trade_stage}"
+    )
+    st.caption(
+        f"Market as of {market.get('market_data_time')} · "
+        "Monte Carlo reference price per unit notional"
+    )
+    overview, mechanics, diagnostics_tab, market_tab, audit_tab = st.tabs(
+        ["Overview", "How it works", "Diagnostics", "Market evidence", "Audit"]
+    )
+    with overview:
+        price = float(result["price"])
+        interval = result.get("confidence_interval") or [price, price]
+        metrics = st.columns(4)
+        metrics[0].metric("Reference price", f"{price:.6f}")
+        metrics[1].metric(
+            "95% simulation interval",
+            f"{float(interval[0]):.4f} – {float(interval[1]):.4f}",
+        )
+        metrics[2].metric(
+            "Downside redemption paths",
+            f"{float(cashflows.get('downside_probability', 0.0)):.1%}",
+        )
+        metrics[3].metric(
+            "Contractual coupons",
+            str(int(cashflows.get("contractual_coupon_count", 0))),
+        )
+        left, right = st.columns(2, gap="large")
+        with left:
+            _chart(price_uncertainty_figure(result), key="brc_price")
+        with right:
+            _chart(
+                barrier_ladder_figure(
+                    [
+                        {
+                            "name": "Knock-in barrier",
+                            "level": knock_in_level,
+                            "kind": "risk",
+                        },
+                        {
+                            "name": "Live spot",
+                            "level": float(market["spot"]),
+                            "kind": "market",
+                        },
+                        {
+                            "name": "Reference level",
+                            "level": reference,
+                            "kind": "reference",
+                        },
+                        {
+                            "name": "Conversion strike",
+                            "level": strike_level,
+                            "kind": "autocall",
+                        },
+                    ]
+                ),
+                key="brc_barriers",
+            )
+        st.info(
+            "The displayed price is still Monte Carlo. No ML shortcut is shown "
+            "for this product because no reverse-convertible model has passed "
+            "the sealed acceptance gates yet."
+        )
+
+    with mechanics:
+        st.markdown("#### Three pieces, read in order")
+        total_coupon = len(coupon_times) * float(contract["coupon_rate_per_period"])
+        st.markdown(
+            f"""
+            <div class="mlp-rulebook">
+              <div>
+                <span>01 · Coupons</span>
+                <strong>{len(coupon_times)} × {float(contract["coupon_rate_per_period"]):.2%}</strong>
+                <p>This research contract pays each coupon regardless of the
+                underlier level. The undiscounted total is {total_coupon:.2%}
+                per unit notional. Issuer default risk is not modelled.</p>
+              </div>
+              <div>
+                <span>02 · Knock-in memory</span>
+                <strong>{knock_in_level:,.2f}</strong>
+                <p>Touching this line remembers that a serious fall happened.
+                It does not create an immediate cash loss; it changes the rule
+                checked at maturity.</p>
+              </div>
+              <div>
+                <span>03 · Final redemption</span>
+                <strong>Strike · {strike_level:,.2f}</strong>
+                <p>If knock-in occurred and the final level is below the strike,
+                redemption becomes final level ÷ strike. Otherwise principal
+                returns as 1.00.</p>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        _chart(
+            contract_timeline_figure(coupon_times, config.maturity_years),
+            key="brc_timeline",
+        )
+        st.warning(
+            "A high coupon is compensation for conditional downside exposure, "
+            "not free yield. This model also omits issuer credit, funding, fees, "
+            "tax, liquidity, and hedging costs."
+        )
+
+    with diagnostics_tab:
+        diagnostic_metrics = st.columns(3)
+        diagnostic_metrics[0].metric(
+            "Knock-in frequency",
+            f"{float(cashflows.get('knock_in_probability', 0.0)):.1%}",
+        )
+        diagnostic_metrics[1].metric(
+            "Loss-linked ending",
+            f"{float(cashflows.get('downside_probability', 0.0)):.1%}",
+        )
+        diagnostic_metrics[2].metric(
+            "Undiscounted coupons",
+            f"{float(cashflows.get('total_coupon_per_unit_undiscounted', 0.0)):.2%}",
+        )
+        first, second = st.columns(2, gap="large")
+        with first:
+            _chart(convergence_figure(diagnostics), key="brc_convergence")
+        with second:
+            _chart(cashflow_figure(diagnostics), key="brc_cashflows")
+        first, second = st.columns(2, gap="large")
+        with first:
+            _chart(distribution_figure(diagnostics), key="brc_distribution")
+        with second:
+            _chart(surface_figure(diagnostics), key="brc_surface")
+
+    with market_tab:
+        _chart(term_structure_figure(market), key="brc_term_structure")
+        calibration = result.get("market_calibration")
+        if isinstance(calibration, Mapping) and calibration:
+            quality = calibration.get("quality") or {}
+            st.markdown("#### Frozen research calibration")
+            quality_columns = st.columns(3)
+            quality_columns[0].metric(
+                "Checks passed",
+                f"{quality.get('passed_checks', 0)}/{quality.get('total_checks', 0)}",
+            )
+            quality_columns[1].metric(
+                "Quote age",
+                f"{float((quality.get('freshness') or {}).get('quote_age_seconds', 0)) / 60:.1f} min",
+            )
+            quality_columns[2].metric(
+                "Snapshot",
+                (
+                    "Immutable"
+                    if (result.get("market_snapshot_record") or {}).get("immutable")
+                    else "Request-derived"
+                ),
+            )
+            _chart(
+                calibration_option_figure(calibration),
+                key="brc_calibration_options",
+            )
+        else:
+            st.caption("Manual market inputs were frozen directly from the form.")
+
+    with audit_tab:
+        _render_audit(
+            result=result,
+            diagnostics=diagnostics,
+            config=config,
+            market=market,
+        )
+
+
 def render_pricing_results(
     client: MlPricerApi,
     *,
@@ -1076,6 +2044,14 @@ def render_pricing_results(
     config: PricingConfiguration,
     market: Mapping[str, Any],
 ) -> None:
+    if config.product_key == "barrier_reverse_convertible":
+        _render_barrier_reverse_convertible_results(
+            result=result,
+            diagnostics=diagnostics,
+            config=config,
+            market=market,
+        )
+        return
     guided = config.experience_mode == "Guided"
     if guided:
         st.markdown(f"### Your {config.symbol} learning result")
@@ -1089,6 +2065,7 @@ def render_pricing_results(
             "3 · How sure are we?",
             "4 · Try what-if games",
             "5 · Show the recipe",
+            "6 · Is ML learning?",
         ]
     else:
         st.markdown(
@@ -1105,6 +2082,7 @@ def render_pricing_results(
             "Diagnostics",
             "Risk lab",
             "Audit",
+            "ML evidence",
         ]
     tabs = st.tabs(tab_labels)
     with tabs[0]:
@@ -1132,3 +2110,5 @@ def render_pricing_results(
             config=config,
             market=market,
         )
+    with tabs[5]:
+        _render_ml_evidence(client, guided=guided, result=result)

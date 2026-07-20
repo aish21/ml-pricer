@@ -4,6 +4,7 @@ import pytest
 
 from app.services.surrogate_monitoring import (
     SurrogateMonitoringSettings,
+    get_surrogate_monitoring_series,
     get_surrogate_monitoring_status,
     get_surrogate_monitoring_summary,
     load_surrogate_shadow_observations,
@@ -72,6 +73,7 @@ def test_monitoring_records_and_summarizes_shadow_observation(tmp_path):
         reference_price=1.0,
         reference_standard_error=0.01,
         shadow_result=shadow_result(),
+        reference_latency_ms=30.0,
         settings=settings,
     )
     summary = get_surrogate_monitoring_summary(settings=settings)
@@ -80,10 +82,16 @@ def test_monitoring_records_and_summarizes_shadow_observation(tmp_path):
     assert summary["overall"]["n_observations"] == 1
     assert summary["overall"]["mae"] == pytest.approx(0.01)
     assert summary["overall"]["within_two_reference_se_fraction"] == 1.0
+    assert summary["overall"]["mean_relative_error"] == pytest.approx(0.01)
+    assert summary["overall"]["median_speedup"] == pytest.approx(10.0)
     assert summary["by_market_regime"]["low_vol"]["n_successful"] == 1
     assert summary["by_moneyness_region"]["autocall"]["n_successful"] == 1
     assert summary["feature_drift"]["above_four_sigma_fraction"] == 0.0
     assert get_surrogate_monitoring_status(settings)["observation_count"] == 1
+    series = get_surrogate_monitoring_series(settings=settings)
+    assert len(series["observations"]) == 1
+    assert series["observations"][0]["speedup"] == pytest.approx(10.0)
+    assert "market_payload" not in series["observations"][0]
 
 
 def test_monitoring_is_opt_in_and_does_not_create_database(tmp_path):

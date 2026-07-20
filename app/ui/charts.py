@@ -363,6 +363,56 @@ def contract_timeline_figure(
     return figure
 
 
+def autocall_schedule_figure(
+    observation_times: Sequence[float],
+    autocall_barrier_fracs: Sequence[float],
+    *,
+    reference_level: float,
+    coupon_barrier_frac: float,
+) -> go.Figure:
+    times = [float(value) for value in observation_times]
+    barrier_fractions = [float(value) for value in autocall_barrier_fracs]
+    barriers = [float(reference_level) * value for value in barrier_fractions]
+    if len(times) != len(barriers):
+        raise ValueError("autocall schedule must align with observation times")
+    coupon_level = float(reference_level) * float(coupon_barrier_frac)
+    figure = go.Figure(
+        go.Scatter(
+            x=times,
+            y=barriers,
+            mode="lines+markers",
+            line={"color": AUTOCALL, "width": 3, "shape": "hv"},
+            marker={"size": 11, "color": AUTOCALL},
+            name="Autocall hurdle",
+            customdata=barrier_fractions,
+            hovertemplate=(
+                "Observation at %{x:.4f}y"
+                "<br>Autocall level %{y:,.2f}"
+                "<br>%{customdata:.1%} of reference<extra></extra>"
+            ),
+        )
+    )
+    figure.add_hline(
+        y=coupon_level,
+        line_color=COUPON,
+        line_dash="dot",
+        annotation_text=f"Coupon line · {coupon_level:,.2f}",
+        annotation_position="bottom right",
+    )
+    figure.update_layout(
+        **_layout(
+            "How does the early-exit hurdle change?",
+            subtitle=(
+                "Each step is tested at an observation; the coupon line stays separate."
+            ),
+            height=365,
+            x_title="Years from today",
+            y_title="Underlier level",
+        )
+    )
+    return figure
+
+
 def term_structure_figure(market: Mapping[str, Any]) -> go.Figure:
     segments = list(market.get("segments") or [])
     if not segments:
@@ -408,6 +458,59 @@ def term_structure_figure(market: Mapping[str, Any]) -> go.Figure:
             "showgrid": False,
             "zeroline": False,
         }
+    )
+    return figure
+
+
+def calibration_option_figure(calibration: Mapping[str, Any]) -> go.Figure:
+    points = [
+        point
+        for point in calibration.get("option_points") or []
+        if isinstance(point, Mapping)
+    ]
+    target_tenors = [float(point["target_time_years"]) for point in points]
+    option_tenors = [float(point["option_time_years"]) for point in points]
+    volatilities = [float(point["volatility"]) * 100.0 for point in points]
+    spreads = [float(point["combined_spread_fraction"]) * 100.0 for point in points]
+    strikes = [int(point["strikes_used"]) for point in points]
+    cache_hits = [bool(point.get("cache_hit")) for point in points]
+    marker_sizes = [max(10.0, min(28.0, 10.0 + spread * 1.5)) for spread in spreads]
+    figure = go.Figure(
+        go.Scatter(
+            x=target_tenors,
+            y=volatilities,
+            mode="lines+markers",
+            line={"color": AUTOCALL, "width": 3},
+            marker={
+                "size": marker_sizes,
+                "color": spreads,
+                "colorscale": "YlOrRd",
+                "colorbar": {"title": "Spread %"},
+                "line": {"color": "#F8F6FF", "width": 1.5},
+            },
+            customdata=list(zip(option_tenors, spreads, strikes, cache_hits)),
+            hovertemplate=(
+                "Model tenor %{x:.3f}y"
+                "<br>Matched option tenor %{customdata[0]:.3f}y"
+                "<br>ATM volatility %{y:.2f}%"
+                "<br>Combined spread %{customdata[1]:.2f}%"
+                "<br>Strikes used %{customdata[2]}"
+                "<br>Cache hit %{customdata[3]}<extra></extra>"
+            ),
+            name="Near-ATM volatility",
+        )
+    )
+    figure.update_layout(
+        **_layout(
+            "What option evidence shaped volatility?",
+            subtitle=(
+                "Larger, warmer points mean wider call/put spreads; hover for "
+                "the matched expiry and strike count."
+            ),
+            height=405,
+            x_title="Model tenor (years)",
+            y_title="Near-ATM implied volatility (%)",
+        )
     )
     return figure
 
@@ -702,6 +805,210 @@ def risk_figure(result: Mapping[str, Any]) -> go.Figure:
             subtitle="Brighter bars clear the 95% simulation-noise test.",
             height=390,
             y_title="Reported sensitivity",
+        )
+    )
+    return figure
+
+
+def audit_slice_figure(audit: Mapping[str, Any]) -> go.Figure:
+    sealed = audit.get("sealed_audit") or {}
+    regimes = sealed.get("by_market_regime") or {}
+    names = list(regimes)
+    figure = go.Figure(
+        go.Bar(
+            x=[name.replace("_", " ").title() for name in names],
+            y=[float(regimes[name].get("mae", 0.0)) for name in names],
+            marker={
+                "color": [RISK if name == "low_vol" else MARKET for name in names],
+                "line": {"color": "rgba(248,246,255,.35)", "width": 1},
+            },
+            text=[f"{float(regimes[name].get('mae', 0.0)):.4f}" for name in names],
+            textposition="outside",
+            customdata=[
+                [
+                    int(regimes[name].get("n_samples", 0)),
+                    float(regimes[name].get("p95_absolute_error", 0.0)),
+                ]
+                for name in names
+            ],
+            hovertemplate=(
+                "%{x}<br>MAE %{y:.6f}<br>Samples %{customdata[0]:,}"
+                "<br>P95 error %{customdata[1]:.6f}<extra></extra>"
+            ),
+        )
+    )
+    figure.update_layout(
+        **_layout(
+            "Where was the sealed audit hardest?",
+            subtitle="Mean absolute price error by volatility regime.",
+            height=370,
+            y_title="MAE per unit notional",
+        )
+    )
+    return figure
+
+
+def audit_error_heatmap_figure(audit: Mapping[str, Any]) -> go.Figure:
+    sealed = audit.get("sealed_audit") or {}
+    cells = sealed.get("by_regime_and_moneyness") or {}
+    regimes = ("low_vol", "normal", "high_vol", "crisis")
+    regions = ("knock_in", "coupon", "autocall", "broad")
+    values = [
+        [
+            (
+                float(cells[f"{regime}:{region}"]["mae"])
+                if f"{regime}:{region}" in cells
+                and cells[f"{regime}:{region}"].get("mae") is not None
+                else None
+            )
+            for region in regions
+        ]
+        for regime in regimes
+    ]
+    figure = go.Figure(
+        go.Heatmap(
+            x=[name.replace("_", " ").title() for name in regions],
+            y=[name.replace("_", " ").title() for name in regimes],
+            z=values,
+            colorscale=[
+                [0.0, POSITIVE],
+                [0.5, AUTOCALL],
+                [1.0, RISK],
+            ],
+            text=[
+                [f"{value:.4f}" if value is not None else "—" for value in row]
+                for row in values
+            ],
+            texttemplate="%{text}",
+            colorbar={"title": "MAE"},
+            hovertemplate=(
+                "Regime %{y}<br>Barrier region %{x}" "<br>MAE %{z:.6f}<extra></extra>"
+            ),
+        )
+    )
+    figure.update_layout(
+        **_layout(
+            "Which regime-and-barrier combinations are difficult?",
+            subtitle="Held-out MAE; warmer cells deserve closer model research.",
+            height=410,
+            x_title="Nearest contract region",
+            y_title="Volatility regime",
+        )
+    )
+    return figure
+
+
+def shadow_error_history_figure(series: Mapping[str, Any]) -> go.Figure:
+    rows = [
+        row
+        for row in series.get("observations") or []
+        if row.get("status") == "success" and row.get("absolute_error") is not None
+    ]
+    figure = go.Figure()
+    figure.add_trace(
+        go.Scatter(
+            x=[row["created_at"] for row in rows],
+            y=[float(row["absolute_error"]) for row in rows],
+            mode="lines+markers",
+            name="Absolute ML gap",
+            line={"color": REFERENCE, "width": 2},
+            marker={"size": 7},
+            customdata=[
+                [
+                    row.get("symbol"),
+                    row.get("market_regime"),
+                    row.get("moneyness_region"),
+                    row.get("error_to_reference_standard_error"),
+                ]
+                for row in rows
+            ],
+            hovertemplate=(
+                "%{x}<br>%{customdata[0]} · %{customdata[1]}"
+                " · %{customdata[2]}<br>Absolute gap %{y:.6f}"
+                "<br>Gap / MC SE %{customdata[3]:.2f}<extra></extra>"
+            ),
+        )
+    )
+    figure.add_hline(
+        y=0.01,
+        line_color=AUTOCALL,
+        line_dash="dot",
+        annotation_text="1% economic tolerance",
+        annotation_position="top left",
+    )
+    figure.update_layout(
+        **_layout(
+            "Is live shadow error stable?",
+            subtitle="Each point is one observed ML-versus-Monte-Carlo comparison.",
+            height=390,
+            x_title="Observation time",
+            y_title="Absolute gap per unit",
+        )
+    )
+    return figure
+
+
+def latency_comparison_figure(series: Mapping[str, Any]) -> go.Figure:
+    rows = [
+        row
+        for row in series.get("observations") or []
+        if row.get("status") == "success"
+        and row.get("latency_ms") is not None
+        and row.get("reference_latency_ms") is not None
+    ]
+    maximum = max(
+        [
+            max(float(row["latency_ms"]), float(row["reference_latency_ms"]))
+            for row in rows
+        ]
+        or [1.0]
+    )
+    figure = go.Figure()
+    figure.add_trace(
+        go.Scatter(
+            x=[float(row["reference_latency_ms"]) for row in rows],
+            y=[float(row["latency_ms"]) for row in rows],
+            mode="markers",
+            name="Observed requests",
+            marker={
+                "size": 9,
+                "color": [float(row.get("speedup") or 0.0) for row in rows],
+                "colorscale": [
+                    [0.0, RISK],
+                    [0.5, AUTOCALL],
+                    [1.0, POSITIVE],
+                ],
+                "showscale": True,
+                "colorbar": {"title": "Speed-up"},
+            },
+            customdata=[
+                [row.get("symbol"), row.get("speedup"), row.get("absolute_error")]
+                for row in rows
+            ],
+            hovertemplate=(
+                "%{customdata[0]}<br>Monte Carlo %{x:.2f} ms"
+                "<br>ML %{y:.2f} ms<br>Speed-up %{customdata[1]:.2f}×"
+                "<br>Gap %{customdata[2]:.6f}<extra></extra>"
+            ),
+        )
+    )
+    figure.add_trace(
+        go.Scatter(
+            x=[0.0, maximum],
+            y=[0.0, maximum],
+            mode="lines",
+            name="Same speed",
+            line={"color": MUTED, "dash": "dot"},
+            hoverinfo="skip",
+        )
+    )
+    figure.update_layout(
+        **_layout(
+            "Does ML actually save time?",
+            subtitle="Points below the diagonal are faster than Monte Carlo.",
+            height=390,
+            x_title="Monte Carlo latency (ms)",
+            y_title="ML latency (ms)",
         )
     )
     return figure

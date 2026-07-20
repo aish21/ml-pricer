@@ -113,7 +113,22 @@ Every response includes:
   number of strikes used; and
 - explicit research limitations.
 
+The response also includes a `quality` report with five bounded checks:
+quote freshness, Treasury freshness, option-expiry alignment, option spread,
+and minimum strike coverage. `research_ready` means those source checks passed;
+it does not turn the result into an executable or institutional market.
+
 Cache hits are operational metadata and do not alter `calibration_id`.
+
+Every successful build is written once to an immutable local SQLite snapshot
+under the calibration ID. Repeated builds with the same ID do not overwrite
+the original payload. Recent metadata and a complete frozen snapshot are
+available at:
+
+```text
+GET /api/v1/market-data/research-snapshots
+GET /api/v1/market-data/research-snapshots/{snapshot_id}
+```
 
 ## Build endpoint
 

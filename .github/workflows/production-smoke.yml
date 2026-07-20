@@ -1,0 +1,72 @@
+name: Production smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */6 * * *"
+  deployment_status:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-smoke
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    if: >-
+      github.event_name != 'deployment_status' ||
+      github.event.deployment_status.state == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      BACKEND_URL: ${{ vars.PRODUCTION_BACKEND_URL || 'https://aish-ml-pricer-backend.up.railway.app' }}
+      FRONTEND_URL: ${{ vars.PRODUCTION_FRONTEND_URL || 'https://aish-ml-pricer-frontend.up.railway.app' }}
+    steps:
+      - name: Check deployed frontend and backend
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import time
+          import urllib.request
+
+
+          def fetch(url, *, attempts=6):
+              last_error = None
+              for attempt in range(attempts):
+                  try:
+                      with urllib.request.urlopen(url, timeout=20) as response:
+                          return response.status, response.read()
+                  except Exception as exc:
+                      last_error = exc
+                      time.sleep(min(2 ** attempt, 15))
+              raise RuntimeError(f"{url} did not become healthy: {last_error}")
+
+
+          backend = os.environ["BACKEND_URL"].rstrip("/")
+          frontend = os.environ["FRONTEND_URL"].rstrip("/")
+
+          status, body = fetch(f"{backend}/health/ready")
+          ready = json.loads(body)
+          assert status == 200
+          assert ready["status"] == "ready"
+          assert "phoenix-single-v3" in ready["contract_versions"]
+
+          status, body = fetch(f"{backend}/health/metrics")
+          metrics = json.loads(body)
+          assert status == 200
+          assert metrics["status"] == "ok"
+          assert metrics["operations"]["version"] == "operations-monitoring-v1"
+
+          status, body = fetch(f"{backend}/api/v1/products")
+          products = json.loads(body)
+          assert status == 200
+          assert products["status"] == "success"
+
+          status, body = fetch(frontend)
+          assert status == 200
+          assert b"streamlit" in body.lower()
+          print("Production frontend and backend are healthy.")
+          PY

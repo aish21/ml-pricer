@@ -6,11 +6,14 @@ from app.ui.guided import render_guided_configuration
 from app.ui.payloads import (
     FrontendInputError,
     PricingConfiguration,
+    build_barrier_reverse_convertible_contract,
     build_flat_term_structure,
     build_phoenix_terms,
     build_v2_contract,
+    build_v3_contract,
     even_observation_schedule,
     parse_observation_schedule,
+    stepped_autocall_schedule,
 )
 from app.ui.underliers import render_underlier_picker
 
@@ -86,8 +89,7 @@ def render_sidebar() -> tuple[str, int, int]:
     st.sidebar.markdown("---")
     if experience_mode == "Guided":
         st.sidebar.caption(
-            "You do not need to know any finance words. Every step explains "
-            "what a choice means."
+            "Guided mode explains each pricing choice as you build the note."
         )
     else:
         st.sidebar.caption(
@@ -164,6 +166,159 @@ def _market_fields(
     return symbol, underlier_type.lower(), currency.upper(), market
 
 
+def _render_barrier_reverse_convertible_configuration(
+    *,
+    n_paths: int,
+    seed: int,
+) -> tuple[PricingConfiguration | None, str | None]:
+    trade_stage = st.radio(
+        "Trade state",
+        ["New issue", "Seasoned trade"],
+        horizontal=True,
+        help=(
+            "A new issue takes the fetched live spot as its reference. A "
+            "seasoned note keeps its original contractual reference."
+        ),
+        key="brc_trade_state",
+    )
+    market_source = st.radio(
+        "Market source",
+        ["Research market", "Manual flat market"],
+        horizontal=True,
+        key="brc_market_source",
+    )
+    with st.form("brc_configuration", border=False):
+        market_column, contract_column = st.columns([1, 1], gap="large")
+        with contract_column:
+            st.markdown("### 2 · Contract")
+            maturity = st.number_input(
+                "Remaining maturity (years)",
+                min_value=0.01,
+                max_value=30.0,
+                value=1.0,
+                step=0.25,
+                key="brc_maturity",
+            )
+            display_notional = st.number_input(
+                "Display notional",
+                min_value=1.0,
+                value=100_000.0,
+                step=10_000.0,
+                key="brc_notional",
+            )
+            coupon_count = int(
+                st.number_input(
+                    "Remaining coupon payments",
+                    min_value=1,
+                    max_value=252,
+                    value=4,
+                    step=1,
+                )
+            )
+            coupon_rate = st.number_input(
+                "Coupon per payment",
+                min_value=0.0,
+                max_value=1.0,
+                value=0.025,
+                step=0.0025,
+                format="%.4f",
+                help=(
+                    "This simplified product pays this amount on every coupon "
+                    "date, even if the underlier falls."
+                ),
+            )
+            strike = st.number_input(
+                "Conversion strike",
+                min_value=0.01,
+                max_value=3.0,
+                value=1.0,
+                step=0.01,
+                help="Fraction of the contractual reference level.",
+            )
+            knock_in = st.number_input(
+                "Knock-in barrier",
+                min_value=0.01,
+                max_value=min(1.0, float(strike)),
+                value=min(0.7, float(strike)),
+                step=0.01,
+                help=(
+                    "If this line is breached and the final level is below the "
+                    "strike, principal becomes linked to the underlier loss."
+                ),
+            )
+            reference_level = 100.0
+            prior_knock_in = False
+            if trade_stage == "Seasoned trade":
+                reference_level = st.number_input(
+                    "Original reference level",
+                    min_value=0.000001,
+                    value=100.0,
+                    step=1.0,
+                    key="brc_reference",
+                )
+                prior_knock_in = st.checkbox(
+                    "Knock-in was breached before valuation",
+                    value=False,
+                    key="brc_prior_knock_in",
+                )
+            else:
+                st.caption(
+                    "For a new issue, the server freezes the fetched live spot "
+                    "as the contractual reference before pricing."
+                )
+        with market_column:
+            st.markdown("### 1 · Market")
+            symbol, underlier_type, currency, manual_market = _market_fields(
+                market_source=market_source,
+                experience_mode="Quant",
+                maturity=maturity,
+            )
+        submitted = st.form_submit_button(
+            "Price and build diagnostics",
+            width="stretch",
+        )
+    if not submitted:
+        return None, None
+    try:
+        coupon_times = even_observation_schedule(maturity, coupon_count)
+        contract = build_barrier_reverse_convertible_contract(
+            reference_level=float(reference_level),
+            maturity_years=float(maturity),
+            coupon_times_years=coupon_times,
+            coupon_rate_per_period=float(coupon_rate),
+            strike_frac=float(strike),
+            knock_in_frac=float(knock_in),
+            prior_knock_in_breached=prior_knock_in,
+        )
+        return (
+            PricingConfiguration(
+                experience_mode="Quant",
+                trade_stage=trade_stage,
+                market_source=market_source,
+                symbol=symbol.strip().upper(),
+                underlier_type=underlier_type,
+                currency=currency,
+                maturity_years=float(maturity),
+                display_notional=float(display_notional),
+                n_paths=n_paths,
+                seed=seed,
+                terms={
+                    "maturity_years": float(maturity),
+                    "coupon_rate_per_period": float(coupon_rate),
+                    "strike_frac": float(strike),
+                    "knock_in_frac": float(knock_in),
+                    "obs_count": coupon_count,
+                },
+                contract=contract,
+                manual_market=manual_market,
+                product_key="barrier_reverse_convertible",
+            ),
+            None,
+        )
+    except FrontendInputError as exc:
+        return None, str(exc)
+
+
 def render_configuration(
     *,
     experience_mode: str,
@@ -172,6 +327,21 @@ def render_configuration(
 ) -> tuple[PricingConfiguration | None, str | None]:
     if experience_mode == "Guided":
         return render_guided_configuration(n_paths=n_paths, seed=seed)
+
+    product = st.radio(
+        "Product",
+        ["Phoenix autocallable", "Barrier reverse convertible"],
+        horizontal=True,
+        help=(
+            "The Phoenix can end early. The reverse convertible is simpler: "
+            "fixed coupons plus conditional downside at maturity."
+        ),
+    )
+    if product == "Barrier reverse convertible":
+        return _render_barrier_reverse_convertible_configuration(
+            n_paths=n_paths,
+            seed=seed,
+        )
 
     trade_stage = st.radio(
         "Trade state",
@@ -257,6 +427,10 @@ def render_configuration(
             reference_level = None
             prior_knock_in = False
             raw_schedule = ""
+            memory_coupon = False
+            stepdown_autocall = False
+            unpaid_coupon_count = 0
+            final_autocall = float(autocall)
             if trade_stage == "Seasoned trade":
                 reference_level = st.number_input(
                     "Original reference level",
@@ -269,6 +443,50 @@ def render_configuration(
                     value=False,
                     help="This historical event remains relevant at maturity.",
                 )
+                st.markdown("#### Richer payoff rules")
+                memory_coupon = st.checkbox(
+                    "Remember missed coupons",
+                    value=False,
+                    help=(
+                        "If a coupon is missed, it is carried forward. A later "
+                        "successful coupon observation pays the current coupon "
+                        "plus the carried coupons."
+                    ),
+                )
+                if memory_coupon:
+                    unpaid_coupon_count = int(
+                        st.number_input(
+                            "Missed coupons carried into today",
+                            min_value=0,
+                            max_value=252,
+                            value=0,
+                            step=1,
+                            help=(
+                                "Historical missed coupons that remain unpaid "
+                                "at the valuation date."
+                            ),
+                        )
+                    )
+                stepdown_autocall = st.checkbox(
+                    "Lower the autocall level over time",
+                    value=False,
+                    help=(
+                        "The early-exit hurdle moves linearly from the first "
+                        "autocall barrier to the final barrier."
+                    ),
+                )
+                if stepdown_autocall:
+                    final_autocall = st.number_input(
+                        "Final autocall barrier",
+                        min_value=float(coupon_barrier),
+                        max_value=float(autocall),
+                        value=max(
+                            float(coupon_barrier),
+                            min(float(autocall), float(autocall) - 0.10),
+                        ),
+                        step=0.01,
+                        help="Fraction of the original reference level.",
+                    )
                 if experience_mode == "Quant":
                     raw_schedule = st.text_input(
                         "Observation times (years)",
@@ -316,12 +534,34 @@ def render_configuration(
                 else even_observation_schedule(maturity, observation_count)
             )
             terms = {**terms, "obs_count": len(schedule)}
-            contract = build_v2_contract(
-                reference_level=float(reference_level),
-                terms=terms,
-                observation_times_years=schedule,
-                prior_knock_in_breached=prior_knock_in,
-            )
+            if memory_coupon or stepdown_autocall:
+                autocall_schedule = stepped_autocall_schedule(
+                    initial_barrier_frac=autocall,
+                    final_barrier_frac=final_autocall,
+                    observation_count=len(schedule),
+                )
+                terms = {
+                    **terms,
+                    "autocall_barrier_fracs": list(autocall_schedule),
+                    "memory_coupon": memory_coupon,
+                    "unpaid_coupon_count": unpaid_coupon_count,
+                }
+                contract = build_v3_contract(
+                    reference_level=float(reference_level),
+                    terms=terms,
+                    observation_times_years=schedule,
+                    autocall_barrier_fracs=autocall_schedule,
+                    prior_knock_in_breached=prior_knock_in,
+                    memory_coupon=memory_coupon,
+                    unpaid_coupon_count=unpaid_coupon_count,
+                )
+            else:
+                contract = build_v2_contract(
+                    reference_level=float(reference_level),
+                    terms=terms,
+                    observation_times_years=schedule,
+                    prior_knock_in_breached=prior_knock_in,
+                )
         return (
             PricingConfiguration(
                 experience_mode=experience_mode,

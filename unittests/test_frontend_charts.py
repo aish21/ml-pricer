@@ -1,9 +1,14 @@
 from app.ui.charts import (
+    audit_error_heatmap_figure,
+    audit_slice_figure,
+    autocall_schedule_figure,
     barrier_ladder_figure,
     cashflow_figure,
     convergence_figure,
     distribution_figure,
     learning_paths_figure,
+    latency_comparison_figure,
+    shadow_error_history_figure,
     surface_figure,
     term_structure_figure,
 )
@@ -114,6 +119,19 @@ def test_contract_and_market_figures_keep_financial_series_separate():
         "Volatility",
     }
 
+    schedule = autocall_schedule_figure(
+        [0.25, 0.5, 1.0],
+        [1.10, 1.05, 1.0],
+        reference_level=100.0,
+        coupon_barrier_frac=0.8,
+    )
+    assert [round(value, 8) for value in schedule.data[0].y] == [
+        110.0,
+        105.0,
+        100.0,
+    ]
+    assert len(schedule.layout.shapes) == 1
+
 
 def test_learning_paths_are_deterministic_and_include_three_rule_lines():
     first = learning_paths_figure(
@@ -132,3 +150,48 @@ def test_learning_paths_are_deterministic_and_include_three_rule_lines():
     assert len(first.data) == 12
     assert list(first.data[0].y) == list(second.data[0].y)
     assert len(first.layout.shapes) == 3
+
+
+def test_evidence_figures_compare_audit_slices_and_live_shadow_history():
+    audit = {
+        "sealed_audit": {
+            "by_market_regime": {
+                "low_vol": {
+                    "n_samples": 20,
+                    "mae": 0.008,
+                    "p95_absolute_error": 0.02,
+                },
+                "normal": {
+                    "n_samples": 20,
+                    "mae": 0.005,
+                    "p95_absolute_error": 0.01,
+                },
+            },
+            "by_regime_and_moneyness": {
+                "low_vol:knock_in": {"mae": 0.009},
+                "normal:coupon": {"mae": 0.004},
+            },
+        }
+    }
+    series = {
+        "observations": [
+            {
+                "created_at": "2026-07-19T10:00:00+00:00",
+                "symbol": "SPY",
+                "status": "success",
+                "absolute_error": 0.006,
+                "error_to_reference_standard_error": 1.2,
+                "market_regime": "normal",
+                "moneyness_region": "coupon",
+                "reference_latency_ms": 100.0,
+                "latency_ms": 4.0,
+                "speedup": 25.0,
+            }
+        ]
+    }
+
+    assert len(audit_slice_figure(audit).data) == 1
+    heatmap = audit_error_heatmap_figure(audit)
+    assert heatmap.data[0].z[0][0] == 0.009
+    assert len(shadow_error_history_figure(series).data) == 1
+    assert len(latency_comparison_figure(series).data) == 2

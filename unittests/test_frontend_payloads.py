@@ -6,9 +6,12 @@ from app.ui.payloads import (
     FrontendInputError,
     barrier_levels,
     build_flat_term_structure,
+    build_barrier_reverse_convertible_contract,
+    build_v3_contract,
     diagnostic_grids,
     even_observation_schedule,
     parse_observation_schedule,
+    stepped_autocall_schedule,
 )
 
 
@@ -81,3 +84,47 @@ def test_diagnostic_volatility_grid_cannot_make_base_volatility_non_positive():
     )
 
     assert min(grids["volatility_shocks_abs"]) == -0.01
+
+
+def test_richer_contract_payload_aligns_memory_and_stepdown_schedules():
+    observations = even_observation_schedule(1.0, 3)
+    barriers = stepped_autocall_schedule(
+        initial_barrier_frac=1.10,
+        final_barrier_frac=1.0,
+        observation_count=3,
+    )
+    contract = build_v3_contract(
+        reference_level=100.0,
+        terms={
+            "maturity_years": 1.0,
+            "coupon_barrier_frac": 0.8,
+            "coupon_rate": 0.02,
+            "knock_in_frac": 0.6,
+        },
+        observation_times_years=observations,
+        autocall_barrier_fracs=barriers,
+        prior_knock_in_breached=True,
+        memory_coupon=True,
+        unpaid_coupon_count=2,
+    )
+
+    assert barriers == pytest.approx((1.10, 1.05, 1.0))
+    assert contract["contract_version"] == "phoenix-single-v3"
+    assert contract["autocall_barrier_fracs"] == pytest.approx(barriers)
+    assert contract["unpaid_coupon_count"] == 2
+
+
+def test_reverse_convertible_payload_keeps_coupon_and_downside_rules_explicit():
+    contract = build_barrier_reverse_convertible_contract(
+        reference_level=100.0,
+        maturity_years=1.0,
+        coupon_times_years=(0.25, 0.5, 0.75, 1.0),
+        coupon_rate_per_period=0.02,
+        strike_frac=1.0,
+        knock_in_frac=0.7,
+        prior_knock_in_breached=False,
+    )
+
+    assert contract["contract_version"] == "barrier-reverse-convertible-v1"
+    assert contract["coupon_times_years"][-1] == 1.0
+    assert contract["knock_in_frac"] == 0.7

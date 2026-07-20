@@ -1,11 +1,14 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from typing import Dict, Any
 from pathlib import Path
 import os
 import json
-from fastapi.responses import JSONResponse
 import csv
+import time
+import uuid
 from datetime import datetime, timezone
+
+from fastapi.responses import JSONResponse
 
 from src.final.market import (
     EQUITY_GBM_FLAT_MODEL_VERSION,
@@ -26,6 +29,11 @@ from app.services.pricing_service import (
     UnsupportedProductError,
 )
 from app.services.live_market_data import get_live_market_data_status
+from app.services.market_snapshot_store import get_market_snapshot_store_status
+from app.services.operations_monitoring import (
+    OPERATIONS_MONITORING_VERSION,
+    operations_monitor,
+)
 from app.services.diagnostics_service import PHOENIX_DIAGNOSTICS_VERSION
 from app.services.research_market_data import get_research_market_data_status
 from app.services.surrogate_service import get_surrogate_status
@@ -41,6 +49,28 @@ app = FastAPI(title="ML Pricer API", version="0.6.0")
 app.include_router(bb_api_router)
 app.include_router(api_v1_router)
 app.include_router(blackberry_router)
+
+
+@app.middleware("http")
+async def record_request_metrics(request: Request, call_next):
+    request_id = uuid.uuid4().hex
+    tracked = request.url.path not in {"/health/live", "/health/metrics"}
+    if tracked:
+        operations_monitor.request_started()
+    started = time.perf_counter()
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        response.headers["X-Request-ID"] = request_id
+        return response
+    finally:
+        if tracked:
+            operations_monitor.request_finished(
+                status_code=status_code,
+                duration_ms=(time.perf_counter() - started) * 1_000.0,
+            )
+
 
 BASE_RESULTS_DIR = get_results_dir()
 # By default write history to a container-writable location. In Docker we mount ./data -> /srv/app/data
@@ -318,6 +348,7 @@ def health_live():
 @app.get("/health/ready", include_in_schema=False)
 def health_ready():
     product = get_product_definition("phoenix")
+    operations = operations_monitor.snapshot()
     return {
         "status": "ready",
         "pricing_method": "monte_carlo_reference",
@@ -338,6 +369,24 @@ def health_ready():
             EQUITY_GBM_FLAT_MODEL_VERSION,
             EQUITY_GBM_PIECEWISE_MODEL_VERSION,
         ],
+        "market_data": get_live_market_data_status(),
+        "research_market": get_research_market_data_status(),
+        "market_snapshot_store": get_market_snapshot_store_status(),
+        "surrogate_shadow": get_surrogate_status(),
+        "surrogate_monitoring": get_surrogate_monitoring_status(),
+        "operations_monitoring": {
+            "version": OPERATIONS_MONITORING_VERSION,
+            "uptime_seconds": operations["uptime_seconds"],
+        },
+    }
+
+
+@app.get("/health/metrics", include_in_schema=False)
+def health_metrics():
+    return {
+        "status": "ok",
+        "operations": operations_monitor.snapshot(),
+        "market_snapshot_store": get_market_snapshot_store_status(),
         "market_data": get_live_market_data_status(),
         "research_market": get_research_market_data_status(),
         "surrogate_shadow": get_surrogate_status(),

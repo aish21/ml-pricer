@@ -23,6 +23,7 @@ class PricingConfiguration:
     terms: Mapping[str, Any]
     contract: Mapping[str, Any] | None
     manual_market: Mapping[str, Any] | None
+    product_key: str = "phoenix"
 
     @property
     def is_seasoned(self) -> bool:
@@ -109,6 +110,109 @@ def build_v2_contract(
         "coupon_barrier_frac": float(terms["coupon_barrier_frac"]),
         "coupon_rate": float(terms["coupon_rate"]),
         "knock_in_frac": float(terms["knock_in_frac"]),
+        "prior_knock_in_breached": bool(prior_knock_in_breached),
+    }
+
+
+def stepped_autocall_schedule(
+    *,
+    initial_barrier_frac: float,
+    final_barrier_frac: float,
+    observation_count: int,
+) -> tuple[float, ...]:
+    initial = float(initial_barrier_frac)
+    final = float(final_barrier_frac)
+    count = int(observation_count)
+    if count < 1 or count > 252:
+        raise FrontendInputError("Observation count must be between 1 and 252.")
+    if not all(math.isfinite(value) for value in (initial, final)):
+        raise FrontendInputError("Autocall barriers must be finite.")
+    if initial <= 0.0 or final <= 0.0 or final > initial:
+        raise FrontendInputError(
+            "The final autocall barrier must be positive and no higher than the first."
+        )
+    if count == 1:
+        return (initial,)
+    step = (initial - final) / (count - 1)
+    return tuple(initial - index * step for index in range(count))
+
+
+def build_v3_contract(
+    *,
+    reference_level: float,
+    terms: Mapping[str, Any],
+    observation_times_years: tuple[float, ...],
+    autocall_barrier_fracs: tuple[float, ...],
+    prior_knock_in_breached: bool,
+    memory_coupon: bool,
+    unpaid_coupon_count: int,
+) -> dict[str, Any]:
+    reference = float(reference_level)
+    if not math.isfinite(reference) or reference <= 0.0:
+        raise FrontendInputError("The contractual reference level must be positive.")
+    if len(autocall_barrier_fracs) != len(observation_times_years):
+        raise FrontendInputError(
+            "Enter one autocall barrier for every remaining observation."
+        )
+    coupon_barrier = float(terms["coupon_barrier_frac"])
+    if any(barrier < coupon_barrier for barrier in autocall_barrier_fracs):
+        raise FrontendInputError(
+            "Every autocall barrier must be at or above the coupon barrier."
+        )
+    unpaid = int(unpaid_coupon_count)
+    if unpaid < 0 or unpaid > 252:
+        raise FrontendInputError("Missed memory coupons must be between 0 and 252.")
+    if not memory_coupon and unpaid:
+        raise FrontendInputError(
+            "Missed coupon history requires the memory-coupon feature."
+        )
+    return {
+        "contract_version": "phoenix-single-v3",
+        "reference_level": reference,
+        "maturity_years": float(terms["maturity_years"]),
+        "observation_times_years": list(observation_times_years),
+        "autocall_barrier_fracs": list(autocall_barrier_fracs),
+        "coupon_barrier_frac": coupon_barrier,
+        "coupon_rate": float(terms["coupon_rate"]),
+        "knock_in_frac": float(terms["knock_in_frac"]),
+        "prior_knock_in_breached": bool(prior_knock_in_breached),
+        "memory_coupon": bool(memory_coupon),
+        "unpaid_coupon_count": unpaid,
+    }
+
+
+def build_barrier_reverse_convertible_contract(
+    *,
+    reference_level: float,
+    maturity_years: float,
+    coupon_times_years: tuple[float, ...],
+    coupon_rate_per_period: float,
+    strike_frac: float,
+    knock_in_frac: float,
+    prior_knock_in_breached: bool,
+) -> dict[str, Any]:
+    reference = float(reference_level)
+    strike = float(strike_frac)
+    knock_in = float(knock_in_frac)
+    if not math.isfinite(reference) or reference <= 0.0:
+        raise FrontendInputError("The contractual reference level must be positive.")
+    if not 0.0 < knock_in <= strike:
+        raise FrontendInputError(
+            "The knock-in barrier must be positive and no higher than the strike."
+        )
+    coupon_rate = float(coupon_rate_per_period)
+    if not 0.0 <= coupon_rate <= 1.0:
+        raise FrontendInputError(
+            "The coupon per payment date must be between 0% and 100%."
+        )
+    return {
+        "contract_version": "barrier-reverse-convertible-v1",
+        "reference_level": reference,
+        "maturity_years": float(maturity_years),
+        "coupon_times_years": list(coupon_times_years),
+        "coupon_rate_per_period": coupon_rate,
+        "strike_frac": strike,
+        "knock_in_frac": knock_in,
         "prior_knock_in_breached": bool(prior_knock_in_breached),
     }
 

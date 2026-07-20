@@ -148,6 +148,9 @@ class PhoenixPayoff(BasePayoff):
         observation_times_years: Tuple[float, ...],
         prior_knock_in_breached: bool,
         discount_factor: Callable[[float], float],
+        autocall_barrier_fracs: Tuple[float, ...] | None = None,
+        memory_coupon: bool = False,
+        unpaid_coupon_count: int = 0,
     ) -> np.ndarray:
         """Return active-trade PVs using exact remaining observation times."""
         ledger = self.compute_observation_event_ledger_with_explicit_schedule(
@@ -157,6 +160,9 @@ class PhoenixPayoff(BasePayoff):
             observation_times_years=observation_times_years,
             prior_knock_in_breached=prior_knock_in_breached,
             discount_factor=discount_factor,
+            autocall_barrier_fracs=autocall_barrier_fracs,
+            memory_coupon=memory_coupon,
+            unpaid_coupon_count=unpaid_coupon_count,
         )
         return (
             ledger["coupon_pv"]
@@ -173,6 +179,9 @@ class PhoenixPayoff(BasePayoff):
         observation_times_years: Tuple[float, ...],
         prior_knock_in_breached: bool,
         discount_factor: Callable[[float], float],
+        autocall_barrier_fracs: Tuple[float, ...] | None = None,
+        memory_coupon: bool = False,
+        unpaid_coupon_count: int = 0,
     ) -> Dict[str, np.ndarray]:
         """Return cashflows for an active note with explicit remaining state."""
         path_array = np.asarray(paths, dtype=np.float64)
@@ -206,6 +215,18 @@ class PhoenixPayoff(BasePayoff):
             )
         if not isinstance(prior_knock_in_breached, bool):
             raise ValueError("prior_knock_in_breached must be boolean")
+        if not isinstance(memory_coupon, bool):
+            raise ValueError("memory_coupon must be boolean")
+        if isinstance(unpaid_coupon_count, bool) or not isinstance(
+            unpaid_coupon_count, int
+        ):
+            raise ValueError("unpaid_coupon_count must be an integer")
+        if unpaid_coupon_count < 0 or unpaid_coupon_count > 252:
+            raise ValueError("unpaid_coupon_count must be between 0 and 252")
+        if not memory_coupon and unpaid_coupon_count:
+            raise ValueError(
+                "unpaid_coupon_count must be zero when memory_coupon is false"
+            )
 
         observation_indices: list[int] = []
         for observation_time in observations:
@@ -224,7 +245,26 @@ class PhoenixPayoff(BasePayoff):
         n_paths = path_array.shape[0]
         obs_count = len(observation_indices)
         reference_level = float(params["S0"])
-        autocall_barrier = reference_level * float(params["autocall_barrier_frac"])
+        if autocall_barrier_fracs is None:
+            autocall_barrier_schedule = np.full(
+                obs_count,
+                float(params["autocall_barrier_frac"]),
+                dtype=np.float64,
+            )
+        else:
+            autocall_barrier_schedule = np.asarray(
+                autocall_barrier_fracs, dtype=np.float64
+            )
+            if (
+                autocall_barrier_schedule.ndim != 1
+                or len(autocall_barrier_schedule) != obs_count
+                or not np.all(np.isfinite(autocall_barrier_schedule))
+                or np.any(autocall_barrier_schedule <= 0.0)
+            ):
+                raise ValueError(
+                    "autocall_barrier_fracs must contain one finite positive "
+                    "barrier per observation"
+                )
         coupon_barrier = reference_level * float(params["coupon_barrier_frac"])
         coupon_rate = float(params["coupon_rate"])
         knock_in_barrier = reference_level * float(params["knock_in_frac"])
@@ -236,10 +276,12 @@ class PhoenixPayoff(BasePayoff):
         autocalled = np.zeros(n_paths, dtype=bool)
         downside_redemption = np.zeros(n_paths, dtype=bool)
         coupon_event = np.zeros((n_paths, obs_count), dtype=np.float64)
+        coupon_amount_event = np.zeros((n_paths, obs_count), dtype=np.float64)
         first_autocall_event = np.zeros((n_paths, obs_count), dtype=np.float64)
         survival_after_observation = np.zeros((n_paths, obs_count), dtype=np.float64)
         observation_discounts = np.zeros(obs_count, dtype=np.float64)
         active = np.ones(n_paths, dtype=bool)
+        coupon_memory_balance = np.full(n_paths, unpaid_coupon_count, dtype=np.int64)
 
         for observation_index, (time_years, path_index) in enumerate(
             zip(observations, observation_indices)
@@ -249,9 +291,25 @@ class PhoenixPayoff(BasePayoff):
             observation_discounts[observation_index] = observation_discount
 
             coupon_due = active & (levels >= coupon_barrier)
-            coupon_pv[coupon_due] += coupon_rate * observation_discount
+            if memory_coupon:
+                coupon_amount = coupon_rate * (coupon_memory_balance + 1)
+                coupon_pv[coupon_due] += (
+                    coupon_amount[coupon_due] * observation_discount
+                )
+                coupon_amount_event[coupon_due, observation_index] = coupon_amount[
+                    coupon_due
+                ]
+                coupon_memory_balance[coupon_due] = 0
+                coupon_missed = active & ~coupon_due
+                coupon_memory_balance[coupon_missed] += 1
+            else:
+                coupon_pv[coupon_due] += coupon_rate * observation_discount
+                coupon_amount_event[coupon_due, observation_index] = coupon_rate
             coupon_event[:, observation_index] = coupon_due
 
+            autocall_barrier = (
+                reference_level * autocall_barrier_schedule[observation_index]
+            )
             called = active & (levels >= autocall_barrier)
             autocall_principal_pv[called] = observation_discount
             autocalled[called] = True
@@ -286,6 +344,8 @@ class PhoenixPayoff(BasePayoff):
             "autocall_probability": autocalled.astype(np.float64),
             "downside_probability": downside_redemption.astype(np.float64),
             "coupon_event": coupon_event,
+            "coupon_amount_event": coupon_amount_event,
+            "coupon_memory_balance": coupon_memory_balance.astype(np.float64),
             "first_autocall_event": first_autocall_event,
             "survival_after_observation": survival_after_observation,
             "protected_maturity_event": protected.astype(np.float64),
@@ -293,6 +353,7 @@ class PhoenixPayoff(BasePayoff):
             "downside_recovery_ratio": downside_recovery_ratio,
             "observation_times": observations.copy(),
             "observation_discounts": observation_discounts,
+            "autocall_barrier_fracs": autocall_barrier_schedule.copy(),
         }
 
     def compute_observation_event_ledger_with_discount_curve(

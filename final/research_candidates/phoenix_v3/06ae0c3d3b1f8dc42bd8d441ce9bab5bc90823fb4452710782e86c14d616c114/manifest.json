@@ -1,0 +1,199 @@
+{
+  "audit_dataset_id": "sha256:839f790b3abe34c67728681613ee66d2de2a1ebae4b62ba2eba1ad7185706913",
+  "configuration": {
+    "audit_paths": 4096,
+    "audit_samples": 300,
+    "barrier_focus_probability": 0.6,
+    "development_paths": 1024,
+    "development_samples": 2500,
+    "domain": {
+      "schedule": "even observations and linear autocall step-down",
+      "seasoning": "spot/reference, prior knock-in, and unpaid coupon state",
+      "underlier": "single USD equity-like synthetic GBM"
+    },
+    "feature_order": [
+      "spot_to_reference",
+      "risk_free_rate",
+      "dividend_yield",
+      "volatility",
+      "maturity_years",
+      "first_autocall_barrier_frac",
+      "final_autocall_barrier_frac",
+      "coupon_barrier_frac",
+      "coupon_rate",
+      "knock_in_frac",
+      "observation_count",
+      "memory_coupon",
+      "unpaid_coupon_count",
+      "prior_knock_in_breached",
+      "spot_minus_first_autocall",
+      "spot_minus_final_autocall",
+      "spot_minus_coupon_barrier",
+      "spot_minus_knock_in",
+      "autocall_stepdown",
+      "coupon_including_unpaid"
+    ],
+    "learner": {
+      "class": "lightgbm.LGBMRegressor",
+      "library_version": "4.6.0",
+      "parameters": {
+        "colsample_bytree": 0.9,
+        "learning_rate": 0.025,
+        "min_child_samples": 15,
+        "n_estimators": 1000,
+        "n_jobs": -1,
+        "num_leaves": 31,
+        "objective": "regression_l1",
+        "random_state": 20260719,
+        "reg_lambda": 0.01,
+        "subsample": 0.9,
+        "subsample_freq": 1,
+        "verbosity": -1
+      },
+      "selected_candidate": "balanced_l1"
+    },
+    "maximum_mae": 0.015,
+    "maximum_mean_label_standard_error": 0.01,
+    "maximum_median_latency_ms": 5.0,
+    "maximum_p95_absolute_error": 0.04,
+    "minimum_r2": 0.9,
+    "monitoring_steps": 64,
+    "seed": 20260719,
+    "trees": 1000,
+    "validation_samples": 500
+  },
+  "contract_version": "phoenix-single-v3",
+  "datasets": {
+    "audit_paths_per_label": 4096,
+    "audit_samples": 300,
+    "development_mean_label_standard_error": 0.005009429292953622,
+    "development_paths_per_label": 1024,
+    "development_samples": 2500,
+    "validation_mean_label_standard_error": 0.00494784189344779,
+    "validation_paths_per_label": 1024,
+    "validation_samples": 500
+  },
+  "development_dataset_id": "sha256:f1c3fad67628b952d59905dac72d95a3cd92ef9e8e8956da52411b6d082ecece",
+  "development_selection": {
+    "candidates": {
+      "balanced_l1": {
+        "metrics": {
+          "mae": 0.015084678148204016,
+          "p95_absolute_error": 0.04478581605258178,
+          "r2": 0.9803318717646156,
+          "selection_score": 2.125290611194812
+        },
+        "parameters": {
+          "colsample_bytree": 0.9,
+          "learning_rate": 0.025,
+          "min_child_samples": 15,
+          "n_estimators": 1000,
+          "n_jobs": -1,
+          "num_leaves": 31,
+          "objective": "regression_l1",
+          "random_state": 20260719,
+          "reg_lambda": 0.01,
+          "subsample": 0.9,
+          "subsample_freq": 1,
+          "verbosity": -1
+        }
+      },
+      "boundary_l1": {
+        "metrics": {
+          "mae": 0.015782781135657464,
+          "p95_absolute_error": 0.048427960097255154,
+          "r2": 0.9779889725830284,
+          "selection_score": 2.26288441147521
+        },
+        "parameters": {
+          "colsample_bytree": 0.9,
+          "learning_rate": 0.02,
+          "min_child_samples": 10,
+          "n_estimators": 1000,
+          "n_jobs": -1,
+          "num_leaves": 63,
+          "objective": "regression_l1",
+          "random_state": 20260719,
+          "reg_alpha": 0.0025,
+          "reg_lambda": 0.05,
+          "subsample": 0.9,
+          "subsample_freq": 1,
+          "verbosity": -1
+        }
+      },
+      "smooth_l2": {
+        "metrics": {
+          "mae": 0.015253821853582976,
+          "p95_absolute_error": 0.04680306061593128,
+          "r2": 0.9787724290388945,
+          "selection_score": 2.1869979723038138
+        },
+        "parameters": {
+          "colsample_bytree": 0.9,
+          "learning_rate": 0.02,
+          "min_child_samples": 12,
+          "n_estimators": 1000,
+          "n_jobs": -1,
+          "num_leaves": 63,
+          "objective": "regression",
+          "random_state": 20260719,
+          "reg_lambda": 0.05,
+          "subsample": 0.9,
+          "subsample_freq": 1,
+          "verbosity": -1
+        }
+      }
+    },
+    "selected_candidate": "balanced_l1",
+    "selected_metrics": {
+      "mae": 0.015084678148204016,
+      "p95_absolute_error": 0.04478581605258178,
+      "r2": 0.9803318717646156,
+      "selection_score": 2.125290611194812
+    }
+  },
+  "experiment_id": "sha256:06ae0c3d3b1f8dc42bd8d441ce9bab5bc90823fb4452710782e86c14d616c114",
+  "experiment_version": "expanded-surrogate-experiment-v2",
+  "product_key": "phoenix_v3",
+  "runtime_approved": false,
+  "sealed_audit": {
+    "checks": {
+      "mae": {
+        "maximum": 0.015,
+        "passed": true,
+        "value": 0.014093350359785
+      },
+      "mean_label_standard_error": {
+        "maximum": 0.01,
+        "passed": true,
+        "value": 0.0024974470152107353
+      },
+      "median_inference_latency_ms": {
+        "maximum": 5.0,
+        "passed": true,
+        "value": 0.10680000559659675
+      },
+      "p95_absolute_error": {
+        "maximum": 0.04,
+        "passed": true,
+        "value": 0.03846150635330896
+      },
+      "r2": {
+        "minimum": 0.9,
+        "passed": true,
+        "value": 0.9820920681436465
+      }
+    },
+    "metrics": {
+      "mae": 0.014093350359785,
+      "mean_label_standard_error": 0.0024974470152107353,
+      "median_inference_latency_ms": 0.10680000559659675,
+      "p95_absolute_error": 0.03846150635330896,
+      "p95_label_standard_error": 0.004573894006935347,
+      "r2": 0.9820920681436465
+    },
+    "passed": true
+  },
+  "status": "research_candidate",
+  "validation_dataset_id": "sha256:505d2fc4ec8bed5bc60ddc6f71a43590c79b7c856fc7beece9b1b7b0b4700983"
+}

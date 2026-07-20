@@ -6,6 +6,11 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
+from src.final.barrier_reverse_convertible import (
+    BARRIER_REVERSE_CONVERTIBLE_V1,
+    BarrierReverseConvertiblePayoff,
+    BarrierReverseConvertibleV1Contract,
+)
 from app.services.pricing_service import (
     InvalidPricingInputError,
     normalize_phoenix_market_terms,
@@ -27,12 +32,17 @@ from src.final.market import (
 from src.final.payoffs import PhoenixPayoff
 from src.final.phoenix_contract import (
     PHOENIX_SINGLE_V2_CONTRACT_VERSION,
+    PHOENIX_SINGLE_V3_CONTRACT_VERSION,
     PhoenixSingleV2Contract,
+    PhoenixSingleV3Contract,
 )
 from src.final.reference_pricer import DEFAULT_REFERENCE_SEED, DEFAULT_REFERENCE_STEPS
 
 
 PHOENIX_DIAGNOSTICS_VERSION = "phoenix-reference-diagnostics-v1"
+BARRIER_REVERSE_CONVERTIBLE_DIAGNOSTICS_VERSION = (
+    "barrier-reverse-convertible-diagnostics-v1"
+)
 MAX_DIAGNOSTIC_PATHS = 5_000
 MAX_SURFACE_AXIS_POINTS = 11
 MAX_SURFACE_PATH_EVALUATIONS = 200_000
@@ -62,6 +72,9 @@ class _DiagnosticCase:
     observation_times: tuple[float, ...]
     prior_knock_in_breached: bool
     explicit_schedule: bool
+    autocall_barrier_fracs: tuple[float, ...] | None = None
+    memory_coupon: bool = False
+    unpaid_coupon_count: int = 0
 
 
 def _finite_sequence(
@@ -220,6 +233,36 @@ def _v2_case(
     )
 
 
+def _v3_case(
+    market: EquityMarketTermStructure,
+    contract: PhoenixSingleV3Contract,
+) -> _DiagnosticCase:
+    try:
+        equivalent = market.equivalent_flat_parameters(contract.maturity_years)
+        time_grid = build_simulation_time_grid(
+            contract.maturity_years,
+            DEFAULT_REFERENCE_STEPS,
+            contract.observation_times_years,
+        )
+    except MarketDataValidationError as exc:
+        raise InvalidDiagnosticsInputError(str(exc)) from exc
+    return _DiagnosticCase(
+        contract_version=PHOENIX_SINGLE_V3_CONTRACT_VERSION,
+        contract_payload=contract.to_dict(),
+        params=contract.to_payoff_params(
+            risk_free_rate=equivalent["risk_free_rate"],
+            volatility=equivalent["volatility"],
+        ),
+        time_grid=time_grid,
+        observation_times=contract.observation_times_years,
+        prior_knock_in_breached=contract.prior_knock_in_breached,
+        explicit_schedule=True,
+        autocall_barrier_fracs=contract.autocall_barrier_fracs,
+        memory_coupon=contract.memory_coupon,
+        unpaid_coupon_count=contract.unpaid_coupon_count,
+    )
+
+
 def _evaluate_case(
     *,
     case: _DiagnosticCase,
@@ -246,6 +289,9 @@ def _evaluate_case(
                 observation_times_years=case.observation_times,
                 prior_knock_in_breached=case.prior_knock_in_breached,
                 discount_factor=market.discount_factor,
+                autocall_barrier_fracs=case.autocall_barrier_fracs,
+                memory_coupon=case.memory_coupon,
+                unpaid_coupon_count=case.unpaid_coupon_count,
             )
         else:
             ledger = payoff.compute_observation_event_ledger_with_discount_curve(
@@ -301,7 +347,7 @@ def _cashflow_report(ledger: Mapping[str, np.ndarray]) -> dict[str, Any]:
             }
         )
     coupon_events = np.asarray(ledger["coupon_event"], dtype=np.float64)
-    return {
+    report = {
         "components": component_rows,
         "autocall_probability": float(
             np.mean(np.asarray(ledger["autocall_probability"], dtype=np.float64))
@@ -311,6 +357,16 @@ def _cashflow_report(ledger: Mapping[str, np.ndarray]) -> dict[str, Any]:
         ),
         "expected_coupon_count": float(np.mean(np.sum(coupon_events, axis=1))),
     }
+    if "coupon_amount_event" in ledger:
+        coupon_amounts = np.asarray(ledger["coupon_amount_event"], dtype=np.float64)
+        report["expected_coupon_amount"] = float(
+            np.mean(np.sum(coupon_amounts, axis=1))
+        )
+    if "coupon_memory_balance" in ledger:
+        report["expected_unpaid_coupon_count_at_exit"] = float(
+            np.mean(np.asarray(ledger["coupon_memory_balance"], dtype=np.float64))
+        )
+    return report
 
 
 def _distribution_report(discounted_payoffs: np.ndarray) -> dict[str, Any]:
@@ -530,3 +586,223 @@ def get_phoenix_v2_diagnostics(
         spot_shocks_pct=spot_shocks_pct,
         volatility_shocks_abs=volatility_shocks_abs,
     )
+
+
+def get_phoenix_v3_diagnostics(
+    *,
+    market: EquityMarketTermStructure,
+    contract: PhoenixSingleV3Contract,
+    n_paths: Any = 2_000,
+    seed: Any = DEFAULT_REFERENCE_SEED,
+    convergence_path_counts: Sequence[Any] | None = None,
+    spot_shocks_pct: Sequence[Any] | None = None,
+    volatility_shocks_abs: Sequence[Any] | None = None,
+) -> dict[str, Any]:
+    if not isinstance(contract, PhoenixSingleV3Contract):
+        raise InvalidDiagnosticsInputError("invalid Phoenix Single v3 contract")
+    return _build_diagnostics(
+        market=market,
+        case=_v3_case(market, contract),
+        n_paths=n_paths,
+        seed=seed,
+        convergence_path_counts=convergence_path_counts,
+        spot_shocks_pct=spot_shocks_pct,
+        volatility_shocks_abs=volatility_shocks_abs,
+    )
+
+
+def _evaluate_barrier_reverse_convertible(
+    *,
+    contract: BarrierReverseConvertibleV1Contract,
+    market: EquityMarketTermStructure,
+    time_grid: np.ndarray,
+    shocks: np.ndarray,
+) -> tuple[np.ndarray, dict[str, np.ndarray]]:
+    equivalent = market.equivalent_flat_parameters(contract.maturity_years)
+    params = contract.to_payoff_params(
+        risk_free_rate=equivalent["risk_free_rate"],
+        volatility=equivalent["volatility"],
+    )
+    paths = simulate_piecewise_gbm_paths(
+        market=market,
+        T=contract.maturity_years,
+        n_steps=shocks.shape[1],
+        n_paths=shocks.shape[0],
+        seed=None,
+        standard_normal_shocks=shocks,
+        time_grid_years=time_grid,
+    )
+    ledger = BarrierReverseConvertiblePayoff().compute_event_ledger(
+        paths=paths,
+        params=params,
+        path_times_years=time_grid,
+        coupon_times_years=contract.coupon_times_years,
+        prior_knock_in_breached=contract.prior_knock_in_breached,
+        discount_factor=market.discount_factor,
+    )
+    payoffs = (
+        ledger["coupon_pv"]
+        + ledger["protected_principal_pv"]
+        + ledger["downside_redemption_pv"]
+    )
+    return payoffs, ledger
+
+
+def get_barrier_reverse_convertible_diagnostics(
+    *,
+    market: EquityMarketTermStructure,
+    contract: BarrierReverseConvertibleV1Contract,
+    n_paths: Any = 2_000,
+    seed: Any = DEFAULT_REFERENCE_SEED,
+    convergence_path_counts: Sequence[Any] | None = None,
+    spot_shocks_pct: Sequence[Any] | None = None,
+    volatility_shocks_abs: Sequence[Any] | None = None,
+) -> dict[str, Any]:
+    if not isinstance(contract, BarrierReverseConvertibleV1Contract):
+        raise InvalidDiagnosticsInputError(
+            "invalid barrier reverse convertible contract"
+        )
+    validated_paths = _validated_path_count(n_paths)
+    try:
+        validated_seed = int(seed)
+    except (TypeError, ValueError) as exc:
+        raise InvalidDiagnosticsInputError("seed must be an integer") from exc
+    if isinstance(seed, bool) or not 0 <= validated_seed <= 4_294_967_295:
+        raise InvalidDiagnosticsInputError("seed must be between 0 and 4294967295")
+    counts = _convergence_counts(
+        convergence_path_counts,
+        n_paths=validated_paths,
+    )
+    spot_grid = _finite_sequence(
+        spot_shocks_pct,
+        name="spot_shocks_pct",
+        default=DEFAULT_SPOT_SHOCKS_PCT,
+        minimum=-90.0,
+        maximum=100.0,
+        max_length=MAX_SURFACE_AXIS_POINTS,
+    )
+    minimum_volatility = min(segment.volatility for segment in market.segments)
+    volatility_grid = _finite_sequence(
+        volatility_shocks_abs,
+        name="volatility_shocks_abs",
+        default=(-min(0.05, minimum_volatility * 0.5), 0.0, 0.05),
+        minimum=-1.0,
+        maximum=1.0,
+        max_length=MAX_SURFACE_AXIS_POINTS,
+    )
+    surface_work = validated_paths * len(spot_grid) * len(volatility_grid)
+    if surface_work > MAX_SURFACE_PATH_EVALUATIONS:
+        raise InvalidDiagnosticsInputError(
+            "surface grid and path count exceed the diagnostic work limit"
+        )
+    try:
+        time_grid = build_simulation_time_grid(
+            contract.maturity_years,
+            DEFAULT_REFERENCE_STEPS,
+            contract.coupon_times_years,
+        )
+        shocks = np.random.RandomState(validated_seed).randn(
+            validated_paths, len(time_grid) - 1
+        )
+        payoffs, ledger = _evaluate_barrier_reverse_convertible(
+            contract=contract,
+            market=market,
+            time_grid=time_grid,
+            shocks=shocks,
+        )
+    except (MarketDataValidationError, ValueError) as exc:
+        raise InvalidDiagnosticsInputError(str(exc)) from exc
+    base = _sample_statistics(payoffs)
+    cells: list[dict[str, Any]] = []
+    for volatility_shock in volatility_grid:
+        for spot_shock in spot_grid:
+            try:
+                if spot_shock == 0.0 and volatility_shock == 0.0:
+                    shocked_market = market
+                else:
+                    shocked_market, _ = apply_term_structure_shock(
+                        market,
+                        {
+                            "spot_pct": spot_shock,
+                            "volatility_parallel_abs": volatility_shock,
+                        },
+                    )
+                shocked_payoffs, _ = _evaluate_barrier_reverse_convertible(
+                    contract=contract,
+                    market=shocked_market,
+                    time_grid=time_grid,
+                    shocks=shocks,
+                )
+            except (
+                InvalidRiskInputError,
+                MarketDataValidationError,
+                ValueError,
+            ) as exc:
+                raise InvalidDiagnosticsInputError(str(exc)) from exc
+            statistics = _sample_statistics(shocked_payoffs)
+            cells.append(
+                {
+                    "spot_shock_pct": spot_shock,
+                    "volatility_shock_abs": volatility_shock,
+                    "spot": shocked_market.spot,
+                    "price": statistics["price"],
+                    "price_change": statistics["price"] - base["price"],
+                    "standard_error": statistics["standard_error"],
+                }
+            )
+    component_names = (
+        "coupon_pv",
+        "protected_principal_pv",
+        "downside_redemption_pv",
+    )
+    cashflows = {
+        "components": [
+            {
+                "component": name,
+                "expected_pv": _sample_statistics(ledger[name])["price"],
+                "standard_error": _sample_statistics(ledger[name])["standard_error"],
+            }
+            for name in component_names
+        ],
+        "knock_in_probability": float(np.mean(ledger["knock_in_probability"])),
+        "downside_probability": float(np.mean(ledger["downside_probability"])),
+        "contractual_coupon_count": len(contract.coupon_times_years),
+        "total_coupon_per_unit_undiscounted": (
+            len(contract.coupon_times_years) * contract.coupon_rate_per_period
+        ),
+    }
+    identity = {
+        "diagnostic_version": BARRIER_REVERSE_CONVERTIBLE_DIAGNOSTICS_VERSION,
+        "market_term_structure_id": market.term_structure_id,
+        "contract": contract.to_dict(),
+        "n_paths": validated_paths,
+        "seed": validated_seed,
+        "spot_shocks_pct": list(spot_grid),
+        "volatility_shocks_abs": list(volatility_grid),
+    }
+    return {
+        "diagnostic_version": BARRIER_REVERSE_CONVERTIBLE_DIAGNOSTICS_VERSION,
+        "diagnostic_id": _fingerprint(identity),
+        "contract_version": BARRIER_REVERSE_CONVERTIBLE_V1,
+        "model_version": EQUITY_GBM_PIECEWISE_MODEL_VERSION,
+        "base": base,
+        "convergence": _convergence_report(payoffs, counts),
+        "cashflows": cashflows,
+        "distribution": _distribution_report(payoffs),
+        "surface": {
+            "spot_shocks_pct": list(spot_grid),
+            "volatility_shocks_abs": list(volatility_grid),
+            "cells": cells,
+        },
+        "provenance": {
+            "market_term_structure_id": market.term_structure_id,
+            "contract": contract.to_dict(),
+            "n_paths": validated_paths,
+            "base_monitoring_steps": DEFAULT_REFERENCE_STEPS,
+            "effective_simulation_steps": len(time_grid) - 1,
+            "seed": validated_seed,
+            "common_random_numbers": True,
+            "raw_paths_returned": False,
+            "surface_path_evaluations": surface_work,
+        },
+    }

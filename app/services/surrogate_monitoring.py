@@ -13,7 +13,7 @@ from src.final.market import EquityMarketSegment, EquityMarketTermStructure
 from app.services.product_registry import REPO_ROOT
 
 
-SHADOW_OBSERVATION_SCHEMA_VERSION = "phoenix-shadow-observation-v2"
+SHADOW_OBSERVATION_SCHEMA_VERSION = "phoenix-shadow-observation-v3"
 DEFAULT_SURROGATE_MONITORING_DB = (
     REPO_ROOT / "data" / "surrogate_shadow_observations.sqlite3"
 )
@@ -88,8 +88,11 @@ def _initialize(connection: sqlite3.Connection) -> None:
             reference_standard_error REAL NOT NULL,
             surrogate_price REAL,
             absolute_error REAL,
+            relative_error REAL,
             error_to_reference_standard_error REAL,
-            latency_ms INTEGER,
+            latency_ms REAL,
+            reference_latency_ms REAL,
+            speedup REAL,
             maximum_standardized_feature_distance REAL,
             market_regime TEXT NOT NULL,
             moneyness_region TEXT NOT NULL,
@@ -112,6 +115,18 @@ def _initialize(connection: sqlite3.Connection) -> None:
             ADD COLUMN target_artifact_id TEXT
             """
         )
+    for column, definition in (
+        ("relative_error", "REAL"),
+        ("reference_latency_ms", "REAL"),
+        ("speedup", "REAL"),
+    ):
+        if column not in columns:
+            connection.execute(
+                f"""
+                ALTER TABLE surrogate_shadow_observations
+                ADD COLUMN {column} {definition}
+                """
+            )
     connection.execute(
         """
         UPDATE surrogate_shadow_observations
@@ -202,6 +217,7 @@ def record_surrogate_shadow_observation(
     reference_price: float,
     reference_standard_error: float,
     shadow_result: Mapping[str, Any],
+    reference_latency_ms: float | None = None,
     settings: SurrogateMonitoringSettings | None = None,
 ) -> bool:
     active = settings or SurrogateMonitoringSettings.from_env()
@@ -236,10 +252,30 @@ def record_surrogate_shadow_observation(
         "error_to_reference_standard_error",
         allow_none=True,
     )
-    latency = shadow_result.get("latency_ms")
-    latency_ms = int(latency) if latency is not None else None
+    latency_ms = _finite_number(
+        shadow_result.get("latency_ms"),
+        "latency_ms",
+        allow_none=True,
+    )
     if latency_ms is not None and latency_ms < 0:
         raise SurrogateMonitoringError("latency_ms must be non-negative")
+    reference_latency = _finite_number(
+        reference_latency_ms,
+        "reference_latency_ms",
+        allow_none=True,
+    )
+    if reference_latency is not None and reference_latency < 0:
+        raise SurrogateMonitoringError("reference_latency_ms must be non-negative")
+    relative_error = (
+        absolute_error / abs(reference_value)
+        if absolute_error is not None and reference_value != 0.0
+        else None
+    )
+    speedup = (
+        reference_latency / latency_ms
+        if reference_latency is not None and latency_ms is not None and latency_ms > 0.0
+        else None
+    )
     diagnostics = shadow_result.get("input_diagnostics")
     maximum_distance = None
     if isinstance(diagnostics, Mapping):
@@ -274,12 +310,15 @@ def record_surrogate_shadow_observation(
                 market_data_time, artifact_id, target_artifact_id,
                 model_version, status,
                 reference_price, reference_standard_error, surrogate_price,
-                absolute_error, error_to_reference_standard_error, latency_ms,
+                absolute_error, relative_error,
+                error_to_reference_standard_error, latency_ms,
+                reference_latency_ms, speedup,
                 maximum_standardized_feature_distance, market_regime,
                 moneyness_region, contract_reference_spot, market_payload,
                 terms_payload
             ) VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?
             )
             """,
             (
@@ -296,8 +335,11 @@ def record_surrogate_shadow_observation(
                 reference_se,
                 surrogate_price,
                 absolute_error,
+                relative_error,
                 error_to_se,
                 latency_ms,
+                reference_latency,
+                speedup,
                 maximum_distance,
                 _classify_market_regime(market, maturity),
                 _classify_moneyness_region(
@@ -360,6 +402,19 @@ def _error_summary(rows: list[sqlite3.Row]) -> dict[str, Any]:
     latencies = [
         float(row["latency_ms"]) for row in successful if row["latency_ms"] is not None
     ]
+    reference_latencies = [
+        float(row["reference_latency_ms"])
+        for row in successful
+        if row["reference_latency_ms"] is not None
+    ]
+    relative_errors = [
+        float(row["relative_error"])
+        for row in successful
+        if row["relative_error"] is not None
+    ]
+    speedups = [
+        float(row["speedup"]) for row in successful if row["speedup"] is not None
+    ]
     return {
         "n_observations": len(rows),
         "n_successful": len(successful),
@@ -367,12 +422,24 @@ def _error_summary(rows: list[sqlite3.Row]) -> dict[str, Any]:
             sum(absolute_errors) / len(absolute_errors) if absolute_errors else None
         ),
         "p95_absolute_error": _quantile(absolute_errors, 0.95),
+        "mean_relative_error": (
+            sum(relative_errors) / len(relative_errors) if relative_errors else None
+        ),
+        "p95_relative_error": _quantile(relative_errors, 0.95),
         "within_two_reference_se_fraction": (
             sum(value <= 2.0 for value in error_to_se) / len(error_to_se)
             if error_to_se
             else None
         ),
         "mean_latency_ms": sum(latencies) / len(latencies) if latencies else None,
+        "p95_latency_ms": _quantile(latencies, 0.95),
+        "mean_reference_latency_ms": (
+            sum(reference_latencies) / len(reference_latencies)
+            if reference_latencies
+            else None
+        ),
+        "median_speedup": _quantile(speedups, 0.5),
+        "mean_speedup": sum(speedups) / len(speedups) if speedups else None,
     }
 
 
@@ -440,6 +507,49 @@ def get_surrogate_monitoring_summary(
         "symbol_count": len(set(row["symbol"] for row in rows)),
         "newest_observation_at": rows[0]["created_at"] if rows else None,
         "oldest_observation_at": rows[-1]["created_at"] if rows else None,
+    }
+
+
+def get_surrogate_monitoring_series(
+    *,
+    limit: int = 250,
+    settings: SurrogateMonitoringSettings | None = None,
+) -> dict[str, Any]:
+    """Return a bounded, payload-free series suitable for an evidence UI."""
+    active = settings or SurrogateMonitoringSettings.from_env()
+    if not active.enabled:
+        return {"enabled": False, "available": False, "reason": "disabled"}
+    if limit < 1 or limit > 5_000:
+        raise SurrogateMonitoringError("monitoring series limit is invalid")
+    connection = _connect(active.db_path)
+    try:
+        rows = connection.execute(
+            """
+            SELECT
+                observation_id, created_at, schema_version, symbol,
+                market_data_time, artifact_id, model_version, status,
+                reference_price, reference_standard_error, surrogate_price,
+                absolute_error, relative_error,
+                error_to_reference_standard_error, latency_ms,
+                reference_latency_ms, speedup,
+                maximum_standardized_feature_distance,
+                market_regime, moneyness_region
+            FROM surrogate_shadow_observations
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    except sqlite3.Error as exc:
+        raise SurrogateMonitoringError("monitoring series query failed") from exc
+    finally:
+        connection.close()
+    return {
+        "enabled": True,
+        "available": True,
+        "schema_version": SHADOW_OBSERVATION_SCHEMA_VERSION,
+        "limit": limit,
+        "observations": [dict(row) for row in reversed(rows)],
     }
 
 

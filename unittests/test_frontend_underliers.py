@@ -4,7 +4,6 @@ from app.ui.underliers import (
     parse_underlier_selection,
     underlier_by_symbol,
 )
-from app.ui.workspace import browser_facing_api_url
 
 
 def test_underlier_catalog_has_unique_searchable_symbols():
@@ -42,14 +41,3 @@ def test_picker_resolves_catalog_labels_and_new_symbols_from_the_same_box():
     )
     assert symbol == "NFLX"
     assert option is None
-
-
-def test_internal_docker_api_url_becomes_a_browser_url():
-    assert browser_facing_api_url("http://backend:8000") == "http://localhost:8000"
-    assert (
-        browser_facing_api_url(
-            "http://backend:8000",
-            "https://pricing.example.com/",
-        )
-        == "https://pricing.example.com"
-    )
