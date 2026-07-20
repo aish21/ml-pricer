@@ -27,7 +27,7 @@ api = [
 ]
 frontend = [
     "pandas==2.2.2",
-    "plotly==5.19.0",
+    "plotly==6.9.0",
     "pyarrow==21.0.0",
     "requests==2.34.2",
     "streamlit==1.59.0",
