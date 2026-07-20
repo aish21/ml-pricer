@@ -13,6 +13,7 @@ from src.final.market import (
     EQUITY_RESEARCH_MARKET_VERSION,
     EQUITY_RISK_ANALYTICS_VERSION,
 )
+from src.final.barrier_reverse_convertible import BarrierReverseConvertiblePayoff
 from src.final.inherited_payoffs import ReverseAccumulatorPayoff, StepDownPhoenixPayoff
 from src.final.payoffs import (
     AccumulatorPayoff,
@@ -20,7 +21,10 @@ from src.final.payoffs import (
     DecumulatorPayoff,
     PhoenixPayoff,
 )
-from src.final.phoenix_contract import PHOENIX_SINGLE_V2_CONTRACT_VERSION
+from src.final.phoenix_contract import (
+    PHOENIX_SINGLE_V2_CONTRACT_VERSION,
+    PHOENIX_SINGLE_V3_CONTRACT_VERSION,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -52,6 +56,10 @@ class ProductDefinition:
     enabled_for_bb: bool
     bb_fields: Tuple[ProductField, ...]
     additional_contract_versions: Tuple[str, ...] = ()
+    market_snapshot_pricing_enabled: bool = False
+    research_market_pricing_enabled: bool = False
+    scenario_analytics_enabled: bool = False
+    risk_analytics_enabled: bool = False
 
 
 PHOENIX_FIELDS: tuple[ProductField, ...] = (
@@ -111,6 +119,31 @@ BARRIER_FIELDS: tuple[ProductField, ...] = (
     ),
 )
 
+BARRIER_REVERSE_CONVERTIBLE_FIELDS: tuple[ProductField, ...] = (
+    ProductField("S0", "Reference", "float", 100.0, min_value=0.000001),
+    ProductField("sigma", "Vol", "float", 0.2, min_value=0.000001, max_value=5.0),
+    ProductField("r", "Rate", "float", 0.03, min_value=-0.25, max_value=1.0),
+    ProductField("T", "Mat", "float", 1.0, min_value=0.01, max_value=30.0),
+    ProductField(
+        "coupon_rate_per_period",
+        "Cpn",
+        "float",
+        0.02,
+        min_value=0.0,
+        max_value=1.0,
+    ),
+    ProductField("strike_frac", "Strike", "float", 1.0, min_value=0.01, max_value=3.0),
+    ProductField(
+        "knock_in_frac",
+        "KI",
+        "float",
+        0.7,
+        min_value=0.000001,
+        max_value=1.0,
+    ),
+    ProductField("obs_count", "Obs", "int", 4, min_value=1, max_value=252),
+)
+
 
 PRODUCT_DEFINITIONS: tuple[ProductDefinition, ...] = (
     ProductDefinition(
@@ -125,7 +158,28 @@ PRODUCT_DEFINITIONS: tuple[ProductDefinition, ...] = (
         legacy_price_route_enabled=True,
         enabled_for_bb=True,
         bb_fields=PHOENIX_FIELDS,
-        additional_contract_versions=(PHOENIX_SINGLE_V2_CONTRACT_VERSION,),
+        additional_contract_versions=(
+            PHOENIX_SINGLE_V2_CONTRACT_VERSION,
+            PHOENIX_SINGLE_V3_CONTRACT_VERSION,
+        ),
+        market_snapshot_pricing_enabled=True,
+        research_market_pricing_enabled=True,
+        scenario_analytics_enabled=True,
+        risk_analytics_enabled=True,
+    ),
+    ProductDefinition(
+        key="barrier_reverse_convertible",
+        display_name="Barrier Reverse Convertible",
+        terminal_label="BRC",
+        payoff_class=BarrierReverseConvertiblePayoff,
+        contract_version=BarrierReverseConvertiblePayoff.contract_version,
+        artifact_dir="barrier_reverse_convertible",
+        validated_for_pricing=True,
+        reference_pricing_enabled=True,
+        legacy_price_route_enabled=False,
+        enabled_for_bb=False,
+        bb_fields=BARRIER_REVERSE_CONVERTIBLE_FIELDS,
+        research_market_pricing_enabled=True,
     ),
     ProductDefinition(
         key="accumulator",
@@ -283,7 +337,7 @@ def build_product_status(
         "reference_pricing_available": product.reference_pricing_enabled,
         "market_snapshot_versions": (
             [EQUITY_MARKET_SNAPSHOT_VERSION]
-            if product.reference_pricing_enabled
+            if product.market_snapshot_pricing_enabled
             else []
         ),
         "market_term_structure_versions": (
@@ -293,23 +347,24 @@ def build_product_status(
         ),
         "research_market_versions": (
             [EQUITY_RESEARCH_MARKET_VERSION]
-            if product.reference_pricing_enabled
+            if product.research_market_pricing_enabled
             else []
         ),
         "scenario_versions": (
             [EQUITY_MARKET_SCENARIO_VERSION]
-            if product.reference_pricing_enabled
+            if product.scenario_analytics_enabled
             else []
         ),
         "risk_analytics_versions": (
-            [EQUITY_RISK_ANALYTICS_VERSION] if product.reference_pricing_enabled else []
+            [EQUITY_RISK_ANALYTICS_VERSION] if product.risk_analytics_enabled else []
         ),
         "market_model_versions": (
-            [
-                "gbm-flat-v1",
-                EQUITY_GBM_FLAT_MODEL_VERSION,
-                EQUITY_GBM_PIECEWISE_MODEL_VERSION,
-            ]
+            (
+                ["gbm-flat-v1", EQUITY_GBM_FLAT_MODEL_VERSION]
+                if product.market_snapshot_pricing_enabled
+                else []
+            )
+            + [EQUITY_GBM_PIECEWISE_MODEL_VERSION]
             if product.reference_pricing_enabled
             else []
         ),

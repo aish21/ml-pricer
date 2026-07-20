@@ -5,6 +5,11 @@ from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.final.barrier_reverse_convertible import (
+    BARRIER_REVERSE_CONVERTIBLE_V1,
+    BarrierReverseConvertibleV1Contract,
+    BarrierReverseConvertibleValidationError,
+)
 from src.final.market import (
     EQUITY_MARKET_SNAPSHOT_VERSION,
     EQUITY_MARKET_TERM_STRUCTURE_VERSION,
@@ -16,13 +21,17 @@ from src.final.market import (
 )
 from src.final.phoenix_contract import (
     PHOENIX_SINGLE_V2_CONTRACT_VERSION,
+    PHOENIX_SINGLE_V3_CONTRACT_VERSION,
     PhoenixContractValidationError,
     PhoenixSingleV2Contract,
+    PhoenixSingleV3Contract,
 )
 from app.services.diagnostics_service import (
     InvalidDiagnosticsInputError,
+    get_barrier_reverse_convertible_diagnostics,
     get_phoenix_v1_diagnostics,
     get_phoenix_v2_diagnostics,
+    get_phoenix_v3_diagnostics,
 )
 from app.services.live_market_data import (
     LiveMarketDataError,
@@ -37,11 +46,19 @@ from app.services.live_market_data import (
     get_live_market_data_service,
     get_live_market_data_status,
 )
+from app.services.market_snapshot_store import (
+    MarketSnapshotStoreError,
+    get_research_market_snapshot,
+    list_research_market_snapshots,
+    save_research_market_snapshot,
+)
 from app.services.pricing_service import (
     InvalidPricingInputError,
     PricingServiceError,
     UnsupportedProductError,
+    price_barrier_reverse_convertible_with_term_structure,
     price_phoenix_v2_with_term_structure,
+    price_phoenix_v3_with_term_structure,
     price_phoenix_with_term_structure,
     price_phoenix_with_market_snapshot,
     price_product,
@@ -58,9 +75,14 @@ from app.services.risk_service import (
     run_phoenix_term_structure_scenario,
 )
 from app.services.run_store import get_run, list_recent_runs, save_run
-from app.services.surrogate_service import get_surrogate_status
+from app.services.surrogate_service import (
+    get_expanded_surrogate_evidence,
+    get_surrogate_audit_evidence,
+    get_surrogate_status,
+)
 from app.services.surrogate_monitoring import (
     SurrogateMonitoringError,
+    get_surrogate_monitoring_series,
     get_surrogate_monitoring_status,
     get_surrogate_monitoring_summary,
 )
@@ -242,6 +264,64 @@ class PhoenixSingleV2TermStructurePricingRequest(BaseModel):
     n_paths: int = Field(default=2000, ge=1, le=20_000)
 
 
+class PhoenixSingleV3ContractRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    contract_version: Literal["phoenix-single-v3"] = PHOENIX_SINGLE_V3_CONTRACT_VERSION
+    reference_level: float = Field(gt=0.0, le=1_000_000_000.0)
+    maturity_years: float = Field(gt=0.0, le=30.0)
+    observation_times_years: list[float] = Field(min_length=1, max_length=252)
+    autocall_barrier_fracs: list[float] = Field(min_length=1, max_length=252)
+    coupon_barrier_frac: float = Field(gt=0.0, le=3.0)
+    coupon_rate: float = Field(ge=0.0, le=1.0)
+    knock_in_frac: float = Field(gt=0.0, le=1.0)
+    prior_knock_in_breached: bool
+    memory_coupon: bool
+    unpaid_coupon_count: int = Field(default=0, ge=0, le=252)
+
+    def to_domain(self) -> PhoenixSingleV3Contract:
+        payload = self.model_dump()
+        payload["observation_times_years"] = tuple(self.observation_times_years)
+        payload["autocall_barrier_fracs"] = tuple(self.autocall_barrier_fracs)
+        return PhoenixSingleV3Contract(**payload)
+
+
+class PhoenixSingleV3TermStructurePricingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    market: EquityMarketTermStructureRequest
+    contract: PhoenixSingleV3ContractRequest
+    n_paths: int = Field(default=2000, ge=1, le=20_000)
+
+
+class BarrierReverseConvertibleV1ContractRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    contract_version: Literal["barrier-reverse-convertible-v1"] = (
+        BARRIER_REVERSE_CONVERTIBLE_V1
+    )
+    reference_level: float = Field(gt=0.0, le=1_000_000_000.0)
+    maturity_years: float = Field(gt=0.0, le=30.0)
+    coupon_times_years: list[float] = Field(min_length=1, max_length=252)
+    coupon_rate_per_period: float = Field(ge=0.0, le=1.0)
+    strike_frac: float = Field(gt=0.0, le=3.0)
+    knock_in_frac: float = Field(gt=0.0, le=1.0)
+    prior_knock_in_breached: bool = False
+
+    def to_domain(self) -> BarrierReverseConvertibleV1Contract:
+        payload = self.model_dump()
+        payload["coupon_times_years"] = tuple(self.coupon_times_years)
+        return BarrierReverseConvertibleV1Contract(**payload)
+
+
+class BarrierReverseConvertiblePricingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    market: EquityMarketTermStructureRequest
+    contract: BarrierReverseConvertibleV1ContractRequest
+    n_paths: int = Field(default=2000, ge=1, le=20_000)
+
+
 class PhoenixV1DiagnosticsRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -259,6 +339,30 @@ class PhoenixV2DiagnosticsRequest(BaseModel):
 
     market: EquityMarketTermStructureRequest
     contract: PhoenixSingleV2ContractRequest
+    n_paths: int = Field(default=2000, ge=100, le=5_000)
+    seed: int = Field(default=42, ge=0, le=4_294_967_295)
+    convergence_path_counts: list[int] = Field(default_factory=list, max_length=8)
+    spot_shocks_pct: list[float] = Field(default_factory=list, max_length=11)
+    volatility_shocks_abs: list[float] = Field(default_factory=list, max_length=11)
+
+
+class PhoenixV3DiagnosticsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    market: EquityMarketTermStructureRequest
+    contract: PhoenixSingleV3ContractRequest
+    n_paths: int = Field(default=2000, ge=100, le=5_000)
+    seed: int = Field(default=42, ge=0, le=4_294_967_295)
+    convergence_path_counts: list[int] = Field(default_factory=list, max_length=8)
+    spot_shocks_pct: list[float] = Field(default_factory=list, max_length=11)
+    volatility_shocks_abs: list[float] = Field(default_factory=list, max_length=11)
+
+
+class BarrierReverseConvertibleDiagnosticsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    market: EquityMarketTermStructureRequest
+    contract: BarrierReverseConvertibleV1ContractRequest
     n_paths: int = Field(default=2000, ge=100, le=5_000)
     seed: int = Field(default=42, ge=0, le=4_294_967_295)
     convergence_path_counts: list[int] = Field(default_factory=list, max_length=8)
@@ -411,6 +515,13 @@ def _risk_error_response(exc: RiskAnalyticsError) -> JSONResponse:
     )
 
 
+def _persist_research_market(built: Any) -> dict[str, Any]:
+    return save_research_market_snapshot(
+        market=built.market.to_dict(),
+        calibration=built.calibration,
+    )
+
+
 def _save_analysis_run(
     *,
     request_payload: dict[str, Any],
@@ -522,6 +633,34 @@ def price_phoenix_v2_term_structure(
         )
 
 
+@router.post("/products/phoenix/price/richer/term-structure")
+def price_phoenix_v3_term_structure(
+    req: PhoenixSingleV3TermStructurePricingRequest,
+):
+    try:
+        result = price_phoenix_v3_with_term_structure(
+            market=req.market.to_domain(),
+            contract=req.contract.to_domain(),
+            n_paths=req.n_paths,
+        )
+        return {"status": "success", "result": result}
+    except (
+        InvalidPricingInputError,
+        MarketDataValidationError,
+        PhoenixContractValidationError,
+    ) as exc:
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=422)
+    except UnsupportedProductError as exc:
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=400)
+    except PricingServiceError as exc:
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=503)
+    except Exception:
+        return JSONResponse(
+            {"status": "error", "message": "richer Phoenix pricing failed"},
+            status_code=500,
+        )
+
+
 @router.post("/products/phoenix/diagnostics/term-structure")
 def phoenix_v1_diagnostics(req: PhoenixV1DiagnosticsRequest):
     try:
@@ -566,6 +705,86 @@ def phoenix_v2_diagnostics(req: PhoenixV2DiagnosticsRequest):
     except Exception:
         return JSONResponse(
             {"status": "error", "message": "seasoned diagnostics failed"},
+            status_code=500,
+        )
+
+
+@router.post("/products/phoenix/diagnostics/richer/term-structure")
+def phoenix_v3_diagnostics(req: PhoenixV3DiagnosticsRequest):
+    try:
+        diagnostics = get_phoenix_v3_diagnostics(
+            market=req.market.to_domain(),
+            contract=req.contract.to_domain(),
+            n_paths=req.n_paths,
+            seed=req.seed,
+            convergence_path_counts=req.convergence_path_counts,
+            spot_shocks_pct=req.spot_shocks_pct,
+            volatility_shocks_abs=req.volatility_shocks_abs,
+        )
+        return {"status": "success", "diagnostics": diagnostics}
+    except (
+        InvalidDiagnosticsInputError,
+        MarketDataValidationError,
+        PhoenixContractValidationError,
+    ) as exc:
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=422)
+    except Exception:
+        return JSONResponse(
+            {"status": "error", "message": "richer Phoenix diagnostics failed"},
+            status_code=500,
+        )
+
+
+@router.post("/products/barrier-reverse-convertible/price/term-structure")
+def price_barrier_reverse_convertible(
+    req: BarrierReverseConvertiblePricingRequest,
+):
+    try:
+        result = price_barrier_reverse_convertible_with_term_structure(
+            market=req.market.to_domain(),
+            contract=req.contract.to_domain(),
+            n_paths=req.n_paths,
+        )
+        return {"status": "success", "result": result}
+    except (
+        InvalidPricingInputError,
+        MarketDataValidationError,
+        BarrierReverseConvertibleValidationError,
+    ) as exc:
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=422)
+    except (UnsupportedProductError, PricingServiceError) as exc:
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=503)
+    except Exception:
+        return JSONResponse(
+            {"status": "error", "message": "reverse convertible pricing failed"},
+            status_code=500,
+        )
+
+
+@router.post("/products/barrier-reverse-convertible/diagnostics/term-structure")
+def barrier_reverse_convertible_diagnostics(
+    req: BarrierReverseConvertibleDiagnosticsRequest,
+):
+    try:
+        diagnostics = get_barrier_reverse_convertible_diagnostics(
+            market=req.market.to_domain(),
+            contract=req.contract.to_domain(),
+            n_paths=req.n_paths,
+            seed=req.seed,
+            convergence_path_counts=req.convergence_path_counts,
+            spot_shocks_pct=req.spot_shocks_pct,
+            volatility_shocks_abs=req.volatility_shocks_abs,
+        )
+        return {"status": "success", "diagnostics": diagnostics}
+    except (
+        InvalidDiagnosticsInputError,
+        MarketDataValidationError,
+        BarrierReverseConvertibleValidationError,
+    ) as exc:
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=422)
+    except Exception:
+        return JSONResponse(
+            {"status": "error", "message": "reverse convertible diagnostics failed"},
             status_code=500,
         )
 
@@ -644,15 +863,22 @@ def build_research_term_structure(req: ResearchTermStructureBuildRequest):
             underlier_type=req.market.underlier_type,
             maturity_years=req.maturity_years,
         )
+        snapshot = _persist_research_market(built)
         return {
             "status": "success",
             "market_term_structure": built.market.to_dict(),
             "market_calibration": built.calibration,
+            "market_snapshot": snapshot,
         }
     except LiveMarketDataError as exc:
         return _market_data_error_response(exc)
     except MarketDataValidationError as exc:
         return JSONResponse({"status": "error", "message": str(exc)}, status_code=422)
+    except MarketSnapshotStoreError:
+        return JSONResponse(
+            {"status": "error", "message": "research market could not be frozen"},
+            status_code=503,
+        )
     except Exception:
         return JSONResponse(
             {"status": "error", "message": "research market build failed"},
@@ -668,6 +894,7 @@ def price_phoenix_research_market(req: ResearchPhoenixSingleV1PricingRequest):
             underlier_type=req.market.underlier_type,
             maturity_years=req.terms.maturity_years,
         )
+        snapshot = _persist_research_market(built)
         result = price_phoenix_with_term_structure(
             market=built.market,
             terms=req.terms.model_dump(),
@@ -675,11 +902,17 @@ def price_phoenix_research_market(req: ResearchPhoenixSingleV1PricingRequest):
         )
         result["market_calibration"] = built.calibration
         result["market_calibration_version"] = EQUITY_RESEARCH_MARKET_VERSION
+        result["market_snapshot_record"] = snapshot
         return {"status": "success", "result": result}
     except LiveMarketDataError as exc:
         return _market_data_error_response(exc)
     except (InvalidPricingInputError, MarketDataValidationError) as exc:
         return JSONResponse({"status": "error", "message": str(exc)}, status_code=422)
+    except MarketSnapshotStoreError:
+        return JSONResponse(
+            {"status": "error", "message": "research market could not be frozen"},
+            status_code=503,
+        )
     except PricingServiceError as exc:
         return JSONResponse({"status": "error", "message": str(exc)}, status_code=503)
     except Exception:
@@ -687,6 +920,39 @@ def price_phoenix_research_market(req: ResearchPhoenixSingleV1PricingRequest):
             {"status": "error", "message": "research market pricing failed"},
             status_code=500,
         )
+
+
+@router.get("/market-data/research-snapshots")
+def recent_research_market_snapshots(
+    limit: int = Query(default=20, ge=1, le=100),
+):
+    try:
+        return {
+            "status": "success",
+            "snapshots": list_research_market_snapshots(limit=limit),
+        }
+    except MarketSnapshotStoreError:
+        return JSONResponse(
+            {"status": "error", "message": "market snapshot store is unavailable"},
+            status_code=503,
+        )
+
+
+@router.get("/market-data/research-snapshots/{snapshot_id}")
+def research_market_snapshot(snapshot_id: str):
+    try:
+        snapshot = get_research_market_snapshot(snapshot_id)
+    except MarketSnapshotStoreError:
+        return JSONResponse(
+            {"status": "error", "message": "market snapshot store is unavailable"},
+            status_code=503,
+        )
+    if snapshot is None:
+        return JSONResponse(
+            {"status": "error", "message": "market snapshot was not found"},
+            status_code=404,
+        )
+    return {"status": "success", "snapshot": snapshot}
 
 
 @router.post("/products/phoenix/scenario/term-structure")
@@ -898,5 +1164,29 @@ def surrogate_shadow_promotion_readiness(
                 "status": "error",
                 "message": "surrogate promotion readiness unavailable",
             },
+            status_code=503,
+        )
+
+
+@router.get("/surrogate-shadow/evidence")
+def surrogate_shadow_evidence(
+    monitoring_limit: int = Query(default=5_000, ge=1, le=100_000),
+    series_limit: int = Query(default=250, ge=1, le=5_000),
+):
+    """Combine frozen audit and live shadow evidence without changing runtime."""
+    try:
+        return {
+            "status": "success",
+            "evidence": {
+                "audit": get_surrogate_audit_evidence(),
+                "expansion_experiments": get_expanded_surrogate_evidence(),
+                "monitoring": get_surrogate_monitoring_summary(limit=monitoring_limit),
+                "series": get_surrogate_monitoring_series(limit=series_limit),
+                "readiness": get_surrogate_promotion_readiness(limit=monitoring_limit),
+            },
+        }
+    except SurrogateMonitoringError:
+        return JSONResponse(
+            {"status": "error", "message": "surrogate evidence unavailable"},
             status_code=503,
         )

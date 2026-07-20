@@ -1,5 +1,5 @@
 ﻿import os
-from urllib.parse import urlsplit, urlunsplit
+from dataclasses import replace
 
 import streamlit as st
 
@@ -15,33 +15,18 @@ API_URL = os.getenv(
 )
 
 
-def browser_facing_api_url(
-    service_url: str,
-    configured_public_url: str | None = None,
-) -> str:
-    if configured_public_url and configured_public_url.strip():
-        return configured_public_url.strip().rstrip("/")
-    parsed = urlsplit(service_url)
-    if parsed.hostname == "backend":
-        port = f":{parsed.port}" if parsed.port else ""
-        return urlunsplit((parsed.scheme or "http", f"localhost{port}", "", "", ""))
-    return service_url.rstrip("/")
-
-
-PUBLIC_API_URL = browser_facing_api_url(
-    API_URL,
-    os.getenv("API_PUBLIC_URL"),
-)
-
-
 def _initialize_state() -> None:
     defaults = {
         "pricing_result": None,
         "diagnostics_result": None,
         "pricing_configuration": None,
         "frozen_market": None,
+        "market_calibration": None,
+        "market_snapshot_record": None,
         "scenario_result": None,
         "risk_result": None,
+        "ml_evidence_snapshot": None,
+        "ml_evidence_error": None,
     }
     for name, value in defaults.items():
         if name not in st.session_state:
@@ -50,12 +35,12 @@ def _initialize_state() -> None:
 
 def _render_header(experience_mode: str) -> None:
     if experience_mode == "Guided":
-        eyebrow = "Learn structured-product pricing from zero"
-        title = "Build a pretend note, one tiny step at a time."
+        eyebrow = "ML Pricer · Guided workspace"
+        title = "Build a Phoenix note and see how it is priced."
         body = (
-            "No finance knowledge needed. Pick something to watch, draw a few "
-            "rules, let the computer imagine possible futures, and learn how "
-            "those pieces become a price."
+            "Work through the contract terms, market assumptions, and simulation "
+            "one section at a time. Each step shows how your choices shape the "
+            "note and its estimated value."
         )
     else:
         eyebrow = "Structured-product research workspace"
@@ -119,31 +104,64 @@ def _run_pricing(
     config: PricingConfiguration,
 ) -> None:
     if config.market_source == "Research market":
-        market = client.build_research_market(
+        bundle = client.build_research_market_bundle(
             symbol=config.symbol,
             underlier_type=config.underlier_type,
             maturity_years=config.maturity_years,
         )
+        market = dict(bundle["market"])
+        calibration = dict(bundle["calibration"])
+        snapshot_record = dict(bundle["snapshot"])
     else:
         market = dict(config.manual_market or {})
-    result = client.price(
-        market=market,
-        terms=config.terms,
-        contract=config.contract,
-        n_paths=config.n_paths,
-    )
+        calibration = {}
+        snapshot_record = {}
+    effective_config = config
+    if config.product_key == "barrier_reverse_convertible":
+        contract = dict(config.contract or {})
+        if config.trade_stage == "New issue":
+            contract["reference_level"] = float(market["spot"])
+            effective_config = replace(config, contract=contract)
+        result = client.price_barrier_reverse_convertible(
+            market=market,
+            contract=contract,
+            n_paths=config.n_paths,
+        )
+    else:
+        result = client.price(
+            market=market,
+            terms=config.terms,
+            contract=config.contract,
+            n_paths=config.n_paths,
+        )
+    if calibration:
+        result["market_calibration"] = calibration
+    if snapshot_record:
+        result["market_snapshot_record"] = snapshot_record
     grids = diagnostic_grids(market)
-    diagnostics = client.diagnostics(
-        market=market,
-        terms=config.terms,
-        contract=config.contract,
-        n_paths=config.n_paths,
-        seed=config.seed,
-        spot_shocks_pct=grids["spot_shocks_pct"],
-        volatility_shocks_abs=grids["volatility_shocks_abs"],
-    )
-    st.session_state["pricing_configuration"] = config
+    if config.product_key == "barrier_reverse_convertible":
+        diagnostics = client.barrier_reverse_convertible_diagnostics(
+            market=market,
+            contract=dict(effective_config.contract or {}),
+            n_paths=config.n_paths,
+            seed=config.seed,
+            spot_shocks_pct=grids["spot_shocks_pct"],
+            volatility_shocks_abs=grids["volatility_shocks_abs"],
+        )
+    else:
+        diagnostics = client.diagnostics(
+            market=market,
+            terms=config.terms,
+            contract=config.contract,
+            n_paths=config.n_paths,
+            seed=config.seed,
+            spot_shocks_pct=grids["spot_shocks_pct"],
+            volatility_shocks_abs=grids["volatility_shocks_abs"],
+        )
+    st.session_state["pricing_configuration"] = effective_config
     st.session_state["frozen_market"] = market
+    st.session_state["market_calibration"] = calibration or None
+    st.session_state["market_snapshot_record"] = snapshot_record or None
     st.session_state["pricing_result"] = result
     st.session_state["diagnostics_result"] = diagnostics
     st.session_state["scenario_result"] = None
@@ -154,10 +172,6 @@ def render_workspace() -> None:
     _initialize_state()
     client = MlPricerApi(API_URL)
     experience_mode, n_paths, seed = render_sidebar()
-    st.sidebar.markdown(f"[Open backend API docs ↗]({PUBLIC_API_URL}/docs)")
-    st.sidebar.caption(
-        "Browser-facing API link; the internal Docker service address stays hidden."
-    )
     if st.sidebar.button("Check API connection", width="stretch"):
         if client.health():
             st.sidebar.success("Pricing API is ready.")

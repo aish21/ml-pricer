@@ -1,0 +1,91 @@
+{
+  "audit_dataset_id": "sha256:888da0a505ca155ece2f06c159803074ac26ae3bd3e8a627371c13087d37bd6f",
+  "configuration": {
+    "audit_paths": 4096,
+    "audit_samples": 300,
+    "development_paths": 1024,
+    "development_samples": 2500,
+    "domain": {
+      "schedule": "even fixed-coupon observations",
+      "seasoning": "spot/reference and prior knock-in state",
+      "underlier": "single USD equity-like synthetic GBM"
+    },
+    "feature_order": [
+      "spot_to_reference",
+      "risk_free_rate",
+      "dividend_yield",
+      "volatility",
+      "maturity_years",
+      "coupon_rate_per_period",
+      "strike_frac",
+      "knock_in_frac",
+      "coupon_count",
+      "prior_knock_in_breached"
+    ],
+    "learner": {
+      "class": "lightgbm.LGBMRegressor",
+      "library_version": "4.6.0",
+      "objective": "regression_l1"
+    },
+    "maximum_mae": 0.015,
+    "maximum_mean_label_standard_error": 0.01,
+    "maximum_median_latency_ms": 5.0,
+    "maximum_p95_absolute_error": 0.04,
+    "minimum_r2": 0.9,
+    "monitoring_steps": 64,
+    "seed": 20260719,
+    "trees": 1000
+  },
+  "contract_version": "barrier-reverse-convertible-v1",
+  "datasets": {
+    "audit_paths_per_label": 4096,
+    "audit_samples": 300,
+    "development_mean_label_standard_error": 0.004019671746642563,
+    "development_paths_per_label": 1024,
+    "development_samples": 2500
+  },
+  "development_dataset_id": "sha256:192b6cb4a1db3aa6f19b030fa9a2cafc56ec6b5558834900d1b6cc775064fa08",
+  "experiment_id": "sha256:331aabc2437d4da253a3f6cad6838647c1a089fc509b348fd2cb802777ab6d4c",
+  "experiment_version": "expanded-surrogate-experiment-v1",
+  "product_key": "barrier_reverse_convertible",
+  "runtime_approved": false,
+  "sealed_audit": {
+    "checks": {
+      "mae": {
+        "maximum": 0.015,
+        "passed": false,
+        "value": 0.018469220386251522
+      },
+      "mean_label_standard_error": {
+        "maximum": 0.01,
+        "passed": true,
+        "value": 0.0021046632644812
+      },
+      "median_inference_latency_ms": {
+        "maximum": 5.0,
+        "passed": true,
+        "value": 0.10010000005422626
+      },
+      "p95_absolute_error": {
+        "maximum": 0.04,
+        "passed": false,
+        "value": 0.052879468513357675
+      },
+      "r2": {
+        "minimum": 0.9,
+        "passed": true,
+        "value": 0.9671123176891623
+      }
+    },
+    "metrics": {
+      "mae": 0.018469220386251522,
+      "mean_label_standard_error": 0.0021046632644812,
+      "median_inference_latency_ms": 0.10010000005422626,
+      "p95_absolute_error": 0.052879468513357675,
+      "p95_label_standard_error": 0.003828594268168811,
+      "r2": 0.9671123176891623
+    },
+    "passed": false
+  },
+  "status": "rejected"
+}

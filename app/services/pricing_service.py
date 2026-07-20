@@ -3,6 +3,10 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from src.final.barrier_reverse_convertible import (
+    BARRIER_REVERSE_CONVERTIBLE_V1,
+    BarrierReverseConvertibleV1Contract,
+)
 from src.final.market import (
     EQUITY_GBM_FLAT_MODEL_VERSION,
     EQUITY_GBM_PIECEWISE_MODEL_VERSION,
@@ -12,13 +16,17 @@ from src.final.market import (
 )
 from src.final.reference_pricer import (
     DEFAULT_REFERENCE_SEED,
+    price_barrier_reverse_convertible_reference,
     price_phoenix_piecewise_reference,
     price_phoenix_v2_piecewise_reference,
+    price_phoenix_v3_piecewise_reference,
     price_reference,
 )
 from src.final.phoenix_contract import (
     PHOENIX_SINGLE_V2_CONTRACT_VERSION,
+    PHOENIX_SINGLE_V3_CONTRACT_VERSION,
     PhoenixSingleV2Contract,
+    PhoenixSingleV3Contract,
 )
 from app.services.product_registry import (
     ProductField,
@@ -440,6 +448,7 @@ def price_phoenix_with_term_structure(
                     reference_price=result["price"],
                     reference_standard_error=result["standard_error"],
                     shadow_result=shadow,
+                    reference_latency_ms=result["latency_ms"],
                 )
             except Exception:
                 shadow["telemetry_recorded"] = False
@@ -522,6 +531,153 @@ def price_phoenix_v2_with_term_structure(
         "reason": (
             "the approved surrogate is governed only for phoenix-single-v1 "
             "new-issue contracts"
+        ),
+    }
+    return result
+
+
+def price_phoenix_v3_with_term_structure(
+    market: EquityMarketTermStructure,
+    contract: PhoenixSingleV3Contract,
+    n_paths: int = 500,
+    seed: int = DEFAULT_REFERENCE_SEED,
+) -> Dict[str, Any]:
+    """Price a seasoned memory/step-down Phoenix under piecewise market data."""
+    if not isinstance(market, EquityMarketTermStructure):
+        raise InvalidPricingInputError("invalid equity market term structure")
+    if not isinstance(contract, PhoenixSingleV3Contract):
+        raise InvalidPricingInputError("invalid Phoenix Single v3 contract")
+    try:
+        equivalent = market.equivalent_flat_parameters(contract.maturity_years)
+    except MarketDataValidationError as exc:
+        raise InvalidPricingInputError(str(exc)) from exc
+    product = get_product_definition("phoenix")
+    if product is None or not product.reference_pricing_enabled:
+        raise UnsupportedProductError("unsupported product: phoenix")
+
+    validated_paths = validate_reference_path_count(n_paths)
+    started = time.perf_counter()
+    reference = price_phoenix_v3_piecewise_reference(
+        payoff=product.payoff_class(),
+        contract=contract,
+        market=market,
+        n_paths=validated_paths,
+        seed=int(seed),
+    )
+    latency_ms = int(round((time.perf_counter() - started) * 1000))
+    normalized_params = contract.to_payoff_params(
+        risk_free_rate=equivalent["risk_free_rate"],
+        volatility=equivalent["volatility"],
+    )
+    normalized_terms = {
+        "maturity_years": contract.maturity_years,
+        "autocall_barrier_fracs": list(contract.autocall_barrier_fracs),
+        "coupon_barrier_frac": contract.coupon_barrier_frac,
+        "coupon_rate": contract.coupon_rate,
+        "knock_in_frac": contract.knock_in_frac,
+        "obs_count": len(contract.observation_times_years),
+        "memory_coupon": contract.memory_coupon,
+        "unpaid_coupon_count": contract.unpaid_coupon_count,
+    }
+    result = _build_pricing_result(
+        product=product,
+        normalized_params=normalized_params,
+        n_paths=validated_paths,
+        model_version=EQUITY_GBM_PIECEWISE_MODEL_VERSION,
+        reference=reference,
+        latency_ms=latency_ms,
+        market_term_structure=market,
+        terms=normalized_terms,
+        contract_version=PHOENIX_SINGLE_V3_CONTRACT_VERSION,
+        contract_details=contract.to_dict(),
+        warnings=[
+            "Missed memory coupons are paid only when a later observation "
+            "satisfies the coupon condition; unpaid coupons are not guaranteed.",
+            "Historical knock-in and unpaid-coupon state are caller-supplied "
+            "and are not inferred from market data.",
+            "Knock-in monitoring from valuation onward remains discrete on the "
+            "simulation grid.",
+        ],
+    )
+    result["surrogate_shadow"] = {
+        "status": "not_applicable",
+        "mode": "shadow-only",
+        "used_for_price": False,
+        "reason": (
+            "phoenix-single-v3 is reference-priced while richer-contract "
+            "surrogate evidence is collected"
+        ),
+    }
+    return result
+
+
+def price_barrier_reverse_convertible_with_term_structure(
+    market: EquityMarketTermStructure,
+    contract: BarrierReverseConvertibleV1Contract,
+    n_paths: int = 500,
+    seed: int = DEFAULT_REFERENCE_SEED,
+) -> Dict[str, Any]:
+    """Price a focused barrier reverse convertible reference contract."""
+    if not isinstance(market, EquityMarketTermStructure):
+        raise InvalidPricingInputError("invalid equity market term structure")
+    if not isinstance(contract, BarrierReverseConvertibleV1Contract):
+        raise InvalidPricingInputError("invalid barrier reverse convertible contract")
+    try:
+        equivalent = market.equivalent_flat_parameters(contract.maturity_years)
+    except MarketDataValidationError as exc:
+        raise InvalidPricingInputError(str(exc)) from exc
+    product = get_product_definition("barrier_reverse_convertible")
+    if product is None or not product.reference_pricing_enabled:
+        raise UnsupportedProductError(
+            "unsupported product: barrier_reverse_convertible"
+        )
+
+    validated_paths = validate_reference_path_count(n_paths)
+    started = time.perf_counter()
+    reference = price_barrier_reverse_convertible_reference(
+        payoff=product.payoff_class(),
+        contract=contract,
+        market=market,
+        n_paths=validated_paths,
+        seed=int(seed),
+    )
+    latency_ms = int(round((time.perf_counter() - started) * 1000))
+    normalized_params = contract.to_payoff_params(
+        risk_free_rate=equivalent["risk_free_rate"],
+        volatility=equivalent["volatility"],
+    )
+    result = _build_pricing_result(
+        product=product,
+        normalized_params=normalized_params,
+        n_paths=validated_paths,
+        model_version=EQUITY_GBM_PIECEWISE_MODEL_VERSION,
+        reference=reference,
+        latency_ms=latency_ms,
+        market_term_structure=market,
+        terms={
+            "maturity_years": contract.maturity_years,
+            "coupon_rate_per_period": contract.coupon_rate_per_period,
+            "strike_frac": contract.strike_frac,
+            "knock_in_frac": contract.knock_in_frac,
+            "obs_count": len(contract.coupon_times_years),
+        },
+        contract_version=BARRIER_REVERSE_CONVERTIBLE_V1,
+        contract_details=contract.to_dict(),
+        warnings=[
+            "Coupons are contractual in this simplified research payoff and "
+            "issuer credit/default risk is not modelled.",
+            "Knock-in monitoring from valuation onward is discrete on the "
+            "simulation grid.",
+            "Historical knock-in state is caller-supplied.",
+        ],
+    )
+    result["surrogate_shadow"] = {
+        "status": "not_available",
+        "mode": "reference-only",
+        "used_for_price": False,
+        "reason": (
+            "no barrier reverse convertible surrogate has passed sealed "
+            "acceptance gates"
         ),
     }
     return result

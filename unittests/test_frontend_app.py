@@ -2,8 +2,20 @@ from pathlib import Path
 
 from streamlit.testing.v1 import AppTest
 
-from app.ui.guided import FOUNDATION_GLOSSARY, glossary_entry
-from app.ui.results import _interpretation_html, _ml_comparison_summary, _table_html
+from app.ui.guided import (
+    FOUNDATION_GLOSSARY,
+    GLOSSARY_VISUALS,
+    glossary_entry,
+    glossary_visual_html,
+    teaching_check_outcome,
+)
+from app.ui.results import (
+    ML_LESSON_STAGES,
+    _interpretation_html,
+    _ml_comparison_summary,
+    _table_html,
+    ml_lesson_stage,
+)
 
 
 def test_streamlit_workspace_starts_without_contacting_backend():
@@ -14,6 +26,11 @@ def test_streamlit_workspace_starts_without_contacting_backend():
     assert not app.exception
     assert any(button.label == "Check API connection" for button in app.button)
     assert any(button.key == "guided_next_0" for button in app.button)
+    assert any(
+        "Build a Phoenix note and see how it is priced." in item.value
+        for item in app.markdown
+    )
+    assert all("Open backend API docs" not in item.value for item in app.markdown)
     assert any(
         selectbox.label == "Pick the thing whose price we will watch"
         for selectbox in app.selectbox
@@ -38,11 +55,75 @@ def test_zero_knowledge_glossary_covers_contract_market_and_model_terms():
         "Principal",
         "Volatility",
         "Monte Carlo",
+        "Machine-learning model",
+        "Training example",
+        "Shadow mode",
     } <= FOUNDATION_GLOSSARY.keys()
     headline, explanation, why_it_matters = glossary_entry("Note")
     assert "IOU" in headline
     assert "issuer" in explanation.lower()
     assert "share" in why_it_matters.lower()
+
+
+def test_every_glossary_term_has_an_accessible_animated_visual():
+    assert GLOSSARY_VISUALS.keys() == FOUNDATION_GLOSSARY.keys()
+
+    for term in FOUNDATION_GLOSSARY:
+        rendered = glossary_visual_html(term)
+        assert 'class="mlp-concept-visual ' in rendered
+        assert 'role="img"' in rendered
+        assert 'aria-label="' in rendered
+        assert "<svg " in rendered
+        assert rendered.count('class="mlp-concept-step"') == 3
+        assert "<script" not in rendered
+
+
+def test_word_shelf_swaps_the_visual_when_the_term_changes():
+    app_path = Path(__file__).parents[1] / "app" / "frontend.py"
+    app = AppTest.from_file(str(app_path)).run(timeout=15)
+    shelf = next(
+        selectbox
+        for selectbox in app.selectbox
+        if selectbox.label.startswith("Word shelf")
+    )
+
+    shelf.set_value("Volatility")
+    app.run(timeout=15)
+
+    assert not app.exception
+    assert any(
+        "mlp-concept-rose" in item.value and ">Volatility<" in item.value
+        for item in app.markdown
+    )
+
+
+def test_zero_knowledge_rule_game_explains_each_possible_outcome():
+    scenarios = {
+        110: ("The note finishes early", "finish"),
+        102: ("A reward is earned; the note keeps going", "reward"),
+        85: ("No reward at this check; the note keeps going", "wait"),
+        65: ("The safety memory switches on", "risk"),
+    }
+
+    for observed, (expected_title, expected_tone) in scenarios.items():
+        title, explanation, tone = teaching_check_outcome(
+            observed,
+            autocall_level=105,
+            coupon_level=100,
+            knock_in_level=70,
+        )
+        assert title == expected_title
+        assert explanation
+        assert tone == expected_tone
+
+
+def test_ml_lesson_says_the_model_prices_notes_not_market_direction():
+    assert len(ML_LESSON_STAGES) == 3
+    title, explanation, takeaway = ml_lesson_stage("2 · Student practises")
+
+    assert "ML" in title
+    assert "market numbers and note rules" in explanation
+    assert "stock tips" in takeaway
 
 
 def test_guided_workspace_walks_to_review_without_backend_contact():
@@ -67,6 +148,21 @@ def test_guided_workspace_walks_to_review_without_backend_contact():
         if item.label == "How much pretend money should we display?"
     )
     assert notional.value == 100_000.0
+
+
+def test_guided_workspace_can_jump_directly_between_sections():
+    app_path = Path(__file__).parents[1] / "app" / "frontend.py"
+    app = AppTest.from_file(str(app_path)).run(timeout=15)
+
+    next(button for button in app.button if button.key == "guided_jump_4").click()
+    app.run(timeout=15)
+    assert not app.exception
+    assert any("Step 5: Read your recipe" in item.value for item in app.markdown)
+
+    next(button for button in app.button if button.key == "guided_jump_1").click()
+    app.run(timeout=15)
+    assert not app.exception
+    assert any("Step 2: Choose how long" in item.value for item in app.markdown)
 
 
 def test_quant_workspace_keeps_direct_pricing_form():

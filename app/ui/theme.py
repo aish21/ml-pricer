@@ -281,11 +281,284 @@ def apply_workspace_theme() -> None:
           font-size: .86rem;
         }
 
+        .mlp-concept-visual {
+          --mlp-concept: var(--mlp-cyan);
+          position: relative;
+          overflow: hidden;
+          margin: .25rem 0 .75rem;
+          padding: 1rem 1.05rem .9rem;
+          color: var(--mlp-ink);
+          background:
+            radial-gradient(
+              circle at 12% 0,
+              color-mix(in srgb, var(--mlp-concept) 12%, transparent),
+              transparent 13rem
+            ),
+            var(--mlp-panel);
+          border: 1px solid var(--mlp-line);
+          border-top: 3px solid var(--mlp-concept);
+          border-radius: 3px 15px 3px 15px;
+          box-shadow: 0 12px 30px rgba(12, 9, 24, .055);
+          animation: mlp-concept-arrive .35s ease-out both;
+        }
+
+        .mlp-concept-violet {
+          --mlp-concept: var(--mlp-violet);
+        }
+
+        .mlp-concept-cyan {
+          --mlp-concept: var(--mlp-cyan);
+        }
+
+        .mlp-concept-gold {
+          --mlp-concept: var(--mlp-gold);
+        }
+
+        .mlp-concept-teal {
+          --mlp-concept: var(--mlp-teal);
+        }
+
+        .mlp-concept-rose {
+          --mlp-concept: var(--mlp-rose);
+        }
+
+        .mlp-concept-heading {
+          display: flex;
+          align-items: baseline;
+          justify-content: space-between;
+          gap: 1rem;
+          margin-bottom: .55rem;
+        }
+
+        .mlp-concept-heading > span {
+          color: var(--mlp-muted);
+          font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+          font-size: .68rem;
+          font-weight: 700;
+          letter-spacing: .09em;
+          text-transform: uppercase;
+        }
+
+        .mlp-concept-heading > strong {
+          color: var(--mlp-concept);
+          font-size: 1.05rem;
+        }
+
+        .mlp-concept-layout {
+          display: grid;
+          grid-template-columns: minmax(15rem, .9fr) minmax(18rem, 1.1fr);
+          gap: 1rem;
+          align-items: stretch;
+        }
+
+        .mlp-concept-canvas {
+          display: grid;
+          place-items: center;
+          min-height: 9.2rem;
+          overflow: hidden;
+          color: var(--mlp-concept);
+          background:
+            linear-gradient(
+              color-mix(in srgb, var(--mlp-ink) 4%, transparent) 1px,
+              transparent 1px
+            ),
+            linear-gradient(
+              90deg,
+              color-mix(in srgb, var(--mlp-ink) 4%, transparent) 1px,
+              transparent 1px
+            ),
+            color-mix(in srgb, var(--mlp-panel-strong) 70%, transparent);
+          background-size: 22px 22px;
+          border: 1px solid var(--mlp-line);
+          border-radius: 2px 11px 2px 11px;
+        }
+
+        .mlp-concept-canvas svg {
+          width: min(100%, 21rem);
+          height: auto;
+          overflow: visible;
+        }
+
+        .mlp-concept-line,
+        .mlp-concept-path,
+        .mlp-concept-grid,
+        .mlp-concept-threshold,
+        .mlp-concept-shape {
+          vector-effect: non-scaling-stroke;
+        }
+
+        .mlp-concept-line {
+          fill: none;
+          stroke: var(--mlp-concept);
+          stroke-width: 3;
+          stroke-linecap: round;
+          stroke-dasharray: 10 9;
+          animation: mlp-concept-flow 1.8s linear infinite;
+        }
+
+        .mlp-concept-grid {
+          fill: none;
+          stroke: color-mix(in srgb, var(--mlp-ink) 25%, transparent);
+          stroke-width: 1.2;
+        }
+
+        .mlp-concept-path {
+          fill: none;
+          stroke: var(--mlp-concept);
+          stroke-width: 2;
+          stroke-linecap: round;
+          opacity: .34;
+          stroke-dasharray: 6 8;
+          animation: mlp-concept-flow 2.8s linear infinite;
+        }
+
+        .mlp-path-two {
+          animation-direction: reverse;
+          animation-duration: 2.2s;
+        }
+
+        .mlp-concept-threshold {
+          fill: none;
+          stroke: color-mix(in srgb, var(--mlp-gold) 80%, var(--mlp-concept));
+          stroke-width: 2;
+          stroke-dasharray: 5 5;
+          animation: mlp-concept-threshold 2.2s ease-in-out infinite;
+        }
+
+        .mlp-concept-shape {
+          fill: color-mix(in srgb, var(--mlp-concept) 10%, var(--mlp-panel));
+          stroke: var(--mlp-concept);
+          stroke-width: 2;
+          transform-box: fill-box;
+          transform-origin: center;
+          animation: mlp-concept-breathe 2.6s ease-in-out infinite;
+        }
+
+        .mlp-concept-orb {
+          fill: var(--mlp-concept);
+          stroke: color-mix(in srgb, var(--mlp-panel) 76%, transparent);
+          stroke-width: 4;
+          transform-box: fill-box;
+          transform-origin: center;
+          animation: mlp-concept-pulse 1.55s ease-in-out infinite;
+          filter: drop-shadow(
+            0 0 7px color-mix(in srgb, var(--mlp-concept) 62%, transparent)
+          );
+        }
+
+        .mlp-concept-steps {
+          display: grid;
+          gap: .45rem;
+        }
+
+        .mlp-concept-step {
+          display: grid;
+          grid-template-columns: 2.35rem 1fr;
+          gap: .65rem;
+          align-items: center;
+          min-height: 2.75rem;
+          padding: .48rem .62rem;
+          background: color-mix(in srgb, var(--mlp-panel-strong) 84%, transparent);
+          border: 1px solid var(--mlp-line);
+          border-radius: 2px 9px 2px 9px;
+          opacity: 0;
+          animation: mlp-concept-step-in .42s ease-out forwards;
+        }
+
+        .mlp-concept-step:nth-child(2) {
+          animation-delay: .16s;
+        }
+
+        .mlp-concept-step:nth-child(3) {
+          animation-delay: .32s;
+        }
+
+        .mlp-concept-step > span {
+          display: grid;
+          place-items: center;
+          width: 2.2rem;
+          height: 2.2rem;
+          color: color-mix(in srgb, var(--mlp-concept) 78%, var(--mlp-ink));
+          background: color-mix(in srgb, var(--mlp-concept) 11%, transparent);
+          border: 1px solid color-mix(in srgb, var(--mlp-concept) 45%, var(--mlp-line));
+          border-radius: 50%;
+          font-family: "IBM Plex Mono", ui-monospace, monospace;
+          font-size: .78rem;
+          font-weight: 800;
+        }
+
+        .mlp-concept-step > b {
+          font-size: .86rem;
+          line-height: 1.25;
+        }
+
+        .mlp-concept-caption {
+          color: var(--mlp-muted);
+          font-size: .83rem;
+          line-height: 1.45;
+          margin: .7rem 0 0;
+          padding-left: .7rem;
+          border-left: 2px solid var(--mlp-concept);
+        }
+
+        @keyframes mlp-concept-arrive {
+          from { opacity: 0; transform: translateY(.4rem) scale(.995); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        @keyframes mlp-concept-step-in {
+          from { opacity: 0; transform: translateX(.65rem); }
+          to { opacity: 1; transform: translateX(0); }
+        }
+
+        @keyframes mlp-concept-flow {
+          to { stroke-dashoffset: -38; }
+        }
+
+        @keyframes mlp-concept-pulse {
+          0%, 100% { transform: scale(.8); opacity: .62; }
+          50% { transform: scale(1.14); opacity: 1; }
+        }
+
+        @keyframes mlp-concept-breathe {
+          0%, 100% { transform: scale(.96); opacity: .68; }
+          50% { transform: scale(1.04); opacity: 1; }
+        }
+
+        @keyframes mlp-concept-threshold {
+          0%, 100% { opacity: .45; }
+          50% { opacity: 1; }
+        }
+
         .mlp-stepper {
           display: grid;
           grid-template-columns: repeat(5, minmax(0, 1fr));
           gap: .45rem;
           margin: .55rem 0 .65rem;
+        }
+
+        .st-key-guided_step_navigation [data-testid="stHorizontalBlock"] {
+          gap: .45rem;
+        }
+
+        .st-key-guided_step_navigation [data-testid="stColumn"] {
+          min-width: 7.5rem;
+        }
+
+        .st-key-guided_step_navigation .stButton > button {
+          min-height: 3.2rem;
+          padding: .55rem .65rem;
+          white-space: normal;
+          line-height: 1.15;
+        }
+
+        .st-key-guided_step_navigation .stButton > button[kind="primary"] {
+          border-top-width: 2px;
+          box-shadow: 0 7px 20px color-mix(
+            in srgb,
+            var(--mlp-accent) 20%,
+            transparent
+          );
         }
 
         .mlp-step {
@@ -450,6 +723,49 @@ def apply_workspace_theme() -> None:
           margin-top: .3rem;
           font-size: .86rem;
           line-height: 1.5;
+        }
+
+        .mlp-evidence-split {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          margin: .45rem 0 1.1rem;
+          color: var(--mlp-ink);
+          background: var(--mlp-panel);
+          border: 1px solid var(--mlp-line);
+          border-top: 2px solid var(--mlp-accent);
+          border-radius: 2px 11px 2px 11px;
+        }
+
+        .mlp-evidence-split > div {
+          min-height: 8.4rem;
+          padding: .85rem .9rem;
+          border-right: 1px solid var(--mlp-line);
+        }
+
+        .mlp-evidence-split > div:last-child {
+          border-right: 0;
+        }
+
+        .mlp-evidence-split span {
+          display: block;
+          color: var(--mlp-muted);
+          font-family: "IBM Plex Mono", ui-monospace, monospace;
+          font-size: .68rem;
+          font-weight: 700;
+          letter-spacing: .08em;
+          text-transform: uppercase;
+        }
+
+        .mlp-evidence-split strong {
+          display: block;
+          margin: .32rem 0 .25rem;
+        }
+
+        .mlp-evidence-split p {
+          color: var(--mlp-muted);
+          font-size: .83rem;
+          line-height: 1.45;
+          margin: 0;
         }
 
         .mlp-interpretation-list {
@@ -640,6 +956,305 @@ def apply_workspace_theme() -> None:
           border-bottom: 0;
         }
 
+        .mlp-focus-card {
+          display: grid;
+          gap: .25rem;
+          margin: .35rem 0 .9rem;
+          padding: .8rem .95rem;
+          color: var(--mlp-ink);
+          background:
+            linear-gradient(
+              100deg,
+              color-mix(in srgb, var(--mlp-cyan) 10%, var(--mlp-panel)),
+              var(--mlp-panel) 72%
+            );
+          border: 1px solid var(--mlp-line);
+          border-left: 3px solid var(--mlp-cyan);
+          border-radius: 2px 11px 2px 11px;
+        }
+
+        .mlp-focus-card span,
+        .mlp-outcome-stage span,
+        .mlp-lesson-stage > span,
+        .mlp-current-lesson > span,
+        .mlp-answer-lanes small {
+          color: var(--mlp-muted);
+          font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+          font-size: .68rem;
+          font-weight: 700;
+          letter-spacing: .08em;
+          text-transform: uppercase;
+        }
+
+        .mlp-focus-card strong {
+          font-size: 1rem;
+        }
+
+        .mlp-focus-card p,
+        .mlp-outcome-stage p,
+        .mlp-model-school p,
+        .mlp-lesson-stage p,
+        .mlp-current-lesson p,
+        .mlp-answer-race p {
+          color: var(--mlp-muted);
+          line-height: 1.5;
+          margin: 0;
+        }
+
+        .mlp-outcome-stage {
+          position: relative;
+          overflow: hidden;
+          display: grid;
+          gap: .3rem;
+          margin: .35rem 0 .85rem;
+          padding: 1rem 1.05rem;
+          background: var(--mlp-panel);
+          border: 1px solid var(--mlp-line);
+          border-left: 4px solid var(--mlp-cyan);
+          border-radius: 2px 12px 2px 12px;
+          animation: mlp-reveal .28s ease-out both;
+        }
+
+        .mlp-outcome-stage::after {
+          content: "";
+          position: absolute;
+          width: 7rem;
+          height: 7rem;
+          right: -5rem;
+          top: -5rem;
+          border: 1.2rem solid color-mix(in srgb, var(--mlp-cyan) 12%, transparent);
+          border-radius: 50%;
+          animation: mlp-breathe 2.8s ease-in-out infinite;
+        }
+
+        .mlp-outcome-finish {
+          border-left-color: var(--mlp-teal);
+        }
+
+        .mlp-outcome-reward {
+          border-left-color: var(--mlp-gold);
+        }
+
+        .mlp-outcome-risk {
+          border-left-color: var(--mlp-rose);
+        }
+
+        .mlp-model-school {
+          position: relative;
+          overflow: hidden;
+          margin: 1rem 0;
+          padding: 1.05rem 1.1rem;
+          color: var(--mlp-ink);
+          background:
+            radial-gradient(
+              circle at 92% 12%,
+              color-mix(in srgb, var(--mlp-gold) 13%, transparent),
+              transparent 9rem
+            ),
+            var(--mlp-panel);
+          border: 1px solid var(--mlp-line);
+          border-top: 3px solid var(--mlp-gold);
+          border-radius: 3px 15px 3px 15px;
+        }
+
+        .mlp-model-school h3 {
+          margin: .35rem 0 .8rem;
+        }
+
+        .mlp-school-flow {
+          display: flex;
+          align-items: stretch;
+          gap: .55rem;
+          margin: .6rem 0 .8rem;
+        }
+
+        .mlp-school-flow div {
+          display: grid;
+          flex: 1;
+          gap: .18rem;
+          align-content: center;
+          min-height: 4.7rem;
+          padding: .65rem .75rem;
+          background: color-mix(in srgb, var(--mlp-panel-strong) 88%, transparent);
+          border: 1px solid var(--mlp-line);
+          border-radius: 2px 10px 2px 10px;
+          animation: mlp-reveal .45s ease-out both;
+        }
+
+        .mlp-school-flow div:nth-of-type(2) {
+          animation-delay: .12s;
+        }
+
+        .mlp-school-flow div:nth-of-type(3) {
+          animation-delay: .24s;
+        }
+
+        .mlp-school-flow small {
+          color: var(--mlp-muted);
+          line-height: 1.35;
+        }
+
+        .mlp-school-flow > i {
+          align-self: center;
+          max-width: 8.5rem;
+          color: var(--mlp-gold);
+          font-size: .72rem;
+          font-style: normal;
+          font-weight: 700;
+          line-height: 1.35;
+          text-align: center;
+          animation: mlp-nudge 1.7s ease-in-out infinite;
+        }
+
+        .mlp-race-track {
+          display: grid;
+          grid-template-columns: 9rem 1fr;
+          gap: .42rem .65rem;
+          align-items: center;
+          margin-top: .9rem;
+          padding-top: .8rem;
+          border-top: 1px solid var(--mlp-line);
+          color: var(--mlp-muted);
+          font-size: .76rem;
+        }
+
+        .mlp-race-track > div {
+          position: relative;
+          height: .42rem;
+          overflow: hidden;
+          background: color-mix(in srgb, var(--mlp-ink) 9%, transparent);
+          border-radius: 99rem;
+        }
+
+        .mlp-race-track i {
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 1.2rem;
+          height: 100%;
+          background: var(--mlp-cyan);
+          border-radius: 99rem;
+        }
+
+        .mlp-runner-slow {
+          animation: mlp-race 4.8s ease-in-out infinite;
+        }
+
+        .mlp-runner-fast {
+          background: var(--mlp-gold) !important;
+          animation: mlp-race 1.8s ease-in-out infinite;
+        }
+
+        .mlp-lesson-stage {
+          display: grid;
+          gap: .32rem;
+          min-height: 9.5rem;
+          margin: .2rem 0 .8rem;
+          padding: 1rem 1.05rem;
+          align-content: start;
+          color: var(--mlp-ink);
+          background: var(--mlp-panel);
+          border: 1px solid var(--mlp-line);
+          border-left: 3px solid var(--mlp-violet);
+          border-radius: 2px 12px 2px 12px;
+          animation: mlp-reveal .28s ease-out both;
+        }
+
+        .mlp-lesson-stage aside {
+          margin-top: .35rem;
+          padding: .58rem .65rem;
+          color: var(--mlp-ink);
+          background: color-mix(in srgb, var(--mlp-gold) 10%, transparent);
+          border-left: 2px solid var(--mlp-gold);
+          font-size: .84rem;
+        }
+
+        .mlp-current-lesson {
+          display: grid;
+          gap: .28rem;
+          margin: .45rem 0 1rem;
+          padding: .85rem .95rem;
+          background: color-mix(in srgb, var(--mlp-teal) 8%, var(--mlp-panel));
+          border: 1px solid color-mix(in srgb, var(--mlp-teal) 42%, var(--mlp-line));
+          border-radius: 2px 10px 2px 10px;
+        }
+
+        .mlp-answer-race {
+          margin: .25rem 0 .8rem;
+          padding: 1rem 1.05rem;
+          color: var(--mlp-ink);
+          background: var(--mlp-panel);
+          border: 1px solid var(--mlp-line);
+          border-top: 3px solid var(--mlp-cyan);
+          border-radius: 2px 13px 2px 13px;
+        }
+
+        .mlp-answer-lanes {
+          display: grid;
+          grid-template-columns: 1fr auto 1fr;
+          gap: .7rem;
+          align-items: stretch;
+          margin: .65rem 0;
+        }
+
+        .mlp-answer-lanes > div {
+          display: grid;
+          gap: .25rem;
+          padding: .8rem .85rem;
+          background: color-mix(in srgb, var(--mlp-panel-strong) 86%, transparent);
+          border: 1px solid var(--mlp-line);
+          border-radius: 2px 10px 2px 10px;
+        }
+
+        .mlp-answer-lanes > i {
+          align-self: center;
+          color: var(--mlp-gold);
+          font-size: .7rem;
+          font-style: normal;
+          font-weight: 700;
+          text-transform: uppercase;
+        }
+
+        .mlp-answer-lanes strong {
+          font-size: 1.3rem;
+          font-variant-numeric: tabular-nums;
+        }
+
+        .mlp-answer-lanes p {
+          font-size: .82rem;
+        }
+
+        .mlp-answer-verdict {
+          padding: .7rem .8rem;
+          background: color-mix(in srgb, var(--mlp-cyan) 8%, transparent);
+          border-left: 2px solid var(--mlp-cyan);
+        }
+
+        .mlp-foundation-flow i {
+          animation: mlp-nudge 1.7s ease-in-out infinite;
+        }
+
+        @keyframes mlp-reveal {
+          from { opacity: 0; transform: translateY(.45rem); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes mlp-nudge {
+          0%, 100% { transform: translateX(0); opacity: .58; }
+          50% { transform: translateX(.22rem); opacity: 1; }
+        }
+
+        @keyframes mlp-race {
+          0% { left: 0; }
+          45%, 72% { left: calc(100% - 1.2rem); }
+          100% { left: 0; }
+        }
+
+        @keyframes mlp-breathe {
+          0%, 100% { transform: scale(.85); opacity: .35; }
+          50% { transform: scale(1.06); opacity: .7; }
+        }
+
         code,
         pre,
         .stCode {
@@ -650,9 +1265,28 @@ def apply_workspace_theme() -> None:
           .mlp-stepper,
           .mlp-chart-guide,
           .mlp-foundation-flow,
+          .mlp-answer-lanes,
           .mlp-ml-explainer,
+          .mlp-evidence-split,
           .mlp-rulebook {
             grid-template-columns: 1fr;
+          }
+
+          .mlp-concept-layout {
+            grid-template-columns: 1fr;
+          }
+
+          .mlp-concept-canvas {
+            min-height: 7.8rem;
+          }
+
+          .st-key-guided_step_navigation [data-testid="stHorizontalBlock"] {
+            flex-wrap: wrap;
+          }
+
+          .st-key-guided_step_navigation [data-testid="stColumn"] {
+            flex: 1 1 9rem !important;
+            width: auto !important;
           }
 
           .mlp-step {
@@ -664,7 +1298,20 @@ def apply_workspace_theme() -> None:
           }
 
           .mlp-foundation-flow i {
+            animation: none;
             transform: rotate(90deg);
+          }
+
+          .mlp-school-flow {
+            flex-direction: column;
+          }
+
+          .mlp-school-flow > i {
+            max-width: none;
+          }
+
+          .mlp-answer-lanes > i {
+            text-align: center;
           }
 
           .mlp-chart-guide div {
@@ -683,6 +1330,40 @@ def apply_workspace_theme() -> None:
 
           .mlp-ml-explainer div:last-child {
             border-bottom: 0;
+          }
+
+          .mlp-evidence-split > div {
+            min-height: auto;
+            border-right: 0;
+            border-bottom: 1px solid var(--mlp-line);
+          }
+
+          .mlp-evidence-split > div:last-child {
+            border-bottom: 0;
+          }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .mlp-concept-visual,
+          .mlp-concept-step,
+          .mlp-concept-line,
+          .mlp-concept-path,
+          .mlp-concept-threshold,
+          .mlp-concept-shape,
+          .mlp-concept-orb,
+          .mlp-foundation-flow i,
+          .mlp-school-flow div,
+          .mlp-school-flow > i,
+          .mlp-outcome-stage,
+          .mlp-outcome-stage::after,
+          .mlp-lesson-stage,
+          .mlp-race-track i {
+            animation: none !important;
+            transform: none !important;
+          }
+
+          .mlp-concept-step {
+            opacity: 1;
           }
         }
         </style>

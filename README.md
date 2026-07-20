@@ -3,9 +3,10 @@
 ML-powered exotic derivatives pricing with a retro BlackBerry quant terminal.
 
 ML Pricer is an experimental pricing platform for exotic and structured
-derivatives. The current product path exposes a versioned, single-underlier
-Phoenix contract priced by deterministic Monte Carlo through a FastAPI backend,
-a Streamlit frontend, and a local BlackBerry Bold 9780-compatible terminal. A
+derivatives. The current product paths expose versioned single-underlier
+Phoenix and barrier reverse-convertible contracts priced by deterministic
+Monte Carlo through a FastAPI backend, a Streamlit frontend, and a local
+BlackBerry Bold 9780-compatible terminal. A
 dated market snapshot separates arbitrary equity-like symbols from product
 terms. A repeatedly validated, payoff-aware Phoenix v7 research surrogate can
 run in monitored shadow mode against the reference price. A development-only
@@ -28,6 +29,10 @@ allocation.
 - Prices the validated `phoenix-single-v1` contract per unit notional.
 - Prices active `phoenix-single-v2` trades with a fixed contractual reference
   level, exact remaining observation times, and explicit prior knock-in state.
+- Prices `phoenix-single-v3` trades with coupon memory, missed-coupon state,
+  and an observation-by-observation step-down autocall schedule.
+- Prices the focused `barrier-reverse-convertible-v1` contract with fixed
+  coupons and conditional knock-in-linked maturity redemption.
 - Provides a five-step, child-level Guided pricing lesson and a compact Quant
   workspace, with a literal-basics glossary, one-box editable underlier
   suggestions, switchable light/dark themes, persistent results, chart-reading
@@ -41,7 +46,8 @@ allocation.
   structures while preserving flat-model compatibility.
 - Builds a credential-free USD equity/ETF research term structure from official
   Treasury par yields, trailing distributions, and near-ATM yfinance option
-  chains, with field-level provenance.
+  chains, with field-level provenance, explicit quality gates, and immutable
+  SQLite calibration snapshots.
 - Runs frozen-market spot, rate, dividend, volatility, and individual segment
   scenarios with paired Monte Carlo P&L uncertainty.
 - Reports Delta, Gamma, Vega, Rho, and dividend rho with explicit units,
@@ -60,6 +66,11 @@ allocation.
   research baseline.
 - Records opt-in dated shadow observations, feature-drift diagnostics, sliced
   live error metrics, and out-of-time artifact replay.
+- Presents sealed audit, live error/latency history, drift, and promotion gates
+  in an ML Evidence Lab without allowing the screen to change runtime policy.
+- Runs reproducible expanded-product surrogate experiments and packages a
+  candidate only if every unchanged sealed gate passes. The current v3 Phoenix
+  and reverse-convertible candidates were rejected and remain reference-only.
 - Fetches credential-free research quotes through yfinance with bounded
   retries, caching, and freshness checks.
 - Serves pricing through FastAPI.
@@ -113,6 +124,7 @@ app/
   services/               Product registry, pricing, scenario, run storage
   services/live_market_data.py  Normalized yfinance research-data adapter
   services/research_market_data.py  Treasury/options research calibration
+  services/market_snapshot_store.py  Immutable research calibration snapshots
   services/risk_service.py  Frozen-market scenarios and finite-difference risk
   services/diagnostics_service.py  Bounded visualization summaries
   services/surrogate_service.py  Fail-closed shadow artifact runtime
@@ -127,6 +139,8 @@ src/final/
   evaluator.py            Model vs Monte Carlo evaluation
   reference_pricer.py     Deterministic reference price and uncertainty
   phoenix_contract.py     Active-trade Phoenix v2 state and identity
+  barrier_reverse_convertible.py  Focused BRC contract and payoff
+  expanded_surrogate_experiment.py  Non-promoting product-expansion audit
   surrogate_contract.py   Phoenix v7 feature/output/domain contract
   surrogate_data.py       Group-disjoint Sobol-labelled dataset generator
   surrogate_trainer.py    MLP/baseline evaluation and artifact promotion gates
@@ -142,6 +156,9 @@ final/results/
   */scaler.joblib         Saved feature scalers
   */results.json          Training/evaluation metadata
 
+final/research_candidates/
+  experiment_summary.json Sealed expanded-product decisions (no approved runtime)
+
 data/
   training/history data   Demo data and pricing history
 
@@ -149,6 +166,9 @@ docs/
   blackberry-terminal.md  BlackBerry terminal details and testing guide
   phoenix-single-v1.md    Versioned payoff and cashflow specification
   phoenix-single-v2.md    Active-trade reference, schedule, and knock-in state
+  phoenix-single-v3.md    Memory coupon and step-down active-trade contract
+  barrier-reverse-convertible-v1.md  Focused coupon/downside product contract
+  expanded-surrogate-experiment-v1.md  Expanded-product sealed gate results
   quant-workspace-v1.md   Guided/Quant UI and diagnostic API contract
   equity-market-snapshot-v1.md  Dated market-data and flat-GBM v2 specification
   equity-market-term-structure-v1.md  Piecewise carry/volatility specification
@@ -221,6 +241,12 @@ Run the Phoenix surrogate research pipeline:
 python -m src.final.surrogate_pipeline full
 ```
 
+Run the non-promoting expanded-product experiment:
+
+```powershell
+python -m src.final.expanded_surrogate_experiment
+```
+
 Generated datasets and artifacts are excluded from Git. See
 [docs/phoenix-robust-selection-v7.md](docs/phoenix-robust-selection-v7.md)
 before enabling shadow inference. The rejected event-conditioned experiment and
@@ -242,6 +268,11 @@ The frozen out-of-time evidence and human-review gates are documented in
 [docs/phoenix-shadow-promotion-readiness-v1.md](docs/phoenix-shadow-promotion-readiness-v1.md).
 The separately versioned active-trade contract is documented in
 [docs/phoenix-single-v2.md](docs/phoenix-single-v2.md).
+The memory/step-down extension and focused second product are documented in
+[docs/phoenix-single-v3.md](docs/phoenix-single-v3.md) and
+[docs/barrier-reverse-convertible-v1.md](docs/barrier-reverse-convertible-v1.md).
+Their current rejected surrogate candidates are documented in
+[docs/expanded-surrogate-experiment-v1.md](docs/expanded-surrogate-experiment-v1.md).
 The redesigned interactive workspace and bounded visualization-data contract
 are documented in [docs/quant-workspace-v1.md](docs/quant-workspace-v1.md).
 

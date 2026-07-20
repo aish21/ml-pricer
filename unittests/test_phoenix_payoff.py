@@ -195,6 +195,58 @@ def test_explicit_schedule_carries_historical_knock_in_state_forward():
     assert knocked_in[0] == pytest.approx(0.8)
 
 
+def test_explicit_schedule_recovers_carried_and_newly_missed_memory_coupons():
+    path_times = np.array([0.0, 0.5, 1.0])
+    paths = np.array([[100.0, 90.0, 100.0]])
+    params = phoenix_params(
+        autocall_barrier_frac=1.2,
+        coupon_barrier_frac=1.0,
+    )
+
+    ledger = PhoenixPayoff().compute_observation_event_ledger_with_explicit_schedule(
+        paths=paths,
+        params=params,
+        path_times_years=path_times,
+        observation_times_years=(0.5, 1.0),
+        prior_knock_in_breached=False,
+        discount_factor=lambda _time: 1.0,
+        autocall_barrier_fracs=(1.2, 1.1),
+        memory_coupon=True,
+        unpaid_coupon_count=1,
+    )
+    value = sum(
+        ledger[name]
+        for name in (
+            "coupon_pv",
+            "autocall_principal_pv",
+            "maturity_protected_pv",
+            "maturity_downside_pv",
+        )
+    )
+
+    assert value[0] == pytest.approx(1.06)
+    assert ledger["coupon_amount_event"].tolist() == [[0.0, 0.06]]
+    assert ledger["coupon_memory_balance"].tolist() == [0.0]
+
+
+def test_explicit_schedule_uses_the_stepdown_barrier_at_each_observation():
+    path_times = np.array([0.0, 0.5, 1.0])
+    paths = np.array([[100.0, 104.0, 104.0]])
+
+    ledger = PhoenixPayoff().compute_observation_event_ledger_with_explicit_schedule(
+        paths=paths,
+        params=phoenix_params(),
+        path_times_years=path_times,
+        observation_times_years=(0.5, 1.0),
+        prior_knock_in_breached=False,
+        discount_factor=lambda _time: 1.0,
+        autocall_barrier_fracs=(1.1, 1.03),
+    )
+
+    assert ledger["first_autocall_event"].tolist() == [[0.0, 1.0]]
+    assert ledger["autocall_principal_pv"].tolist() == [1.0]
+
+
 def test_payoff_is_invariant_to_underlier_price_scale():
     paths = np.array([[100.0, 95.0, 80.0], [100.0, 106.0, 120.0]])
     params = phoenix_params(autocall_barrier_frac=1.05)

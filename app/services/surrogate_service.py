@@ -60,6 +60,9 @@ from app.services.product_registry import REPO_ROOT
 DEFAULT_SURROGATE_ROOT = (
     REPO_ROOT / "data" / "surrogates" / "phoenix-price-first-v1" / "artifacts"
 )
+DEFAULT_EXPANDED_EXPERIMENT_SUMMARY = (
+    REPO_ROOT / "final" / "research_candidates" / "experiment_summary.json"
+)
 MAX_POINTER_BYTES = 64 * 1024
 MAX_MANIFEST_BYTES = 2 * 1024 * 1024
 MAX_WEIGHTS_BYTES = 32 * 1024 * 1024
@@ -434,6 +437,190 @@ def get_surrogate_status(
         "artifact_id": bundle.artifact_id,
         "deployment_status": bundle.deployment_status,
         "dataset_id": bundle.manifest.get("dataset_id"),
+    }
+
+
+def _metric_projection(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        return {}
+    projected: dict[str, Any] = {}
+    for name in (
+        "n_samples",
+        "mae",
+        "p95_absolute_error",
+        "max_absolute_error",
+        "rmse",
+        "r2",
+        "mean_error",
+        "within_two_label_se_fraction",
+        "within_uncertainty_or_economic_tolerance_fraction",
+    ):
+        item = value.get(name)
+        if isinstance(item, bool):
+            continue
+        if isinstance(item, (int, float)) and math.isfinite(float(item)):
+            projected[name] = item
+    return projected
+
+
+def get_surrogate_audit_evidence(
+    settings: SurrogateSettings | None = None,
+) -> dict[str, Any]:
+    """Return bounded audit evidence without exposing model weights or internals."""
+    active = settings or SurrogateSettings.from_env()
+    try:
+        bundle = _load_bundle(active)
+    except SurrogateServiceError as exc:
+        return {
+            "available": False,
+            "reason": str(exc),
+            "model_version": PHOENIX_PRICE_FIRST_MODEL_VERSION,
+        }
+
+    manifest = bundle.manifest
+    evaluation = manifest.get("audit_evaluation")
+    evaluation = evaluation if isinstance(evaluation, Mapping) else {}
+    acceptance = manifest.get("audit_acceptance")
+    acceptance = acceptance if isinstance(acceptance, Mapping) else {}
+    checks = acceptance.get("checks")
+    checks = checks if isinstance(checks, Mapping) else {}
+
+    acceptance_checks = {}
+    for name, check in checks.items():
+        if not isinstance(check, Mapping):
+            continue
+        acceptance_checks[str(name)] = {
+            key: check[key]
+            for key in ("value", "minimum", "maximum", "passed")
+            if key in check
+        }
+
+    def project_slices(name: str) -> dict[str, dict[str, Any]]:
+        slices = evaluation.get(name)
+        if not isinstance(slices, Mapping):
+            return {}
+        return {
+            str(slice_name): _metric_projection(metrics)
+            for slice_name, metrics in slices.items()
+            if isinstance(metrics, Mapping)
+        }
+
+    output_metrics = evaluation.get("output_metrics")
+    output_metrics = output_metrics if isinstance(output_metrics, Mapping) else {}
+    projected_outputs = {
+        str(name): _metric_projection(metrics)
+        for name, metrics in output_metrics.items()
+        if isinstance(metrics, Mapping) and _metric_projection(metrics)
+    }
+    price_metrics = _metric_projection(evaluation.get("price_metrics"))
+    if not price_metrics:
+        for metric_name, check_name in (
+            ("mae", "audit_mae"),
+            ("p95_absolute_error", "audit_p95_absolute_error"),
+            ("r2", "audit_r2"),
+        ):
+            check = checks.get(check_name)
+            if isinstance(check, Mapping):
+                value = check.get("value")
+                if (
+                    not isinstance(value, bool)
+                    and isinstance(value, (int, float))
+                    and math.isfinite(float(value))
+                ):
+                    price_metrics[metric_name] = value
+    development = manifest.get("development_dataset")
+    development = development if isinstance(development, Mapping) else {}
+    return {
+        "available": True,
+        "artifact": {
+            "artifact_id": bundle.artifact_id,
+            "model_version": manifest.get("model_version"),
+            "deployment_status": bundle.deployment_status,
+            "runtime_policy": manifest.get("runtime_policy"),
+            "created_at": manifest.get("created_at"),
+            "contract_version": manifest.get("contract_version"),
+            "feature_schema_version": manifest.get("feature_schema_version"),
+            "label_model_version": manifest.get("label_model_version"),
+        },
+        "datasets": {
+            "development_dataset_id": manifest.get("development_dataset_id"),
+            "development_samples": development.get("n_samples"),
+            "audit_dataset_id": manifest.get("audit_dataset_id"),
+            "audit_samples": evaluation.get("n_samples"),
+            "observation_dataset_id": manifest.get("observation_dataset_id"),
+        },
+        "sealed_audit": {
+            "passed": acceptance.get("passed") is True,
+            "audit_version": manifest.get("audit_version"),
+            "evaluation_dataset_id": acceptance.get("evaluation_dataset_id"),
+            "price_metrics": price_metrics,
+            "by_market_regime": project_slices("regime_metrics"),
+            "by_moneyness_region": project_slices("moneyness_region_metrics"),
+            "by_regime_and_moneyness": project_slices("regime_moneyness_metrics"),
+            "output_metrics": projected_outputs,
+            "acceptance_checks": acceptance_checks,
+        },
+        "training_domain": manifest.get("training_domain"),
+    }
+
+
+def get_expanded_surrogate_evidence(
+    summary_path: Path | None = None,
+) -> dict[str, Any]:
+    """Return bounded evidence for expanded products without loading models."""
+    path = Path(summary_path) if summary_path else DEFAULT_EXPANDED_EXPERIMENT_SUMMARY
+    if not path.is_file():
+        return {
+            "available": False,
+            "reason": "expanded-product experiments have not been run",
+        }
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return {
+            "available": False,
+            "reason": "expanded-product experiment summary is unreadable",
+        }
+    products = []
+    for item in payload.get("products") or []:
+        if not isinstance(item, Mapping):
+            continue
+        audit = item.get("sealed_audit")
+        audit = audit if isinstance(audit, Mapping) else {}
+        raw_checks = audit.get("checks")
+        raw_checks = raw_checks if isinstance(raw_checks, Mapping) else {}
+        checks = {
+            str(name): {
+                key: check[key]
+                for key in ("value", "minimum", "maximum", "passed")
+                if key in check
+            }
+            for name, check in raw_checks.items()
+            if isinstance(check, Mapping)
+        }
+        products.append(
+            {
+                "product_key": item.get("product_key"),
+                "contract_version": item.get("contract_version"),
+                "experiment_id": item.get("experiment_id"),
+                "status": item.get("status"),
+                "runtime_approved": item.get("runtime_approved") is True,
+                "development_dataset_id": item.get("development_dataset_id"),
+                "audit_dataset_id": item.get("audit_dataset_id"),
+                "datasets": item.get("datasets"),
+                "sealed_audit": {
+                    "passed": audit.get("passed") is True,
+                    "metrics": _metric_projection(audit.get("metrics")),
+                    "checks": checks,
+                },
+            }
+        )
+    return {
+        "available": bool(products),
+        "experiment_version": payload.get("experiment_version"),
+        "generated_at": payload.get("generated_at"),
+        "runtime_policy_changed": payload.get("runtime_policy_changed") is True,
+        "products": products,
     }
 
 

@@ -1047,6 +1047,81 @@ class ResearchMarketDataService:
             canonical_payload, sort_keys=True, separators=(",", ":")
         ).encode("utf-8")
         calibration_id = f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+        option_expiry_gaps_days = [
+            abs(point.option_time_years - point.target_time_years) * 365.0
+            for point in option_points
+        ]
+        option_spreads = [point.combined_spread_fraction for point in option_points]
+        minimum_strikes = min(point.strikes_used for point in option_points)
+        treasury_age_days = (market.valuation_time.date() - curve.as_of_date).days
+        quality_checks = [
+            {
+                "name": "quote_freshness",
+                "passed": quote_age_seconds <= 7 * 24 * 60 * 60,
+                "value": quote_age_seconds,
+                "maximum": 7 * 24 * 60 * 60,
+                "units": "seconds",
+            },
+            {
+                "name": "treasury_freshness",
+                "passed": treasury_age_days <= 10,
+                "value": treasury_age_days,
+                "maximum": 10,
+                "units": "calendar_days",
+            },
+            {
+                "name": "option_expiry_alignment",
+                "passed": max(option_expiry_gaps_days) <= 62,
+                "value": max(option_expiry_gaps_days),
+                "maximum": 62,
+                "units": "days",
+            },
+            {
+                "name": "option_quote_spread",
+                "passed": max(option_spreads) <= 0.10,
+                "value": max(option_spreads),
+                "maximum": 0.10,
+                "units": "fraction_of_mid",
+            },
+            {
+                "name": "option_strike_coverage",
+                "passed": minimum_strikes >= 1,
+                "value": minimum_strikes,
+                "minimum": 1,
+                "units": "strikes_per_tenor",
+            },
+        ]
+        passed_checks = sum(bool(check["passed"]) for check in quality_checks)
+        quality = {
+            "status": (
+                "research_ready"
+                if passed_checks == len(quality_checks)
+                else "review_required"
+            ),
+            "passed_checks": passed_checks,
+            "total_checks": len(quality_checks),
+            "checks": quality_checks,
+            "freshness": {
+                "quote_age_seconds": quote_age_seconds,
+                "treasury_age_days": treasury_age_days,
+            },
+            "coverage": {
+                "maturity_years": market.max_time_years,
+                "model_segments": len(market.segments),
+                "option_tenors": len(option_points),
+                "maximum_expiry_gap_days": max(option_expiry_gaps_days),
+                "minimum_strikes_per_tenor": minimum_strikes,
+                "maximum_combined_spread_fraction": max(option_spreads),
+            },
+            "cache": {
+                "quote": quote_cache_hit,
+                "treasury": curve.cache_hit,
+                "dividend": dividend.cache_hit,
+                "option_tenors": sum(point.cache_hit for point in option_points),
+                "option_tenor_count": len(option_points),
+            },
+            "scope": "research_only",
+        }
         return {
             "calibration_version": EQUITY_RESEARCH_MARKET_VERSION,
             "calibration_id": calibration_id,
@@ -1063,6 +1138,7 @@ class ResearchMarketDataService:
             "treasury_curve": curve.to_dict(market.valuation_time),
             "dividend": dividend.to_dict(),
             "option_points": [point.to_dict() for point in option_points],
+            "quality": quality,
             "warnings": [
                 "Treasury CMT par yields are continuous zero-rate proxies, not a bootstrapped OIS curve.",
                 "Dividend yield uses trailing cash distributions and is not a forward dividend forecast.",

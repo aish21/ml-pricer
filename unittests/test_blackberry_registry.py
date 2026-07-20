@@ -8,13 +8,14 @@ from app.services.product_registry import (
 
 EXPECTED_PRODUCT_KEYS = {
     "phoenix",
+    "barrier_reverse_convertible",
     "accumulator",
     "barrier",
     "decumulator",
     "phoenix_stepdown",
     "reverse_accumulator",
 }
-EXPECTED_VALIDATED_KEYS = {"phoenix"}
+EXPECTED_VALIDATED_KEYS = {"phoenix", "barrier_reverse_convertible"}
 
 
 def test_product_registry_returns_expected_supported_keys():
@@ -35,12 +36,25 @@ def test_product_registry_returns_expected_supported_keys():
     assert phoenix["contract_versions"] == [
         "phoenix-single-v1",
         "phoenix-single-v2",
+        "phoenix-single-v3",
     ]
+    reverse_convertible = next(
+        product
+        for product in products
+        if product["key"] == "barrier_reverse_convertible"
+    )
+    assert reverse_convertible["market_snapshot_versions"] == []
+    assert reverse_convertible["research_market_versions"] == [
+        "equity-research-market-v1"
+    ]
+    assert reverse_convertible["scenario_versions"] == []
+    assert reverse_convertible["risk_analytics_versions"] == []
+    assert reverse_convertible["market_model_versions"] == ["equity-gbm-piecewise-v1"]
 
 
 def test_bb_enabled_products_have_terminal_fields():
     products = get_bb_product_definitions()
-    assert {product.key for product in products} == EXPECTED_VALIDATED_KEYS
+    assert {product.key for product in products} == {"phoenix"}
 
     for product in products:
         assert product.terminal_label

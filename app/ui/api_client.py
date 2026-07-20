@@ -81,7 +81,41 @@ class MlPricerApi:
             return False
         return body.get("status") in {"ready", "online", "success"}
 
+    def ml_evidence(
+        self,
+        *,
+        monitoring_limit: int = 5_000,
+        series_limit: int = 250,
+    ) -> dict[str, Any]:
+        bounded_monitoring = max(1, min(int(monitoring_limit), 100_000))
+        bounded_series = max(1, min(int(series_limit), 5_000))
+        body = self._request(
+            "GET",
+            (
+                "/api/v1/surrogate-shadow/evidence"
+                f"?monitoring_limit={bounded_monitoring}"
+                f"&series_limit={bounded_series}"
+            ),
+            timeout_seconds=30,
+        )
+        return dict(body["evidence"])
+
     def build_research_market(
+        self,
+        *,
+        symbol: str,
+        underlier_type: str,
+        maturity_years: float,
+    ) -> dict[str, Any]:
+        return dict(
+            self.build_research_market_bundle(
+                symbol=symbol,
+                underlier_type=underlier_type,
+                maturity_years=maturity_years,
+            )["market"]
+        )
+
+    def build_research_market_bundle(
         self,
         *,
         symbol: str,
@@ -100,7 +134,11 @@ class MlPricerApi:
                 "maturity_years": maturity_years,
             },
         )
-        return dict(body["market_term_structure"])
+        return {
+            "market": dict(body["market_term_structure"]),
+            "calibration": dict(body.get("market_calibration") or {}),
+            "snapshot": dict(body.get("market_snapshot") or {}),
+        }
 
     def price(
         self,
@@ -118,7 +156,12 @@ class MlPricerApi:
                 "n_paths": n_paths,
             }
         else:
-            path = "/api/v1/products/phoenix/price/seasoned/term-structure"
+            version = str(contract.get("contract_version", ""))
+            path = (
+                "/api/v1/products/phoenix/price/richer/term-structure"
+                if version == "phoenix-single-v3"
+                else "/api/v1/products/phoenix/price/seasoned/term-structure"
+            )
             payload = {
                 "market": dict(market),
                 "contract": dict(contract),
@@ -148,9 +191,59 @@ class MlPricerApi:
             path = "/api/v1/products/phoenix/diagnostics/term-structure"
             payload = {**common, "terms": dict(terms)}
         else:
-            path = "/api/v1/products/phoenix/diagnostics/seasoned/term-structure"
+            version = str(contract.get("contract_version", ""))
+            path = (
+                "/api/v1/products/phoenix/diagnostics/richer/term-structure"
+                if version == "phoenix-single-v3"
+                else "/api/v1/products/phoenix/diagnostics/seasoned/term-structure"
+            )
             payload = {**common, "contract": dict(contract)}
         return dict(self._request("POST", path, payload=payload)["diagnostics"])
+
+    def price_barrier_reverse_convertible(
+        self,
+        *,
+        market: Mapping[str, Any],
+        contract: Mapping[str, Any],
+        n_paths: int,
+    ) -> dict[str, Any]:
+        body = self._request(
+            "POST",
+            "/api/v1/products/barrier-reverse-convertible/price/term-structure",
+            payload={
+                "market": dict(market),
+                "contract": dict(contract),
+                "n_paths": n_paths,
+            },
+        )
+        return dict(body["result"])
+
+    def barrier_reverse_convertible_diagnostics(
+        self,
+        *,
+        market: Mapping[str, Any],
+        contract: Mapping[str, Any],
+        n_paths: int,
+        seed: int,
+        spot_shocks_pct: list[float],
+        volatility_shocks_abs: list[float],
+    ) -> dict[str, Any]:
+        body = self._request(
+            "POST",
+            (
+                "/api/v1/products/barrier-reverse-convertible/"
+                "diagnostics/term-structure"
+            ),
+            payload={
+                "market": dict(market),
+                "contract": dict(contract),
+                "n_paths": min(int(n_paths), 5_000),
+                "seed": int(seed),
+                "spot_shocks_pct": spot_shocks_pct,
+                "volatility_shocks_abs": volatility_shocks_abs,
+            },
+        )
+        return dict(body["diagnostics"])
 
     def scenario(
         self,

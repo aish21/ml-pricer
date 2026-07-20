@@ -174,11 +174,346 @@ FOUNDATION_GLOSSARY: dict[str, tuple[str, str, str]] = {
         "More paths reduce computer wobble, but they do not remove mistakes in "
         "the model, contract, or market data.",
     ),
+    "Machine-learning model": (
+        "The ML model is a fast student that copies a slower pricing teacher.",
+        "It studies many examples where contract and market inputs are paired "
+        "with prices from the Monte Carlo pricer. It learns a mathematical "
+        "shortcut from those examples.",
+        "Here it predicts the note's estimated price—not tomorrow's share price, "
+        "not whether you should invest, and not a guaranteed payment.",
+    ),
+    "Training example": (
+        "A training example is one practice question with its answer.",
+        "The question contains a note's rules and market numbers. The answer is "
+        "the price calculated by the slower Monte Carlo teacher.",
+        "Many varied examples help the ML student learn the shape of the pricing "
+        "problem instead of memorising one note.",
+    ),
+    "Shadow mode": (
+        "Shadow mode lets the ML student answer without putting it in charge.",
+        "Monte Carlo and ML both price the same request. The screen compares "
+        "their answers, but the official displayed reference remains Monte Carlo.",
+        "This gives us real-world evidence about accuracy and speed before any "
+        "human considers trusting the shortcut more.",
+    ),
+}
+
+GLOSSARY_VISUALS: dict[
+    str,
+    tuple[str, str, tuple[tuple[str, str], ...], str],
+] = {
+    "Note": (
+        "flow",
+        "violet",
+        (
+            ("$", "Money goes in"),
+            ("▤", "Rulebook waits"),
+            ("$", "Rules decide money out"),
+        ),
+        "A note carries money through a written rulebook to possible future payments.",
+    ),
+    "Underlier": (
+        "market",
+        "cyan",
+        (("◉", "Choose an asset"), ("〽", "Its price moves"), ("▤", "The note reacts")),
+        "The underlier is the moving scoreboard watched by the note.",
+    ),
+    "Issuer": (
+        "flow",
+        "violet",
+        (("$", "Investor pays"), ("▥", "Issuer promises"), ("↩", "Issuer must pay")),
+        "The issuer receives money and stands behind the note's promised payments.",
+    ),
+    "Notional": (
+        "scale",
+        "gold",
+        (
+            ("1", "Price one unit"),
+            ("×", "Multiply by amount"),
+            ("$", "Show money value"),
+        ),
+        "Notional scales a per-unit model price into the displayed money amount.",
+    ),
+    "Price": (
+        "paths",
+        "cyan",
+        (
+            ("⑂", "Imagine futures"),
+            ("▤", "Apply every rule"),
+            ("$", "Value them today"),
+        ),
+        "A note price compresses many possible future payments into one estimate today.",
+    ),
+    "Coupon": (
+        "rule",
+        "gold",
+        (("●", "Reach check-in"), ("━", "Clear reward line"), ("✦", "Coupon can pay")),
+        "A coupon is conditional: the check-in price must pass its reward rule.",
+    ),
+    "Autocall": (
+        "timeline",
+        "teal",
+        (
+            ("●", "Reach check-in"),
+            ("◆", "Clear finish line"),
+            ("↩", "Principal returns"),
+        ),
+        "An autocall ends the note automatically when a scheduled test succeeds.",
+    ),
+    "Barrier": (
+        "rule",
+        "violet",
+        (("〽", "Price approaches"), ("━", "Rule line"), ("?", "Outcome changes")),
+        "A barrier is a boundary: crossing it can switch the rulebook's answer.",
+    ),
+    "Autocall barrier": (
+        "rule",
+        "teal",
+        (("●", "Check-in price"), ("🏁", "Finish line"), ("↩", "Return and stop")),
+        "At a scheduled check, this line can send principal back and stop the note.",
+    ),
+    "Coupon barrier": (
+        "rule",
+        "gold",
+        (("●", "Check-in price"), ("✦", "Reward line"), ("+$", "Earn this coupon")),
+        "At or above this line on a check-in day, that date's reward can be earned.",
+    ),
+    "Knock-in barrier": (
+        "rule",
+        "rose",
+        (
+            ("↓", "Price crosses"),
+            ("!", "Memory turns on"),
+            ("↘", "Weak ending exposed"),
+        ),
+        "Crossing the safety line stores a memory that can matter at maturity.",
+    ),
+    "Observation date": (
+        "timeline",
+        "cyan",
+        (("○", "Time passes"), ("●", "Check day arrives"), ("?", "Rules are tested")),
+        "An observation date is a marked day when coupon and autocall questions are asked.",
+    ),
+    "Principal": (
+        "flow",
+        "teal",
+        (("$", "Original unit"), ("▤", "Note runs"), ("↩", "May be returned")),
+        "Principal is the original unit amount the note may return early or at the end.",
+    ),
+    "Maturity": (
+        "timeline",
+        "violet",
+        (("○", "Note starts"), ("···", "Time passes"), ("■", "Final rules run")),
+        "Maturity is the planned final stop if the note has not already ended.",
+    ),
+    "Volatility": (
+        "paths",
+        "rose",
+        (("—", "Calm movement"), ("〽", "Wigglier paths"), ("↕", "Wider outcomes")),
+        "Volatility widens the fan of possible journeys without choosing up or down.",
+    ),
+    "Monte Carlo": (
+        "paths",
+        "cyan",
+        (("⑂", "Many futures"), ("▤", "Rules on each"), ("÷", "Average the values")),
+        "Monte Carlo repeats the same rulebook across many pretend futures, then averages.",
+    ),
+    "Machine-learning model": (
+        "learning",
+        "gold",
+        (("▥", "Market + rules"), ("ML", "Student learns"), ("$", "Fast price guess")),
+        "The ML student learns a shortcut from note inputs to the teacher's price.",
+    ),
+    "Training example": (
+        "learning",
+        "cyan",
+        (("?", "Practice question"), ("$", "Teacher answer"), ("↻", "Student adjusts")),
+        "One training example pairs a pricing question with the teacher's answer.",
+    ),
+    "Shadow mode": (
+        "compare",
+        "violet",
+        (
+            ("T", "Teacher answers"),
+            ("ML", "Student answers"),
+            ("≍", "Compare; teacher leads"),
+        ),
+        "Shadow mode compares both prices while Monte Carlo remains in charge.",
+    ),
+}
+
+_GLOSSARY_VISUAL_SVGS = {
+    "flow": (
+        '<svg viewBox="0 0 280 132" aria-hidden="true">'
+        '<path class="mlp-concept-line" d="M24 66 H256"/>'
+        '<circle class="mlp-concept-orb" cx="34" cy="66" r="13"/>'
+        '<rect class="mlp-concept-shape" x="120" y="42" width="40" height="48" rx="4"/>'
+        '<circle class="mlp-concept-shape" cx="246" cy="66" r="18"/>'
+        "</svg>"
+    ),
+    "market": (
+        '<svg viewBox="0 0 280 132" aria-hidden="true">'
+        '<path class="mlp-concept-grid" d="M20 26 V108 M20 108 H260"/>'
+        '<path class="mlp-concept-line" d="M22 91 C55 85 64 39 96 58 S139 104 169 71 '
+        'S215 31 258 45"/>'
+        '<circle class="mlp-concept-orb" cx="258" cy="45" r="9"/>'
+        "</svg>"
+    ),
+    "scale": (
+        '<svg viewBox="0 0 280 132" aria-hidden="true">'
+        '<path class="mlp-concept-grid" d="M140 31 V102 M70 102 H210"/>'
+        '<path class="mlp-concept-line" d="M61 48 H219"/>'
+        '<path class="mlp-concept-shape" d="M61 48 L34 92 H88 Z M219 48 L192 92 H246 Z"/>'
+        '<circle class="mlp-concept-orb" cx="140" cy="31" r="10"/>'
+        "</svg>"
+    ),
+    "paths": (
+        '<svg viewBox="0 0 280 132" aria-hidden="true">'
+        '<path class="mlp-concept-path mlp-path-one" d="M20 66 C62 25 83 101 126 58 '
+        'S209 20 260 41"/>'
+        '<path class="mlp-concept-path mlp-path-two" d="M20 66 C68 78 84 31 132 76 '
+        'S207 111 260 92"/>'
+        '<path class="mlp-concept-line" d="M20 66 C67 55 94 70 137 62 S215 59 260 66"/>'
+        '<circle class="mlp-concept-orb" cx="20" cy="66" r="10"/>'
+        "</svg>"
+    ),
+    "rule": (
+        '<svg viewBox="0 0 280 132" aria-hidden="true">'
+        '<path class="mlp-concept-threshold" d="M24 66 H256"/>'
+        '<path class="mlp-concept-line" d="M25 102 C80 101 84 89 126 84 '
+        'S182 45 255 37"/>'
+        '<circle class="mlp-concept-orb" cx="150" cy="71" r="10"/>'
+        "</svg>"
+    ),
+    "timeline": (
+        '<svg viewBox="0 0 280 132" aria-hidden="true">'
+        '<path class="mlp-concept-line" d="M24 72 H256"/>'
+        '<circle class="mlp-concept-shape" cx="44" cy="72" r="8"/>'
+        '<circle class="mlp-concept-shape" cx="140" cy="72" r="12"/>'
+        '<circle class="mlp-concept-shape" cx="236" cy="72" r="16"/>'
+        '<circle class="mlp-concept-orb" cx="44" cy="72" r="9"/>'
+        "</svg>"
+    ),
+    "learning": (
+        '<svg viewBox="0 0 280 132" aria-hidden="true">'
+        '<path class="mlp-concept-grid" d="M52 37 L137 54 M52 66 L137 66 '
+        'M52 95 L137 78 M137 54 L227 66 M137 78 L227 66"/>'
+        '<circle class="mlp-concept-shape" cx="52" cy="37" r="8"/>'
+        '<circle class="mlp-concept-shape" cx="52" cy="66" r="8"/>'
+        '<circle class="mlp-concept-shape" cx="52" cy="95" r="8"/>'
+        '<circle class="mlp-concept-shape" cx="137" cy="54" r="11"/>'
+        '<circle class="mlp-concept-shape" cx="137" cy="78" r="11"/>'
+        '<circle class="mlp-concept-orb" cx="227" cy="66" r="16"/>'
+        "</svg>"
+    ),
+    "compare": (
+        '<svg viewBox="0 0 280 132" aria-hidden="true">'
+        '<path class="mlp-concept-path mlp-path-one" d="M25 41 C87 41 109 58 167 64 H252"/>'
+        '<path class="mlp-concept-path mlp-path-two" d="M25 91 C87 91 109 75 167 68 H252"/>'
+        '<circle class="mlp-concept-shape" cx="25" cy="41" r="12"/>'
+        '<circle class="mlp-concept-shape" cx="25" cy="91" r="12"/>'
+        '<circle class="mlp-concept-orb" cx="252" cy="66" r="13"/>'
+        "</svg>"
+    ),
 }
 
 
 def glossary_entry(term: str) -> tuple[str, str, str]:
     return FOUNDATION_GLOSSARY[term]
+
+
+def glossary_visual_html(term: str) -> str:
+    kind, tone, steps, caption = GLOSSARY_VISUALS[term]
+    step_html = "".join(
+        '<div class="mlp-concept-step">'
+        f'<span aria-hidden="true">{escape(glyph)}</span>'
+        f"<b>{escape(label)}</b></div>"
+        for glyph, label in steps
+    )
+    return (
+        f'<div class="mlp-concept-visual mlp-concept-{escape(tone)}" '
+        f'role="img" aria-label="{escape(caption, quote=True)}">'
+        '<div class="mlp-concept-heading"><span>Watch the idea move</span>'
+        f"<strong>{escape(term)}</strong></div>"
+        '<div class="mlp-concept-layout"><div class="mlp-concept-canvas">'
+        f"{_GLOSSARY_VISUAL_SVGS[kind]}</div>"
+        f'<div class="mlp-concept-steps">{step_html}</div></div>'
+        f'<p class="mlp-concept-caption">{escape(caption)}</p></div>'
+    )
+
+
+def teaching_check_outcome(
+    observed_level: float,
+    *,
+    autocall_level: float,
+    coupon_level: float,
+    knock_in_level: float,
+) -> tuple[str, str, str]:
+    """Explain one toy observation without changing the priced contract."""
+    level = float(observed_level)
+    if level >= float(autocall_level):
+        return (
+            "The note finishes early",
+            "The price reached the finish line on a check-in day. The rulebook "
+            "returns principal, includes the successful reward, and stops.",
+            "finish",
+        )
+    if level >= float(coupon_level):
+        return (
+            "A reward is earned; the note keeps going",
+            "The price cleared the reward line but not the finish line. This "
+            "check can pay a coupon, then the story continues.",
+            "reward",
+        )
+    if level <= float(knock_in_level):
+        return (
+            "The safety memory switches on",
+            "The price crossed the safety line. That is not an instant loss. "
+            "It means a weak ending may now link principal to the underlier's fall.",
+            "risk",
+        )
+    return (
+        "No reward at this check; the note keeps going",
+        "The price is below the reward line but above the safety line. Nothing "
+        "ends today, and this non-memory note does not save the missed reward.",
+        "wait",
+    )
+
+
+def _render_focus_card(number: str, title: str, body: str) -> None:
+    st.markdown(
+        f"""
+        <div class="mlp-focus-card">
+          <span>Only one idea for this screen · {escape(number)}</span>
+          <strong>{escape(title)}</strong>
+          <p>{escape(body)}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_quick_check(
+    *,
+    label: str,
+    options: list[str],
+    correct: str,
+    explanation: str,
+    key: str,
+) -> None:
+    answer = st.radio(
+        label,
+        options,
+        index=None,
+        key=key,
+        horizontal=True,
+    )
+    if answer is None:
+        st.caption("Pick an answer to get instant feedback. This is not graded.")
+    elif answer == correct:
+        st.success(f"Yes. {explanation}")
+    else:
+        st.info(f"Almost. {explanation}")
 
 
 def _initialize_guided_state() -> None:
@@ -192,16 +527,18 @@ def _set_step(step: int) -> None:
 
 
 def _step_header(step: int) -> None:
-    labels = "".join(
-        (
-            '<div class="mlp-step mlp-step-active">'
-            if index == step
-            else '<div class="mlp-step">'
-        )
-        + f"<span>{number}</span>{title}</div>"
-        for index, (number, title) in enumerate(GUIDED_STEPS)
-    )
-    st.markdown(f'<div class="mlp-stepper">{labels}</div>', unsafe_allow_html=True)
+    st.caption("Jump to any section—your choices are kept as you move around.")
+    with st.container(key="guided_step_navigation"):
+        columns = st.columns(len(GUIDED_STEPS), gap="small")
+        for index, (number, title) in enumerate(GUIDED_STEPS):
+            columns[index].button(
+                f"{number} · {title}",
+                key=f"guided_jump_{index}",
+                type="primary" if index == step else "secondary",
+                on_click=_set_step,
+                args=(index,),
+                width="stretch",
+            )
     st.progress((step + 1) / len(GUIDED_STEPS))
 
 
@@ -267,18 +604,19 @@ def _render_foundation_lesson() -> None:
     st.markdown(
         """
         <div class="mlp-foundation">
-          <span class="mlp-section-label">Before step 1 · the whole idea</span>
-          <h3>A note is a promise that watches something else.</h3>
+          <span class="mlp-section-label">Start here · no finance knowledge needed</span>
+          <h3>We are estimating what a promise is worth today.</h3>
           <div class="mlp-foundation-flow">
-            <div><b>1 · Investor</b><span>puts an amount into the note</span></div>
+            <div><b>1 · Money goes in</b><span>an investor buys the note</span></div>
             <i>→</i>
-            <div><b>2 · Note</b><span>stores the issuer's payment rules</span></div>
+            <div><b>2 · A price moves</b><span>the note watches its scoreboard</span></div>
             <i>→</i>
-            <div><b>3 · Underlier</b><span>moves and changes the result</span></div>
+            <div><b>3 · Rules pay out</b><span>different journeys can pay differently</span></div>
           </div>
           <p>
-            Owning the note is not the same as owning the underlier. Think of
-            the underlier as the scoreboard and the note as the prize rules.
+            The <b>underlier</b> is the scoreboard. The <b>note</b> is the prize
+            rulebook. The <b>pricer</b> estimates today's value of all the
+            possible prizes. You will build those ideas one at a time.
           </p>
         </div>
         """,
@@ -288,9 +626,16 @@ def _render_foundation_lesson() -> None:
         "Word shelf — choose any word to unpack",
         list(FOUNDATION_GLOSSARY),
         key="guided_glossary_term",
-        help="Come back to this shelf whenever a finance word feels unfamiliar.",
+        help=(
+            "Choose a word and the animated picture, three-step story, and "
+            "plain-language explanation will all change together."
+        ),
     )
     headline, explanation, why_it_matters = glossary_entry(str(term))
+    st.markdown(
+        glossary_visual_html(str(term)),
+        unsafe_allow_html=True,
+    )
     st.markdown(
         f"""
         <div class="mlp-word-card">
@@ -307,6 +652,12 @@ def _render_foundation_lesson() -> None:
 def _render_pick_underlier() -> None:
     _render_foundation_lesson()
     st.markdown("## Step 1: Pick something whose price we can watch")
+    _render_focus_card(
+        "1",
+        "Choose the scoreboard",
+        "For now, forget the note's rules. We only need to choose the changing "
+        "number those rules will watch.",
+    )
     st.write(
         "An **underlier** is just the thing our note watches. It might be one "
         "company, or an ETF—a basket containing lots of things."
@@ -337,11 +688,31 @@ def _render_pick_underlier() -> None:
         f"We will watch **{symbol or 'your symbol'}**. The note itself is a "
         "set of promises whose result depends on where that price travels."
     )
+    _render_quick_check(
+        label="Tiny check: in this lesson, what is the underlier?",
+        options=[
+            "The price the note watches",
+            "The note itself",
+            "A guaranteed reward",
+        ],
+        correct="The price the note watches",
+        explanation=(
+            "The underlier is the scoreboard. The note is the separate "
+            "rulebook that watches it."
+        ),
+        key="guided_underlier_check",
+    )
     _navigation(0, can_continue=bool(symbol))
 
 
 def _render_clock() -> None:
     st.markdown("## Step 2: Choose how long the story lasts")
+    _render_focus_card(
+        "2",
+        "Give the rulebook a calendar",
+        "The note only makes decisions on named days. A price move on another "
+        "day may not trigger the same rule.",
+    )
     st.write(
         "A note does not watch forever. We choose an ending day and some "
         "**check-in days**. On each check-in day, the note asks: "
@@ -402,11 +773,31 @@ def _render_clock() -> None:
         )
         st.session_state["guided_reference_level"] = reference_level
         st.session_state["guided_prior_knock_in"] = prior_knock_in
+    _render_quick_check(
+        label="Tiny check: when does the note test its reward rule?",
+        options=[
+            "On its scheduled check-in days",
+            "Every second of every day",
+            "Only when the investor asks",
+        ],
+        correct="On its scheduled check-in days",
+        explanation=(
+            "Coupon and early-finish rules are tested on the contract's "
+            "scheduled observation dates."
+        ),
+        key="guided_calendar_check",
+    )
     _navigation(1)
 
 
 def _render_rules() -> None:
     st.markdown("## Step 3: Draw the note's three important lines")
+    _render_focus_card(
+        "3",
+        "Turn prices into simple yes-or-no rules",
+        "At a check, the note asks whether the scoreboard is above or below "
+        "each line. Those answers decide what happens next.",
+    )
     st.write(
         "Pretend the starting price is **100**. Each rule is drawn as a line "
         "above or below 100. Move the controls and watch the ladder."
@@ -497,11 +888,46 @@ def _render_rules() -> None:
             f"- Falling to **{st.session_state['guided_knock_in_pct']} or "
             "lower** can turn off some protection at the end."
         )
+    if valid:
+        st.markdown("### Try one pretend check-in")
+        st.caption(
+            "Move the pretend price. This little game explains your rules; it "
+            "does not change the contract you will price."
+        )
+        observed_level = st.slider(
+            "The scoreboard says",
+            min_value=20,
+            max_value=140,
+            value=100,
+            key="guided_observed_level",
+        )
+        outcome_title, outcome_body, outcome_tone = teaching_check_outcome(
+            observed_level,
+            autocall_level=float(st.session_state["guided_autocall_pct"]),
+            coupon_level=float(st.session_state["guided_coupon_barrier_pct"]),
+            knock_in_level=float(st.session_state["guided_knock_in_pct"]),
+        )
+        st.markdown(
+            f"""
+            <div class="mlp-outcome-stage mlp-outcome-{escape(outcome_tone)}">
+              <span>Scoreboard {observed_level} · rulebook reacts</span>
+              <strong>{escape(outcome_title)}</strong>
+              <p>{escape(outcome_body)}</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
     _navigation(2, can_continue=valid)
 
 
 def _render_simulation() -> None:
     st.markdown("## Step 4: Let the computer imagine many possible tomorrows")
+    _render_focus_card(
+        "4",
+        "Nobody knows the future, so try many pretend futures",
+        "One imagined journey proves nothing. Thousands of different journeys "
+        "give the pricer a useful average.",
+    )
     st.write(
         "Nobody knows the future price. So the computer makes thousands of "
         "different **pretend price stories**. It applies your three rules to "
@@ -543,6 +969,42 @@ def _render_simulation() -> None:
         '<div class="mlp-card"><h4>3 · Average</h4>'
         "<p>Bring future money back to today's value.</p></div>",
         unsafe_allow_html=True,
+    )
+    st.markdown(
+        """
+        <div class="mlp-model-school">
+          <span class="mlp-section-label">Where machine learning enters</span>
+          <div class="mlp-school-flow">
+            <div><b>Slow teacher</b><small>Monte Carlo solves many pretend futures</small></div>
+            <i>teaches with lots of priced examples</i>
+            <div><b>Fast student</b><small>ML learns to copy the final note price</small></div>
+          </div>
+          <p>
+            The ML student sees the market numbers and the note's rules. It
+            predicts the <b>note price the teacher would produce</b>. It is not
+            guessing whether the underlier goes up tomorrow.
+          </p>
+          <div class="mlp-race-track">
+            <span>Monte Carlo teacher</span><div><i class="mlp-runner-slow"></i></div>
+            <span>ML student</span><div><i class="mlp-runner-fast"></i></div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    _render_quick_check(
+        label="Tiny check: what is the ML model trying to predict here?",
+        options=[
+            "The note's estimated price",
+            "Tomorrow's share price",
+            "A guaranteed profit",
+        ],
+        correct="The note's estimated price",
+        explanation=(
+            "It learns a shortcut from note-and-market inputs to the Monte "
+            "Carlo teacher's estimated note price."
+        ),
+        key="guided_ml_target_check",
     )
 
     if _market_source() == "Manual flat market":

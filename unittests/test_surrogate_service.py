@@ -9,6 +9,7 @@ from app.services.surrogate_service import (
     SurrogateSettings,
     clear_surrogate_cache,
     evaluate_surrogate_shadow,
+    get_surrogate_audit_evidence,
     get_surrogate_status,
 )
 from src.final.market import (
@@ -366,6 +367,11 @@ def test_audit_approved_price_first_artifact_loads_in_shadow_only(
         "maturity_protected_pv",
         "maturity_downside_pv",
     }
+    audit = get_surrogate_audit_evidence(enabled_settings(tmp_path))
+    assert audit["available"] is True
+    assert audit["sealed_audit"]["passed"] is True
+    assert audit["sealed_audit"]["price_metrics"]["mae"] == pytest.approx(0.006)
+    assert audit["artifact"]["runtime_policy"] == "shadow-only"
 
 
 def test_price_first_artifact_rejects_forged_audit_acceptance(

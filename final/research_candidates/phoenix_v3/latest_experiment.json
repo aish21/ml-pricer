@@ -1,0 +1,95 @@
+{
+  "audit_dataset_id": "sha256:e7b85ca8bbd7b04535301ffc972b28769541fb116ac0e3304c2944d8d41c991e",
+  "configuration": {
+    "audit_paths": 4096,
+    "audit_samples": 300,
+    "development_paths": 1024,
+    "development_samples": 2500,
+    "domain": {
+      "schedule": "even observations and linear autocall step-down",
+      "seasoning": "spot/reference, prior knock-in, and unpaid coupon state",
+      "underlier": "single USD equity-like synthetic GBM"
+    },
+    "feature_order": [
+      "spot_to_reference",
+      "risk_free_rate",
+      "dividend_yield",
+      "volatility",
+      "maturity_years",
+      "first_autocall_barrier_frac",
+      "final_autocall_barrier_frac",
+      "coupon_barrier_frac",
+      "coupon_rate",
+      "knock_in_frac",
+      "observation_count",
+      "memory_coupon",
+      "unpaid_coupon_count",
+      "prior_knock_in_breached"
+    ],
+    "learner": {
+      "class": "lightgbm.LGBMRegressor",
+      "library_version": "4.6.0",
+      "objective": "regression_l1"
+    },
+    "maximum_mae": 0.015,
+    "maximum_mean_label_standard_error": 0.01,
+    "maximum_median_latency_ms": 5.0,
+    "maximum_p95_absolute_error": 0.04,
+    "minimum_r2": 0.9,
+    "monitoring_steps": 64,
+    "seed": 20260719,
+    "trees": 1000
+  },
+  "contract_version": "phoenix-single-v3",
+  "datasets": {
+    "audit_paths_per_label": 4096,
+    "audit_samples": 300,
+    "development_mean_label_standard_error": 0.004747170199827582,
+    "development_paths_per_label": 1024,
+    "development_samples": 2500
+  },
+  "development_dataset_id": "sha256:be53540f7ba56a2030fedd181a40c80b1ce7a55566d1f7f926a17609114b8754",
+  "experiment_id": "sha256:206bb01d17c72a4b3620e54d58395d2c3a7aa271ea6eff9050c117a48a72df2d",
+  "experiment_version": "expanded-surrogate-experiment-v1",
+  "product_key": "phoenix_v3",
+  "runtime_approved": false,
+  "sealed_audit": {
+    "checks": {
+      "mae": {
+        "maximum": 0.015,
+        "passed": false,
+        "value": 0.016954042454106255
+      },
+      "mean_label_standard_error": {
+        "maximum": 0.01,
+        "passed": true,
+        "value": 0.0023245613091023446
+      },
+      "median_inference_latency_ms": {
+        "maximum": 5.0,
+        "passed": true,
+        "value": 0.12324999988777563
+      },
+      "p95_absolute_error": {
+        "maximum": 0.04,
+        "passed": false,
+        "value": 0.056087662112044974
+      },
+      "r2": {
+        "minimum": 0.9,
+        "passed": true,
+        "value": 0.9647455904053955
+      }
+    },
+    "metrics": {
+      "mae": 0.016954042454106255,
+      "mean_label_standard_error": 0.0023245613091023446,
+      "median_inference_latency_ms": 0.12324999988777563,
+      "p95_absolute_error": 0.056087662112044974,
+      "p95_label_standard_error": 0.004625275991563703,
+      "r2": 0.9647455904053955
+    },
+    "passed": false
+  },
+  "status": "rejected"
+}

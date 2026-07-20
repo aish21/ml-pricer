@@ -3,6 +3,10 @@ from typing import Any, Dict, Optional
 
 import numpy as np
 
+from .barrier_reverse_convertible import (
+    BarrierReverseConvertiblePayoff,
+    BarrierReverseConvertibleV1Contract,
+)
 from .data_generator import (
     build_simulation_time_grid,
     simulate_gbm_paths,
@@ -10,7 +14,7 @@ from .data_generator import (
 )
 from .market import EquityMarketTermStructure
 from .payoffs import BasePayoff, PhoenixPayoff
-from .phoenix_contract import PhoenixSingleV2Contract
+from .phoenix_contract import PhoenixSingleV2Contract, PhoenixSingleV3Contract
 
 
 DEFAULT_REFERENCE_SEED = 42
@@ -160,6 +164,127 @@ def price_phoenix_v2_piecewise_reference(
     )
     elapsed = time.perf_counter() - started
 
+    return _summarize_discounted_payoffs(
+        discounted_payoffs,
+        n_paths=n_paths,
+        n_steps=effective_steps,
+        seed=seed,
+        elapsed=elapsed,
+        metadata={
+            "term_structure_id": market.term_structure_id,
+            "contract_id": contract.contract_id,
+            "base_monitoring_steps": n_steps,
+            "contract_event_times_inserted": effective_steps - n_steps,
+        },
+    )
+
+
+def price_phoenix_v3_piecewise_reference(
+    payoff: PhoenixPayoff,
+    contract: PhoenixSingleV3Contract,
+    market: EquityMarketTermStructure,
+    n_paths: int,
+    n_steps: int = DEFAULT_REFERENCE_STEPS,
+    seed: Optional[int] = DEFAULT_REFERENCE_SEED,
+) -> Dict[str, Any]:
+    """Price memory coupons and step-down autocalls on exact event times."""
+    started = time.perf_counter()
+    equivalent = market.equivalent_flat_parameters(contract.maturity_years)
+    params = contract.to_payoff_params(
+        risk_free_rate=equivalent["risk_free_rate"],
+        volatility=equivalent["volatility"],
+    )
+    time_grid = build_simulation_time_grid(
+        contract.maturity_years,
+        n_steps,
+        contract.observation_times_years,
+    )
+    effective_steps = len(time_grid) - 1
+    paths = simulate_piecewise_gbm_paths(
+        market=market,
+        T=contract.maturity_years,
+        n_steps=effective_steps,
+        n_paths=n_paths,
+        seed=seed,
+        time_grid_years=time_grid,
+    )
+    discounted_payoffs = (
+        payoff.compute_payoff_with_explicit_schedule_and_discount_curve(
+            paths=paths,
+            params=params,
+            path_times_years=time_grid,
+            observation_times_years=contract.observation_times_years,
+            prior_knock_in_breached=contract.prior_knock_in_breached,
+            discount_factor=market.discount_factor,
+            autocall_barrier_fracs=contract.autocall_barrier_fracs,
+            memory_coupon=contract.memory_coupon,
+            unpaid_coupon_count=contract.unpaid_coupon_count,
+        )
+    )
+    elapsed = time.perf_counter() - started
+
+    return _summarize_discounted_payoffs(
+        discounted_payoffs,
+        n_paths=n_paths,
+        n_steps=effective_steps,
+        seed=seed,
+        elapsed=elapsed,
+        metadata={
+            "term_structure_id": market.term_structure_id,
+            "contract_id": contract.contract_id,
+            "base_monitoring_steps": n_steps,
+            "contract_event_times_inserted": effective_steps - n_steps,
+            "memory_coupon": contract.memory_coupon,
+            "autocall_stepdown": (
+                contract.autocall_barrier_fracs[0] - contract.autocall_barrier_fracs[-1]
+            ),
+        },
+    )
+
+
+def price_barrier_reverse_convertible_reference(
+    payoff: BarrierReverseConvertiblePayoff,
+    contract: BarrierReverseConvertibleV1Contract,
+    market: EquityMarketTermStructure,
+    n_paths: int,
+    n_steps: int = DEFAULT_REFERENCE_STEPS,
+    seed: Optional[int] = DEFAULT_REFERENCE_SEED,
+) -> Dict[str, Any]:
+    """Price a barrier reverse convertible on exact coupon event times."""
+    started = time.perf_counter()
+    equivalent = market.equivalent_flat_parameters(contract.maturity_years)
+    params = contract.to_payoff_params(
+        risk_free_rate=equivalent["risk_free_rate"],
+        volatility=equivalent["volatility"],
+    )
+    time_grid = build_simulation_time_grid(
+        contract.maturity_years,
+        n_steps,
+        contract.coupon_times_years,
+    )
+    effective_steps = len(time_grid) - 1
+    paths = simulate_piecewise_gbm_paths(
+        market=market,
+        T=contract.maturity_years,
+        n_steps=effective_steps,
+        n_paths=n_paths,
+        seed=seed,
+        time_grid_years=time_grid,
+    )
+    ledger = payoff.compute_event_ledger(
+        paths=paths,
+        params=params,
+        path_times_years=time_grid,
+        coupon_times_years=contract.coupon_times_years,
+        prior_knock_in_breached=contract.prior_knock_in_breached,
+        discount_factor=market.discount_factor,
+    )
+    discounted_payoffs = (
+        ledger["coupon_pv"]
+        + ledger["protected_principal_pv"]
+        + ledger["downside_redemption_pv"]
+    )
+    elapsed = time.perf_counter() - started
     return _summarize_discounted_payoffs(
         discounted_payoffs,
         n_paths=n_paths,

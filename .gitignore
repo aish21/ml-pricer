@@ -53,6 +53,7 @@ data/surrogates/
 
 # Generated model artifacts
 final/results/
+final/research_candidates/**/model.joblib
 
 # Model checkpoints
 *.ckpt

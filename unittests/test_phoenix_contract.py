@@ -3,6 +3,7 @@ import pytest
 from src.final.phoenix_contract import (
     PhoenixContractValidationError,
     PhoenixSingleV2Contract,
+    PhoenixSingleV3Contract,
 )
 
 
@@ -60,3 +61,53 @@ def test_contract_identity_changes_with_historical_knock_in_state():
     breached = make_contract(prior_knock_in_breached=True)
 
     assert protected.contract_id != breached.contract_id
+
+
+def make_v3_contract(**overrides):
+    values = {
+        "reference_level": 100.0,
+        "maturity_years": 1.0,
+        "observation_times_years": (0.25, 0.5, 0.75, 1.0),
+        "autocall_barrier_fracs": (1.10, 1.05, 1.0, 1.0),
+        "coupon_barrier_frac": 0.8,
+        "coupon_rate": 0.02,
+        "knock_in_frac": 0.6,
+        "prior_knock_in_breached": False,
+        "memory_coupon": True,
+        "unpaid_coupon_count": 2,
+    }
+    values.update(overrides)
+    return PhoenixSingleV3Contract(**values)
+
+
+def test_v3_contract_preserves_memory_and_stepdown_state_in_identity():
+    contract = make_v3_contract()
+    payload = contract.to_dict()
+
+    assert contract.contract_version == "phoenix-single-v3"
+    assert payload["autocall_stepdown"] == pytest.approx(0.10)
+    assert payload["unpaid_coupon_count"] == 2
+    assert payload["remaining_observation_count"] == 4
+    assert contract.contract_id != make_v3_contract(unpaid_coupon_count=1).contract_id
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        (
+            {"autocall_barrier_fracs": (1.1, 1.05)},
+            "one barrier per observation",
+        ),
+        (
+            {"autocall_barrier_fracs": (1.0, 1.05, 1.0, 1.0)},
+            "step down",
+        ),
+        (
+            {"memory_coupon": False, "unpaid_coupon_count": 1},
+            "must be zero",
+        ),
+    ],
+)
+def test_v3_contract_rejects_ambiguous_richer_state(overrides, message):
+    with pytest.raises(PhoenixContractValidationError, match=message):
+        make_v3_contract(**overrides)
