@@ -7,6 +7,7 @@ import math
 import os
 import sqlite3
 import uuid
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
@@ -264,7 +265,7 @@ def record_expanded_shadow_observation(
             reference_seed,
             market_snapshot_id,
         )
-        with _connect(db_path) as connection:
+        with closing(_connect(db_path)) as connection, connection:
             cursor = connection.execute(
                 """
                 INSERT OR IGNORE INTO expanded_shadow_observations (
@@ -301,7 +302,7 @@ def expanded_shadow_case_exists(case_id: str, *, db_path: Path | None = None) ->
     if not case_id or len(case_id) > 128 or not _db_path(db_path).exists():
         return False
     try:
-        with _connect(db_path) as connection:
+        with closing(_connect(db_path)) as connection:
             return (
                 connection.execute(
                     "SELECT 1 FROM expanded_shadow_observations WHERE case_id = ?",
@@ -446,7 +447,7 @@ def get_expanded_shadow_summary(
             "products": {},
         }
     try:
-        with _connect(db_path) as connection:
+        with closing(_connect(db_path)) as connection:
             rows = connection.execute(
                 "SELECT * FROM expanded_shadow_observations ORDER BY created_at DESC LIMIT ?",
                 (limit,),
@@ -603,7 +604,7 @@ def get_expanded_shadow_series(
 ) -> dict[str, Any]:
     if not _db_path(db_path).exists():
         return {"available": False, "observations": []}
-    with _connect(db_path) as connection:
+    with closing(_connect(db_path)) as connection:
         rows = connection.execute(
             """
             SELECT created_at, product_key, symbol, artifact_id, status,
@@ -687,7 +688,7 @@ def replay_expanded_shadow_observations(
             "replayed": 0,
             "results": [],
         }
-    with _connect(db_path) as connection:
+    with closing(_connect(db_path)) as connection:
         rows = connection.execute(
             """
             SELECT * FROM expanded_shadow_observations
@@ -734,7 +735,7 @@ def get_expanded_shadow_monitoring_status(
     row_count = 0
     if path.exists():
         try:
-            with _connect(db_path) as connection:
+            with closing(_connect(db_path)) as connection:
                 row_count = int(
                     connection.execute(
                         "SELECT COUNT(*) FROM expanded_shadow_observations"

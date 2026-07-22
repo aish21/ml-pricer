@@ -84,10 +84,13 @@ underlier, then applies the same versioned contract grid to that snapshot:
 - 4,096 Monte Carlo paths per reference label, with the exact seed, snapshot,
   artifact, contract, and campaign IDs recorded.
 
-The default universe contains 12 liquid US equities and ETFs. One complete run
-therefore records 144 comparisons per product. Fourteen successful market days
-produce 2,016 comparisons per product. Calibration failures are reported and
-skipped rather than replaced with guessed market inputs.
+The fixed universe is SPY, QQQ, GLD, TLT, USO, SMH, MSFT, NVDA, AMZN, TSLA,
+META, and COIN. It deliberately mixes lower- and higher-volatility equities and
+ETFs whose listed-option horizons can support the two-year calibration. One
+complete run records 144 comparisons per product. Fourteen successful market
+days produce 2,016 comparisons per product. Calibration failures are reported
+and skipped rather than replaced with guessed market inputs, and any partial
+run fails the workflow instead of being accepted as a complete evidence day.
 
 Preview the immutable plan without using the network:
 

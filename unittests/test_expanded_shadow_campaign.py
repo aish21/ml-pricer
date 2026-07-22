@@ -9,6 +9,7 @@ from app.services.expanded_shadow_monitoring import (
 )
 from src.final.expanded_shadow_campaign import (
     CONTRACT_GRID_VERSION,
+    DEFAULT_UNDERLIERS,
     CampaignConfig,
     CampaignUnderlier,
     build_campaign_cases,
@@ -67,6 +68,20 @@ def test_campaign_grid_covers_each_required_region_with_twelve_cases_per_product
         _region(case.product_key, market, case.contract) == case.expected_region
         for case in cases
     )
+    assert {item.symbol for item in DEFAULT_UNDERLIERS} == {
+        "SPY",
+        "QQQ",
+        "GLD",
+        "TLT",
+        "USO",
+        "SMH",
+        "MSFT",
+        "NVDA",
+        "AMZN",
+        "TSLA",
+        "META",
+        "COIN",
+    }
 
 
 def test_campaign_freezes_market_records_reliable_evidence_and_is_idempotent(
@@ -123,3 +138,27 @@ def test_campaign_freezes_market_records_reliable_evidence_and_is_idempotent(
         ] == pytest.approx(0.002)
         assert observed["observation_sources"] == {"out_of_time_campaign": 12}
         assert observed["campaigns"] == 1
+
+
+def test_partial_campaign_is_reported_as_an_error(tmp_path):
+    class FailingMarketService:
+        def build_term_structure(self, **_kwargs):
+            raise RuntimeError("market calibration unavailable")
+
+    config = CampaignConfig(
+        campaign_date=datetime.now(timezone.utc).date(),
+        underliers=(CampaignUnderlier("SPY", "etf"),),
+        output_dir=tmp_path / "reports",
+        monitoring_db=tmp_path / "monitoring.sqlite3",
+        snapshot_db=tmp_path / "snapshots.sqlite3",
+    )
+
+    result = run_campaign(config, market_service=FailingMarketService())
+
+    assert result["status"] == "completed_with_errors"
+    assert result["results"] == {
+        "recorded": 0,
+        "already_recorded": 0,
+        "failed": 1,
+    }
+    assert result["errors"][0]["stage"] == "market"

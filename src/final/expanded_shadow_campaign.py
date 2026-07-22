@@ -75,16 +75,16 @@ class CampaignUnderlier:
 DEFAULT_UNDERLIERS = (
     CampaignUnderlier("SPY", "etf"),
     CampaignUnderlier("QQQ", "etf"),
-    CampaignUnderlier("IWM", "etf"),
-    CampaignUnderlier("DIA", "etf"),
-    CampaignUnderlier("XLK", "etf"),
-    CampaignUnderlier("XLF", "etf"),
     CampaignUnderlier("GLD", "etf"),
-    CampaignUnderlier("AAPL", "equity"),
+    CampaignUnderlier("TLT", "etf"),
+    CampaignUnderlier("USO", "etf"),
+    CampaignUnderlier("SMH", "etf"),
     CampaignUnderlier("MSFT", "equity"),
     CampaignUnderlier("NVDA", "equity"),
     CampaignUnderlier("AMZN", "equity"),
-    CampaignUnderlier("JPM", "equity"),
+    CampaignUnderlier("TSLA", "equity"),
+    CampaignUnderlier("META", "equity"),
+    CampaignUnderlier("COIN", "equity"),
 )
 
 
@@ -580,6 +580,10 @@ def run_campaign(
         f"{config.campaign_date.isoformat()}-{campaign_id.removeprefix('sha256:')[:12]}.json"
     )
     report = _load_report(report_path, campaign_id, plan)
+    report["status"] = "running"
+    report["results"] = {"recorded": 0, "already_recorded": 0, "failed": 0}
+    report["errors"] = []
+    report["run_started_at"] = datetime.now(timezone.utc).isoformat()
     service = market_service or get_research_market_data_service()
     started = time.perf_counter()
     for underlier in config.underliers:
@@ -663,8 +667,11 @@ def run_campaign(
                 )
         report["updated_at"] = datetime.now(timezone.utc).isoformat()
         _atomic_json(report_path, report)
+    covered = report["results"]["recorded"] + report["results"]["already_recorded"]
     report["status"] = (
-        "completed_with_errors" if report["results"]["failed"] else "completed"
+        "completed"
+        if not report["results"]["failed"] and covered == plan["total_cases"]
+        else "completed_with_errors"
     )
     report["duration_seconds"] = time.perf_counter() - started
     report["monitoring"] = get_expanded_shadow_summary(
@@ -728,11 +735,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     result = run_campaign(config)
     print(json.dumps(result, indent=2, sort_keys=True))
-    return (
-        0
-        if result["results"]["recorded"] or result["results"]["already_recorded"]
-        else 1
-    )
+    return 0 if result["status"] == "completed" else 1
 
 
 if __name__ == "__main__":
