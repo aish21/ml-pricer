@@ -30,7 +30,7 @@ frontend = [
     "plotly==5.19.0",
     "pyarrow==21.0.0",
     "requests==2.34.2",
-    "streamlit==1.59.0",
+    "streamlit==1.59.2",
 ]
 surrogate = [
     "joblib==1.4.2",
