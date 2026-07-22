@@ -1553,6 +1553,8 @@ def _render_expanded_shadow_evidence(
     for key, label in labels.items():
         runtime = runtime_products.get(key) or {}
         observed = monitoring_products.get(key) or {}
+        reliable = observed.get("reliable_reference") or {}
+        sources = observed.get("observation_sources") or {}
         readiness = readiness_products.get(key) or {}
         if not runtime.get("artifact_available"):
             state = "Artifact unavailable"
@@ -1565,8 +1567,10 @@ def _render_expanded_shadow_evidence(
                 "product": label,
                 "state": state,
                 "observations": int(observed.get("n_observations") or 0),
-                "mae": observed.get("mae"),
-                "p95": observed.get("p95_absolute_error"),
+                "campaign_cases": int(sources.get("out_of_time_campaign") or 0),
+                "reliable": int(reliable.get("n_observations") or 0),
+                "mae": reliable.get("mae"),
+                "p95": reliable.get("p95_absolute_error"),
                 "review": (
                     "Ready for human review"
                     if readiness.get("ready_for_human_review")
@@ -1580,6 +1584,8 @@ def _render_expanded_shadow_evidence(
             ("product", "Product"),
             ("state", "Shadow state"),
             ("observations", "Observed"),
+            ("campaign_cases", "Daily campaign"),
+            ("reliable", "High-path refs"),
             ("mae", "Live MAE"),
             ("p95", "Live P95 error"),
             ("review", "Decision"),

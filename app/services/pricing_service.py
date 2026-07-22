@@ -92,6 +92,8 @@ def _attach_expanded_shadow(
             reference_standard_error=result["standard_error"],
             reference_latency_ms=result["latency_ms"],
             shadow_result=shadow,
+            reference_paths=int(result["n_paths"]),
+            reference_seed=int(result["seed"]),
         )
         result["surrogate_shadow"] = shadow
     except Exception:

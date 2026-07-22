@@ -50,6 +50,7 @@ data/pricing_history.csv
 data/*.sqlite3
 data/*.sqlite3-*
 data/surrogates/
+data/expanded_shadow_campaigns/
 
 # Generated model artifacts
 final/results/

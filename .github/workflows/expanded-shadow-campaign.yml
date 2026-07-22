@@ -1,0 +1,58 @@
+name: Expanded shadow evidence
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekdays after the regular US equity session. The repository variable
+    # below must be explicitly enabled before scheduled runs do any work.
+    - cron: "47 22 * * 1-5"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: expanded-shadow-evidence
+  cancel-in-progress: false
+
+jobs:
+  campaign:
+    if: github.event_name == 'workflow_dispatch' || vars.EXPANDED_SHADOW_CAMPAIGN_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Restore accumulated campaign state
+        uses: actions/cache@v4
+        with:
+          path: |
+            data/expanded_shadow_campaigns
+            data/expanded_shadow_observations.sqlite3
+            data/market_snapshots.sqlite3
+          key: expanded-shadow-evidence-${{ github.run_id }}
+          restore-keys: |
+            expanded-shadow-evidence-
+      - name: Install the research-data runtime
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[api]"
+      - name: Run the out-of-time campaign
+        run: |
+          python -m src.final.expanded_shadow_campaign \
+            --reference-paths 4096 \
+            --monitoring-db data/expanded_shadow_observations.sqlite3 \
+            --snapshot-db data/market_snapshots.sqlite3 \
+            --output-dir data/expanded_shadow_campaigns
+      - name: Upload the campaign report and portable evidence stores
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: expanded-shadow-evidence-${{ github.run_id }}
+          path: |
+            data/expanded_shadow_campaigns
+            data/expanded_shadow_observations.sqlite3
+            data/market_snapshots.sqlite3
+          if-no-files-found: warn
+          retention-days: 30

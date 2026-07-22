@@ -149,6 +149,17 @@ Package the pinned winners after reproducing the experiment with:
 python -m src.final.expanded_shadow_artifact
 ```
 
+Preview or run the daily out-of-time evidence campaign with:
+
+```powershell
+python -m src.final.expanded_shadow_campaign --plan-only
+python -m src.final.expanded_shadow_campaign
+```
+
+It freezes research-market snapshots for a fixed 12-underlier universe and
+records 4,096-path reference comparisons separately from interactive traffic.
+Rerunning the same campaign does not double-count evidence.
+
 The rollout flags, evidence gates, API endpoints, and replay workflow are in
 [Expanded shadow rollout](docs/expanded-shadow-rollout-v1.md).
 
@@ -188,6 +199,7 @@ src/final/
   reference_pricer.py         Monte Carlo reference engines
   expanded_surrogate_experiment.py
   expanded_shadow_artifact.py
+  expanded_shadow_campaign.py
   surrogate_*                 Training, audit, replay, and artifact tooling
 
 docs/                         Contract and research specifications

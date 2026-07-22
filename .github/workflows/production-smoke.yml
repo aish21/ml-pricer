@@ -53,6 +53,14 @@ jobs:
           assert status == 200
           assert ready["status"] == "ready"
           assert "phoenix-single-v3" in ready["contract_versions"]
+          expanded = ready["expanded_surrogate_shadow"]
+          assert expanded["automatic_promotion_permitted"] is False
+          assert all(
+              item["artifact_available"]
+              and item["runtime_approved"] is False
+              and item["runtime_policy"] == "shadow-only"
+              for item in expanded["products"].values()
+          )
 
           status, body = fetch(f"{backend}/health/metrics")
           metrics = json.loads(body)

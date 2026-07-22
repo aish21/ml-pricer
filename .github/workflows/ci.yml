@@ -43,4 +43,4 @@ jobs:
       - name: Build production images
         run: docker compose build
       - name: Verify backend market-data runtime
-        run: docker compose run --rm --no-deps backend python -c "import scipy, yfinance; import app.services.research_market_data, app.services.risk_service, app.services.surrogate_monitoring, app.services.surrogate_service"
+        run: docker compose run --rm --no-deps backend python -c "import importlib.util, scipy, yfinance; import app.services.research_market_data, app.services.risk_service, app.services.surrogate_monitoring, app.services.surrogate_service, src.final.expanded_shadow_campaign; from app.services.expanded_shadow_service import get_expanded_shadow_status; assert importlib.util.find_spec('joblib') is None; assert importlib.util.find_spec('lightgbm') is None; assert all(item['artifact_available'] for item in get_expanded_shadow_status()['products'].values())"

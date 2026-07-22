@@ -19,7 +19,7 @@ from src.final.market import EquityMarketSegment, EquityMarketTermStructure
 from src.final.phoenix_contract import PhoenixSingleV3Contract
 
 
-SCHEMA_VERSION = "expanded-shadow-observation-v1"
+SCHEMA_VERSION = "expanded-shadow-observation-v2"
 DEFAULT_DB = REPO_ROOT / "data" / "expanded_shadow_observations.sqlite3"
 PRODUCTS = ("phoenix_v3", "barrier_reverse_convertible")
 
@@ -39,7 +39,9 @@ def _enabled() -> bool:
     }
 
 
-def _db_path() -> Path:
+def _db_path(configured: Path | None = None) -> Path:
+    if configured is not None:
+        return Path(configured)
     return Path(os.getenv("EXPANDED_SURROGATE_TELEMETRY_DB", str(DEFAULT_DB)))
 
 
@@ -55,9 +57,9 @@ def _max_rows() -> int:
     return value
 
 
-def _connect() -> sqlite3.Connection:
+def _connect(db_path: Path | None = None) -> sqlite3.Connection:
     try:
-        path = _db_path()
+        path = _db_path(db_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(path, timeout=5.0)
         connection.row_factory = sqlite3.Row
@@ -86,10 +88,35 @@ def _connect() -> sqlite3.Connection:
                 payoff_region TEXT NOT NULL,
                 market_payload TEXT NOT NULL,
                 contract_payload TEXT NOT NULL,
-                shadow_payload TEXT NOT NULL
+                shadow_payload TEXT NOT NULL,
+                observation_source TEXT NOT NULL DEFAULT 'interactive',
+                campaign_id TEXT,
+                case_id TEXT,
+                reference_paths INTEGER,
+                reference_seed INTEGER,
+                market_snapshot_id TEXT
             )
             """
         )
+        columns = {
+            str(row["name"])
+            for row in connection.execute(
+                "PRAGMA table_info(expanded_shadow_observations)"
+            ).fetchall()
+        }
+        for column, definition in (
+            ("observation_source", "TEXT NOT NULL DEFAULT 'interactive'"),
+            ("campaign_id", "TEXT"),
+            ("case_id", "TEXT"),
+            ("reference_paths", "INTEGER"),
+            ("reference_seed", "INTEGER"),
+            ("market_snapshot_id", "TEXT"),
+        ):
+            if column not in columns:
+                connection.execute(
+                    f"ALTER TABLE expanded_shadow_observations "
+                    f"ADD COLUMN {column} {definition}"
+                )
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_expanded_shadow_product_created "
             "ON expanded_shadow_observations(product_key, created_at DESC)"
@@ -97,6 +124,14 @@ def _connect() -> sqlite3.Connection:
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_expanded_shadow_artifact "
             "ON expanded_shadow_observations(artifact_id, created_at DESC)"
+        )
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_expanded_shadow_case "
+            "ON expanded_shadow_observations(case_id) WHERE case_id IS NOT NULL"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_expanded_shadow_campaign "
+            "ON expanded_shadow_observations(campaign_id, product_key)"
         )
         connection.commit()
         return connection
@@ -159,13 +194,48 @@ def record_expanded_shadow_observation(
     reference_standard_error: float,
     reference_latency_ms: float,
     shadow_result: Mapping[str, Any],
+    observation_source: str = "interactive",
+    campaign_id: str | None = None,
+    case_id: str | None = None,
+    reference_paths: int | None = None,
+    reference_seed: int | None = None,
+    market_snapshot_id: str | None = None,
+    observation_id: str | None = None,
+    force: bool = False,
+    db_path: Path | None = None,
 ) -> bool:
-    if not _enabled() or shadow_result.get("status") in {"disabled", "not_sampled"}:
+    if (not force and not _enabled()) or shadow_result.get("status") in {
+        "disabled",
+        "not_sampled",
+    }:
         return False
     try:
+        if observation_source not in {"interactive", "out_of_time_campaign"}:
+            raise ExpandedShadowMonitoringError("invalid observation source")
+        if observation_source == "out_of_time_campaign" and (
+            not campaign_id or not case_id
+        ):
+            raise ExpandedShadowMonitoringError(
+                "campaign observations require campaign_id and case_id"
+            )
+        for value, label in (
+            (campaign_id, "campaign_id"),
+            (case_id, "case_id"),
+            (market_snapshot_id, "market_snapshot_id"),
+        ):
+            if value is not None and (not value.strip() or len(value) > 128):
+                raise ExpandedShadowMonitoringError(f"invalid {label}")
+        for value, label in (
+            (reference_paths, "reference_paths"),
+            (reference_seed, "reference_seed"),
+        ):
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, int) or value < 0
+            ):
+                raise ExpandedShadowMonitoringError(f"invalid {label}")
         created = datetime.now(timezone.utc)
         row = (
-            uuid.uuid4().hex,
+            observation_id or uuid.uuid4().hex,
             created.isoformat(),
             SCHEMA_VERSION,
             product_key,
@@ -187,12 +257,28 @@ def record_expanded_shadow_observation(
             json.dumps(market.to_dict(), sort_keys=True, separators=(",", ":")),
             json.dumps(contract.to_dict(), sort_keys=True, separators=(",", ":")),
             json.dumps(dict(shadow_result), sort_keys=True, separators=(",", ":")),
+            observation_source,
+            campaign_id,
+            case_id,
+            reference_paths,
+            reference_seed,
+            market_snapshot_id,
         )
-        with _connect() as connection:
-            connection.execute(
+        with _connect(db_path) as connection:
+            cursor = connection.execute(
                 """
-                INSERT INTO expanded_shadow_observations VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                INSERT OR IGNORE INTO expanded_shadow_observations (
+                    observation_id, created_at, schema_version, product_key,
+                    contract_version, symbol, market_date, artifact_id, status,
+                    reference_price, reference_standard_error, surrogate_price,
+                    absolute_error, relative_error, latency_ms,
+                    reference_latency_ms, domain_utilization, market_regime,
+                    payoff_region, market_payload, contract_payload,
+                    shadow_payload, observation_source, campaign_id, case_id,
+                    reference_paths, reference_seed, market_snapshot_id
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?
                 )
                 """,
                 row,
@@ -206,13 +292,38 @@ def record_expanded_shadow_observation(
                 """,
                 (_max_rows(),),
             )
-        return True
+        return cursor.rowcount == 1
     except Exception:
+        return False
+
+
+def expanded_shadow_case_exists(case_id: str, *, db_path: Path | None = None) -> bool:
+    if not case_id or len(case_id) > 128 or not _db_path(db_path).exists():
+        return False
+    try:
+        with _connect(db_path) as connection:
+            return (
+                connection.execute(
+                    "SELECT 1 FROM expanded_shadow_observations WHERE case_id = ?",
+                    (case_id,),
+                ).fetchone()
+                is not None
+            )
+    except ExpandedShadowMonitoringError:
         return False
 
 
 def _stats(rows: list[sqlite3.Row]) -> dict[str, Any]:
     successes = [row for row in rows if row["status"] == "success"]
+    campaign_rows = [
+        row for row in rows if row["observation_source"] == "out_of_time_campaign"
+    ]
+    campaign_successes = [row for row in campaign_rows if row["status"] == "success"]
+    reliable = [
+        row
+        for row in campaign_successes
+        if row["reference_paths"] is not None and int(row["reference_paths"]) >= 4_096
+    ]
     errors = np.asarray(
         [
             float(row["absolute_error"])
@@ -229,14 +340,38 @@ def _stats(rows: list[sqlite3.Row]) -> dict[str, Any]:
         ],
         dtype=np.float64,
     )
+    campaign_latencies = np.asarray(
+        [
+            float(row["latency_ms"])
+            for row in campaign_successes
+            if row["latency_ms"] is not None
+        ],
+        dtype=np.float64,
+    )
+    reliable_errors = np.asarray(
+        [
+            float(row["absolute_error"])
+            for row in reliable
+            if row["absolute_error"] is not None
+        ],
+        dtype=np.float64,
+    )
+    reliable_standard_errors = np.asarray(
+        [float(row["reference_standard_error"]) for row in reliable],
+        dtype=np.float64,
+    )
     statuses: dict[str, int] = {}
     for row in rows:
         statuses[str(row["status"])] = statuses.get(str(row["status"]), 0) + 1
-    span_days = None
-    if rows:
-        first = datetime.fromisoformat(str(rows[-1]["created_at"]))
-        last = datetime.fromisoformat(str(rows[0]["created_at"]))
-        span_days = max(0.0, (last - first).total_seconds() / 86_400.0)
+
+    def evidence_span(evidence_rows: list[sqlite3.Row]) -> float | None:
+        if not evidence_rows:
+            return None
+        market_dates = [
+            datetime.fromisoformat(str(row["market_date"])) for row in evidence_rows
+        ]
+        return float((max(market_dates) - min(market_dates)).days)
+
     return {
         "n_observations": len(rows),
         "n_success": len(successes),
@@ -248,11 +383,47 @@ def _stats(rows: list[sqlite3.Row]) -> dict[str, Any]:
         "p95_latency_ms": (
             float(np.quantile(latencies, 0.95)) if latencies.size else None
         ),
+        "campaign_evidence": {
+            "n_observations": len(campaign_rows),
+            "n_success": len(campaign_successes),
+            "success_rate": (
+                len(campaign_successes) / len(campaign_rows) if campaign_rows else None
+            ),
+            "symbols": len({str(row["symbol"]) for row in campaign_rows}),
+            "market_dates": len({str(row["market_date"]) for row in campaign_rows}),
+            "observation_span_days": evidence_span(campaign_rows),
+            "p95_latency_ms": (
+                float(np.quantile(campaign_latencies, 0.95))
+                if campaign_latencies.size
+                else None
+            ),
+        },
+        "reliable_reference": {
+            "source": "out_of_time_campaign",
+            "minimum_paths": 4_096,
+            "n_observations": len(reliable),
+            "mae": (float(np.mean(reliable_errors)) if reliable_errors.size else None),
+            "p95_absolute_error": (
+                float(np.quantile(reliable_errors, 0.95))
+                if reliable_errors.size
+                else None
+            ),
+            "mean_reference_standard_error": (
+                float(np.mean(reliable_standard_errors))
+                if reliable_standard_errors.size
+                else None
+            ),
+            "p95_reference_standard_error": (
+                float(np.quantile(reliable_standard_errors, 0.95))
+                if reliable_standard_errors.size
+                else None
+            ),
+        },
         "symbols": len({str(row["symbol"]) for row in rows}),
         "market_dates": len({str(row["market_date"]) for row in rows}),
         "first_observation_at": rows[-1]["created_at"] if rows else None,
         "last_observation_at": rows[0]["created_at"] if rows else None,
-        "observation_span_days": span_days,
+        "observation_span_days": evidence_span(rows),
     }
 
 
@@ -264,16 +435,18 @@ def _slice_counts(rows: list[sqlite3.Row], field: str) -> dict[str, int]:
     return values
 
 
-def get_expanded_shadow_summary(limit: int = 5_000) -> dict[str, Any]:
+def get_expanded_shadow_summary(
+    limit: int = 5_000, *, db_path: Path | None = None
+) -> dict[str, Any]:
     limit = max(1, min(int(limit), 100_000))
-    if not _db_path().exists():
+    if not _db_path(db_path).exists():
         return {
             "available": False,
             "reason": "no expanded shadow observations yet",
             "products": {},
         }
     try:
-        with _connect() as connection:
+        with _connect(db_path) as connection:
             rows = connection.execute(
                 "SELECT * FROM expanded_shadow_observations ORDER BY created_at DESC LIMIT ?",
                 (limit,),
@@ -283,10 +456,32 @@ def get_expanded_shadow_summary(limit: int = 5_000) -> dict[str, Any]:
     products: dict[str, Any] = {}
     for key in PRODUCTS:
         product_rows = [row for row in rows if row["product_key"] == key]
+        reliable_rows = [
+            row
+            for row in product_rows
+            if row["status"] == "success"
+            and row["observation_source"] == "out_of_time_campaign"
+            and row["reference_paths"] is not None
+            and int(row["reference_paths"]) >= 4_096
+        ]
+        campaign_rows = [
+            row
+            for row in product_rows
+            if row["observation_source"] == "out_of_time_campaign"
+        ]
         products[key] = {
             **_stats(product_rows),
             "market_regimes": _slice_counts(product_rows, "market_regime"),
             "payoff_regions": _slice_counts(product_rows, "payoff_region"),
+            "reliable_market_regimes": _slice_counts(reliable_rows, "market_regime"),
+            "reliable_payoff_regions": _slice_counts(reliable_rows, "payoff_region"),
+            "observation_sources": _slice_counts(product_rows, "observation_source"),
+            "campaigns": len(
+                {str(row["campaign_id"]) for row in product_rows if row["campaign_id"]}
+            ),
+            "campaign_artifact_ids": sorted(
+                {str(row["artifact_id"]) for row in campaign_rows if row["artifact_id"]}
+            ),
             "artifact_ids": sorted(
                 {str(row["artifact_id"]) for row in product_rows if row["artifact_id"]}
             ),
@@ -318,10 +513,12 @@ def _check(
     return result
 
 
-def get_expanded_shadow_readiness(limit: int = 100_000) -> dict[str, Any]:
+def get_expanded_shadow_readiness(
+    limit: int = 100_000, *, db_path: Path | None = None
+) -> dict[str, Any]:
     from app.services.expanded_shadow_service import get_expanded_shadow_status
 
-    summary = get_expanded_shadow_summary(limit)
+    summary = get_expanded_shadow_summary(limit, db_path=db_path)
     runtime_products = get_expanded_shadow_status().get("products") or {}
     decisions: dict[str, Any] = {}
     required_regions = {
@@ -336,30 +533,38 @@ def get_expanded_shadow_readiness(limit: int = 100_000) -> dict[str, Any]:
     }
     for key in PRODUCTS:
         observed = summary.get("products", {}).get(key, {})
-        regions = observed.get("payoff_regions") or {}
-        regimes = observed.get("market_regimes") or {}
-        observation_count = int(observed.get("n_observations") or 0)
-        non_success = observation_count - int(observed.get("n_success") or 0)
+        campaign = observed.get("campaign_evidence") or {}
+        reliable = observed.get("reliable_reference") or {}
+        regions = observed.get("reliable_payoff_regions") or {}
+        regimes = observed.get("reliable_market_regimes") or {}
+        observation_count = int(campaign.get("n_observations") or 0)
+        non_success = observation_count - int(campaign.get("n_success") or 0)
         failure_rate = non_success / observation_count if observation_count else None
-        artifact_ids = observed.get("artifact_ids") or []
+        artifact_ids = observed.get("campaign_artifact_ids") or []
         current_artifact_id = (runtime_products.get(key) or {}).get("artifact_id")
         checks = {
-            "observations": _check(observed.get("n_observations"), minimum=2_000),
-            "successful_observations": _check(observed.get("n_success"), minimum=1_800),
-            "symbols": _check(observed.get("symbols"), minimum=10),
-            "market_dates": _check(observed.get("market_dates"), minimum=10),
+            "observations": _check(campaign.get("n_observations"), minimum=2_000),
+            "successful_observations": _check(campaign.get("n_success"), minimum=1_800),
+            "reliable_reference_observations": _check(
+                reliable.get("n_observations"), minimum=1_800
+            ),
+            "symbols": _check(campaign.get("symbols"), minimum=10),
+            "market_dates": _check(campaign.get("market_dates"), minimum=10),
             "observation_span_days": _check(
-                observed.get("observation_span_days"), minimum=14
+                campaign.get("observation_span_days"), minimum=14
             ),
             "pinned_artifact_integrity": _check(
                 int(artifact_ids == [current_artifact_id]), minimum=1
             ),
-            "mae": _check(observed.get("mae"), maximum=0.015),
+            "mae": _check(reliable.get("mae"), maximum=0.015),
             "p95_absolute_error": _check(
-                observed.get("p95_absolute_error"), maximum=0.04
+                reliable.get("p95_absolute_error"), maximum=0.04
             ),
-            "p95_latency_ms": _check(observed.get("p95_latency_ms"), maximum=5.0),
-            "success_rate": _check(observed.get("success_rate"), minimum=0.995),
+            "mean_reference_standard_error": _check(
+                reliable.get("mean_reference_standard_error"), maximum=0.01
+            ),
+            "p95_latency_ms": _check(campaign.get("p95_latency_ms"), maximum=5.0),
+            "success_rate": _check(campaign.get("success_rate"), minimum=0.995),
             "failure_rate": _check(failure_rate, maximum=0.005),
             "market_regime_coverage": _check(
                 min(
@@ -393,15 +598,18 @@ def get_expanded_shadow_readiness(limit: int = 100_000) -> dict[str, Any]:
     }
 
 
-def get_expanded_shadow_series(limit: int = 250) -> dict[str, Any]:
-    if not _db_path().exists():
+def get_expanded_shadow_series(
+    limit: int = 250, *, db_path: Path | None = None
+) -> dict[str, Any]:
+    if not _db_path(db_path).exists():
         return {"available": False, "observations": []}
-    with _connect() as connection:
+    with _connect(db_path) as connection:
         rows = connection.execute(
             """
             SELECT created_at, product_key, symbol, artifact_id, status,
                    reference_price, surrogate_price, absolute_error, latency_ms,
-                   market_regime, payoff_region
+                   market_regime, payoff_region, observation_source, campaign_id,
+                   reference_paths, market_snapshot_id
             FROM expanded_shadow_observations ORDER BY created_at DESC LIMIT ?
             """,
             (max(1, min(int(limit), 5_000)),),
@@ -466,20 +674,20 @@ def _contract(
 
 
 def replay_expanded_shadow_observations(
-    product_key: str, limit: int = 100
+    product_key: str, limit: int = 100, *, db_path: Path | None = None
 ) -> dict[str, Any]:
     from app.services.expanded_shadow_service import evaluate_expanded_shadow
 
     if product_key not in PRODUCTS:
         raise ExpandedShadowMonitoringError("unknown expanded shadow product")
-    if not _db_path().exists():
+    if not _db_path(db_path).exists():
         return {
             "product_key": product_key,
             "requested": 0,
             "replayed": 0,
             "results": [],
         }
-    with _connect() as connection:
+    with _connect(db_path) as connection:
         rows = connection.execute(
             """
             SELECT * FROM expanded_shadow_observations
@@ -519,12 +727,14 @@ def replay_expanded_shadow_observations(
     }
 
 
-def get_expanded_shadow_monitoring_status() -> dict[str, Any]:
-    path = _db_path()
+def get_expanded_shadow_monitoring_status(
+    *, db_path: Path | None = None
+) -> dict[str, Any]:
+    path = _db_path(db_path)
     row_count = 0
     if path.exists():
         try:
-            with _connect() as connection:
+            with _connect(db_path) as connection:
                 row_count = int(
                     connection.execute(
                         "SELECT COUNT(*) FROM expanded_shadow_observations"
