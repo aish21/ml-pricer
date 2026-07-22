@@ -15,6 +15,7 @@ COPY pyproject.toml README.md ./
 COPY app ./app
 COPY src ./src
 COPY final/research_candidates ./final/research_candidates
+COPY final/shadow_artifacts ./final/shadow_artifacts
 
 # The validated API installs its pricing and market-data dependencies only.
 # Training libraries remain deliberately excluded from this image.

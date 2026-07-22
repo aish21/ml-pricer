@@ -1493,11 +1493,7 @@ def _render_guided_ml_evidence_snapshot(evidence: Mapping[str, Any]) -> None:
                         ),
                         "mae": metrics.get("mae"),
                         "p95": metrics.get("p95_absolute_error"),
-                        "runtime": (
-                            "Approved"
-                            if candidate.get("runtime_approved")
-                            else "Reference only"
-                        ),
+                        "runtime": "Shadow candidate",
                     }
                 )
             _render_table(
@@ -1513,11 +1509,86 @@ def _render_guided_ml_evidence_snapshot(evidence: Mapping[str, Any]) -> None:
                 number_formats={"mae": ".6f", "p95": ".6f"},
             )
 
+    _render_expanded_shadow_evidence(evidence, guided=True)
     st.download_button(
         "Download the full evidence snapshot",
         data=json.dumps(evidence, indent=2, sort_keys=True).encode("utf-8"),
         file_name="ml-pricer-evidence.json",
         mime="application/json",
+    )
+
+
+def _render_expanded_shadow_evidence(
+    evidence: Mapping[str, Any], *, guided: bool
+) -> None:
+    expanded = evidence.get("expanded_shadow") or {}
+    runtime_products = (expanded.get("runtime") or {}).get("products") or {}
+    monitoring_products = (expanded.get("monitoring") or {}).get("products") or {}
+    readiness_products = (expanded.get("readiness") or {}).get("products") or {}
+    if not runtime_products:
+        return
+    st.markdown(
+        "#### Two new ML students are waiting in the practice room"
+        if guided
+        else "#### Expanded-product shadow rollout"
+    )
+    st.write(
+        (
+            "Phoenix v3 and the reverse convertible now have learned shortcuts. "
+            "They can quietly answer the same question as Monte Carlo so we can "
+            "compare them, but their answer never becomes the price on this screen."
+        )
+        if guided
+        else (
+            "Pinned Phoenix v3 and barrier reverse-convertible artifacts are wired "
+            "for fail-closed shadow inference. Both remain independently disabled "
+            "until sampling and telemetry are explicitly enabled."
+        )
+    )
+    labels = {
+        "phoenix_v3": "Phoenix v3",
+        "barrier_reverse_convertible": "Barrier reverse convertible",
+    }
+    rows = []
+    for key, label in labels.items():
+        runtime = runtime_products.get(key) or {}
+        observed = monitoring_products.get(key) or {}
+        readiness = readiness_products.get(key) or {}
+        if not runtime.get("artifact_available"):
+            state = "Artifact unavailable"
+        elif runtime.get("enabled"):
+            state = f"Collecting ({float(runtime.get('sample_rate') or 0):.0%})"
+        else:
+            state = "Packaged · switched off"
+        rows.append(
+            {
+                "product": label,
+                "state": state,
+                "observations": int(observed.get("n_observations") or 0),
+                "mae": observed.get("mae"),
+                "p95": observed.get("p95_absolute_error"),
+                "review": (
+                    "Ready for human review"
+                    if readiness.get("ready_for_human_review")
+                    else "Needs evidence"
+                ),
+            }
+        )
+    _render_table(
+        rows,
+        [
+            ("product", "Product"),
+            ("state", "Shadow state"),
+            ("observations", "Observed"),
+            ("mae", "Live MAE"),
+            ("p95", "Live P95 error"),
+            ("review", "Decision"),
+        ],
+        number_formats={"mae": ".6f", "p95": ".6f"},
+    )
+    st.caption(
+        "No automatic promotion exists. Meeting every evidence gate only opens a "
+        "separate human review; Monte Carlo remains authoritative."
     )
 
 
@@ -1655,11 +1726,7 @@ def _render_ml_evidence(
                     "mae": metrics.get("mae"),
                     "p95": metrics.get("p95_absolute_error"),
                     "r2": metrics.get("r2"),
-                    "runtime": (
-                        "Approved"
-                        if candidate.get("runtime_approved")
-                        else "Reference only"
-                    ),
+                    "runtime": "Shadow candidate",
                 }
             )
         _render_table(
@@ -1679,6 +1746,8 @@ def _render_ml_evidence(
             f"{expansion.get('experiment_version')} · generated "
             f"{expansion.get('generated_at')} · runtime policy unchanged"
         )
+
+    _render_expanded_shadow_evidence(evidence, guided=False)
 
     st.markdown("#### Live shadow report card")
     live_available = monitoring.get("available") is True

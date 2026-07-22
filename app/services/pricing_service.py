@@ -62,6 +62,49 @@ PHOENIX_SNAPSHOT_TERM_NAMES = frozenset(
 )
 
 
+def _attach_expanded_shadow(
+    *,
+    result: Dict[str, Any],
+    product_key: str,
+    market: EquityMarketTermStructure,
+    contract: PhoenixSingleV3Contract | BarrierReverseConvertibleV1Contract,
+) -> None:
+    """Attach best-effort ML evidence without changing the reference result."""
+    try:
+        from app.services.expanded_shadow_monitoring import (
+            record_expanded_shadow_observation,
+        )
+        from app.services.expanded_shadow_service import evaluate_expanded_shadow
+
+        shadow = evaluate_expanded_shadow(
+            product_key=product_key,
+            market=market,
+            contract=contract,
+            reference_price=result["price"],
+            reference_standard_error=result["standard_error"],
+            reference_latency_ms=result["latency_ms"],
+        )
+        shadow["telemetry_recorded"] = record_expanded_shadow_observation(
+            product_key=product_key,
+            market=market,
+            contract=contract,
+            reference_price=result["price"],
+            reference_standard_error=result["standard_error"],
+            reference_latency_ms=result["latency_ms"],
+            shadow_result=shadow,
+        )
+        result["surrogate_shadow"] = shadow
+    except Exception:
+        result["surrogate_shadow"] = {
+            "status": "error",
+            "mode": "shadow-only",
+            "used_for_price": False,
+            "runtime_approved": False,
+            "reason": "expanded shadow integration failed safely",
+            "telemetry_recorded": False,
+        }
+
+
 def get_bb_pricing_products() -> list[dict[str, str]]:
     return [
         {
@@ -599,15 +642,12 @@ def price_phoenix_v3_with_term_structure(
             "simulation grid.",
         ],
     )
-    result["surrogate_shadow"] = {
-        "status": "not_applicable",
-        "mode": "shadow-only",
-        "used_for_price": False,
-        "reason": (
-            "phoenix-single-v3 is reference-priced while richer-contract "
-            "surrogate evidence is collected"
-        ),
-    }
+    _attach_expanded_shadow(
+        result=result,
+        product_key="phoenix_v3",
+        market=market,
+        contract=contract,
+    )
     return result
 
 
@@ -671,13 +711,10 @@ def price_barrier_reverse_convertible_with_term_structure(
             "Historical knock-in state is caller-supplied.",
         ],
     )
-    result["surrogate_shadow"] = {
-        "status": "not_available",
-        "mode": "reference-only",
-        "used_for_price": False,
-        "reason": (
-            "no barrier reverse convertible surrogate has passed sealed "
-            "acceptance gates"
-        ),
-    }
+    _attach_expanded_shadow(
+        result=result,
+        product_key="barrier_reverse_convertible",
+        market=market,
+        contract=contract,
+    )
     return result

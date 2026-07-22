@@ -521,7 +521,9 @@ def test_richer_phoenix_api_prices_memory_and_stepdown_contract():
     assert result["contract"]["memory_coupon"] is True
     assert result["contract"]["unpaid_coupon_count"] == 2
     assert result["contract"]["autocall_stepdown"] == pytest.approx(0.15)
-    assert result["surrogate_shadow"]["status"] == "not_applicable"
+    assert result["surrogate_shadow"]["status"] == "disabled"
+    assert result["surrogate_shadow"]["mode"] == "shadow-only"
+    assert result["surrogate_shadow"]["used_for_price"] is False
 
 
 def test_barrier_reverse_convertible_api_prices_and_explains_model_status():
@@ -535,7 +537,22 @@ def test_barrier_reverse_convertible_api_prices_and_explains_model_status():
     assert result["product_key"] == "barrier_reverse_convertible"
     assert result["contract_version"] == "barrier-reverse-convertible-v1"
     assert result["contract"]["remaining_coupon_count"] == 4
-    assert result["surrogate_shadow"]["status"] == "not_available"
+    assert result["surrogate_shadow"]["status"] == "disabled"
+    assert result["surrogate_shadow"]["mode"] == "shadow-only"
+    assert result["surrogate_shadow"]["used_for_price"] is False
+
+
+def test_expanded_shadow_status_and_evidence_are_exposed():
+    status = client.get("/api/v1/expanded-surrogate-shadow/status")
+    evidence = client.get("/api/v1/surrogate-shadow/evidence")
+
+    assert status.status_code == 200
+    products = status.json()["runtime"]["products"]
+    assert products["phoenix_v3"]["artifact_available"] is True
+    assert products["barrier_reverse_convertible"]["runtime_approved"] is False
+    assert evidence.status_code == 200
+    expanded = evidence.json()["evidence"]["expanded_shadow"]
+    assert expanded["readiness"]["automatic_promotion_permitted"] is False
 
 
 def test_barrier_reverse_convertible_diagnostics_decompose_downside_paths():

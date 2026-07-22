@@ -1,0 +1,117 @@
+{
+  "artifact_id": "sha256:357cf066aafb9f13e3bdffcde367dcdba3f0c934c812b363465c200f79d75366",
+  "contract_version": "barrier-reverse-convertible-v1",
+  "feature_domain": {
+    "coupon_count": [
+      1.0,
+      8.0
+    ],
+    "coupon_rate_per_period": [
+      0.005,
+      0.04
+    ],
+    "dividend_yield": [
+      0.0,
+      0.04
+    ],
+    "knock_in_frac": [
+      0.45,
+      0.9
+    ],
+    "maturity_years": [
+      0.25,
+      2.0
+    ],
+    "prior_knock_in_breached": [
+      0.0,
+      1.0
+    ],
+    "risk_free_rate": [
+      0.0,
+      0.07
+    ],
+    "spot_to_reference": [
+      0.55,
+      1.35
+    ],
+    "strike_frac": [
+      0.9,
+      1.1
+    ],
+    "volatility": [
+      0.1,
+      0.5
+    ]
+  },
+  "feature_order": [
+    "spot_to_reference",
+    "risk_free_rate",
+    "dividend_yield",
+    "volatility",
+    "maturity_years",
+    "coupon_rate_per_period",
+    "strike_frac",
+    "knock_in_frac",
+    "coupon_count",
+    "prior_knock_in_breached",
+    "spot_minus_strike",
+    "spot_minus_knock_in",
+    "strike_minus_knock_in",
+    "total_coupon_rate"
+  ],
+  "model_checksum": "sha256:7496837b650c433ee0a633602971f8b8e78397b3c4138a7e4dc8e8998afb3099",
+  "model_family": "lightgbm.LGBMRegressor",
+  "parity": {
+    "maximum_absolute_error": 2.4424906541753444e-15,
+    "samples": 128
+  },
+  "product_key": "barrier_reverse_convertible",
+  "runtime_approved": false,
+  "runtime_policy": "shadow-only",
+  "schedule_policy": "even-fixed-coupon-observations",
+  "schema_version": "expanded-shadow-artifact-v1",
+  "sealed_audit": {
+    "checks": {
+      "mae": {
+        "maximum": 0.015,
+        "passed": true,
+        "value": 0.013276724819048962
+      },
+      "mean_label_standard_error": {
+        "maximum": 0.01,
+        "passed": true,
+        "value": 0.0022053430440488477
+      },
+      "median_inference_latency_ms": {
+        "maximum": 5.0,
+        "passed": true,
+        "value": 0.11324999650241807
+      },
+      "p95_absolute_error": {
+        "maximum": 0.04,
+        "passed": true,
+        "value": 0.03524553787169205
+      },
+      "r2": {
+        "minimum": 0.9,
+        "passed": true,
+        "value": 0.9830211666190142
+      }
+    },
+    "metrics": {
+      "mae": 0.013276724819048962,
+      "mean_label_standard_error": 0.0022053430440488477,
+      "median_inference_latency_ms": 0.11324999650241807,
+      "p95_absolute_error": 0.03524553787169205,
+      "p95_label_standard_error": 0.003867495868787928,
+      "r2": 0.9830211666190142
+    },
+    "passed": true
+  },
+  "selected_candidate": "balanced_l1",
+  "shadow_eligible": true,
+  "source_experiment_id": "sha256:fdd30cb2852928faa9f88a46c1deecc908ba4c0651a86368d23fc0e284ef0606",
+  "source_manifest_checksum": "sha256:fe51d4b669d596652d87593de7ba086360b25177d499b7c90ce209796fd873df",
+  "training_library_version": "4.6.0",
+  "tree_count": 1000
+}

@@ -1,0 +1,15 @@
+{
+  "artifacts": {
+    "barrier_reverse_convertible": {
+      "artifact_id": "sha256:357cf066aafb9f13e3bdffcde367dcdba3f0c934c812b363465c200f79d75366",
+      "contract_version": "barrier-reverse-convertible-v1"
+    },
+    "phoenix_v3": {
+      "artifact_id": "sha256:fcb35c9d76da101cc1233afa2878a47ebfd04746be46da1fbdfb2bfb9bbeb791",
+      "contract_version": "phoenix-single-v3"
+    }
+  },
+  "automatic_promotion_permitted": false,
+  "runtime_policy": "shadow-only",
+  "schema_version": "expanded-shadow-registry-v1"
+}

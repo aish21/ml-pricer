@@ -38,10 +38,13 @@ Both selected candidates passed the fresh sealed audit.
 | Phoenix v3 | 0.01409 | 0.03846 | 0.9821 | 0.107 ms |
 | Barrier reverse convertible | 0.01328 | 0.03525 | 0.9830 | 0.113 ms |
 
-Both winners were the balanced L1 candidate. They are stored as research
-packages so the results can be inspected and replayed. They are not served:
-every manifest keeps `runtime_approved = false`, and Monte Carlo remains the
-reference price.
+Both winners were the balanced L1 candidate. Their research packages can be
+reproduced and inspected. The exact winners are also exported into safe,
+checksummed tree packages for controlled shadow collection. Every manifest
+keeps `runtime_approved = false`, and Monte Carlo remains the reference price.
+
+See [Expanded shadow rollout](expanded-shadow-rollout-v1.md) for the serving
+boundary, disabled-by-default controls, telemetry, replay, and review gates.
 
 The machine-readable report is
 `final/research_candidates/experiment_summary.json`.

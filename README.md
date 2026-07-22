@@ -39,7 +39,8 @@ reported standard error and 95% confidence interval.
 - Immutable market-calibration snapshots with quality checks and provenance.
 - Spot, rate, dividend, volatility, and term-structure scenarios.
 - Delta, Gamma, Vega, Rho, and dividend Rho with paired Monte Carlo diagnostics.
-- A checksum-verified Phoenix surrogate running in monitored shadow mode.
+- Checksum-verified Phoenix v1, Phoenix v3, and reverse-convertible surrogate
+  packages with independent shadow controls.
 - Sealed model audits, live error and latency telemetry, drift checks, and
   non-promoting review gates.
 - A compact server-rendered BlackBerry terminal at `/bb`.
@@ -86,8 +87,9 @@ Stop the stack with:
 docker compose down
 ```
 
-Runtime state is stored under `data/`; generated model artifacts remain outside
-Git.
+Runtime state is stored under `data/`. The two expanded shadow packages are
+small, safe tree exports pinned under `final/shadow_artifacts/`; unsafe training
+pickles remain outside Git and the API image.
 
 ## Local development
 
@@ -128,8 +130,9 @@ shadow comparison.
 The Phoenix v3 and barrier reverse-convertible experiments use separate
 development, validation, and sealed audit datasets. Their v2 candidates passed
 the unchanged accuracy, uncertainty, and latency gates after training was
-focused around payoff boundaries. They remain research candidates:
-`runtime_approved` is still false, and neither model is used for a live price.
+focused around payoff boundaries. The winners are now packaged for controlled
+shadow collection, but both kill switches and sample rates default to off.
+`runtime_approved` remains false, and neither model can alter a live price.
 
 Run the expanded-product experiment with:
 
@@ -139,6 +142,15 @@ python -m src.final.expanded_surrogate_experiment
 
 The latest machine-readable decisions live under
 `final/research_candidates/`.
+
+Package the pinned winners after reproducing the experiment with:
+
+```powershell
+python -m src.final.expanded_shadow_artifact
+```
+
+The rollout flags, evidence gates, API endpoints, and replay workflow are in
+[Expanded shadow rollout](docs/expanded-shadow-rollout-v1.md).
 
 ## Operations and deployment
 
@@ -158,6 +170,7 @@ Useful runtime settings are documented in:
 - [Research market data](docs/equity-research-market-v1.md)
 - [Shadow artifact](docs/phoenix-price-first-shadow-artifact-v1.md)
 - [Promotion readiness](docs/phoenix-shadow-promotion-readiness-v1.md)
+- [Expanded shadow rollout](docs/expanded-shadow-rollout-v1.md)
 
 ## Repository map
 
@@ -174,10 +187,12 @@ src/final/
   barrier_reverse_convertible.py
   reference_pricer.py         Monte Carlo reference engines
   expanded_surrogate_experiment.py
+  expanded_shadow_artifact.py
   surrogate_*                 Training, audit, replay, and artifact tooling
 
 docs/                         Contract and research specifications
 final/research_candidates/    Non-runtime experiment decisions
+final/shadow_artifacts/       Pinned safe tree exports for shadow inference
 unittests/                    Unit and integration tests
 ```
 
@@ -188,6 +203,7 @@ Key specifications:
 - [Phoenix v3](docs/phoenix-single-v3.md)
 - [Barrier reverse convertible](docs/barrier-reverse-convertible-v1.md)
 - [Expanded surrogate experiment](docs/expanded-surrogate-experiment-v2.md)
+- [Expanded shadow rollout](docs/expanded-shadow-rollout-v1.md)
 - [Quant and Guided workspace](docs/quant-workspace-v1.md)
 
 ## Current boundaries

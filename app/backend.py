@@ -38,6 +38,10 @@ from app.services.diagnostics_service import PHOENIX_DIAGNOSTICS_VERSION
 from app.services.research_market_data import get_research_market_data_status
 from app.services.surrogate_service import get_surrogate_status
 from app.services.surrogate_monitoring import get_surrogate_monitoring_status
+from app.services.expanded_shadow_monitoring import (
+    get_expanded_shadow_monitoring_status,
+)
+from app.services.expanded_shadow_service import get_expanded_shadow_status
 from app.services.product_registry import (
     REPO_ROOT,
     build_artifact_status,
@@ -374,6 +378,8 @@ def health_ready():
         "market_snapshot_store": get_market_snapshot_store_status(),
         "surrogate_shadow": get_surrogate_status(),
         "surrogate_monitoring": get_surrogate_monitoring_status(),
+        "expanded_surrogate_shadow": get_expanded_shadow_status(),
+        "expanded_surrogate_monitoring": get_expanded_shadow_monitoring_status(),
         "operations_monitoring": {
             "version": OPERATIONS_MONITORING_VERSION,
             "uptime_seconds": operations["uptime_seconds"],
@@ -391,4 +397,6 @@ def health_metrics():
         "research_market": get_research_market_data_status(),
         "surrogate_shadow": get_surrogate_status(),
         "surrogate_monitoring": get_surrogate_monitoring_status(),
+        "expanded_surrogate_shadow": get_expanded_shadow_status(),
+        "expanded_surrogate_monitoring": get_expanded_shadow_monitoring_status(),
     }

@@ -86,6 +86,14 @@ from app.services.surrogate_monitoring import (
     get_surrogate_monitoring_status,
     get_surrogate_monitoring_summary,
 )
+from app.services.expanded_shadow_monitoring import (
+    ExpandedShadowMonitoringError,
+    get_expanded_shadow_readiness,
+    get_expanded_shadow_series,
+    get_expanded_shadow_summary,
+    replay_expanded_shadow_observations,
+)
+from app.services.expanded_shadow_service import get_expanded_shadow_status
 from app.services.surrogate_promotion import get_surrogate_promotion_readiness
 
 
@@ -1129,6 +1137,7 @@ def model_info():
     info = get_model_info()
     info["surrogate_shadow"] = get_surrogate_status()
     info["surrogate_monitoring"] = get_surrogate_monitoring_status()
+    info["expanded_surrogate_shadow"] = get_expanded_shadow_status()
     return {
         "status": "success",
         "model_info": info,
@@ -1183,10 +1192,70 @@ def surrogate_shadow_evidence(
                 "monitoring": get_surrogate_monitoring_summary(limit=monitoring_limit),
                 "series": get_surrogate_monitoring_series(limit=series_limit),
                 "readiness": get_surrogate_promotion_readiness(limit=monitoring_limit),
+                "expanded_shadow": {
+                    "runtime": get_expanded_shadow_status(),
+                    "monitoring": get_expanded_shadow_summary(limit=monitoring_limit),
+                    "series": get_expanded_shadow_series(limit=series_limit),
+                    "readiness": get_expanded_shadow_readiness(limit=monitoring_limit),
+                },
             },
         }
-    except SurrogateMonitoringError:
+    except (SurrogateMonitoringError, ExpandedShadowMonitoringError):
         return JSONResponse(
             {"status": "error", "message": "surrogate evidence unavailable"},
+            status_code=503,
+        )
+
+
+@router.get("/expanded-surrogate-shadow/status")
+def expanded_surrogate_shadow_status():
+    return {"status": "success", "runtime": get_expanded_shadow_status()}
+
+
+@router.get("/expanded-surrogate-shadow/metrics")
+def expanded_surrogate_shadow_metrics(
+    limit: int = Query(default=5_000, ge=1, le=100_000),
+):
+    try:
+        return {
+            "status": "success",
+            "monitoring": get_expanded_shadow_summary(limit=limit),
+        }
+    except ExpandedShadowMonitoringError:
+        return JSONResponse(
+            {"status": "error", "message": "expanded shadow monitoring unavailable"},
+            status_code=503,
+        )
+
+
+@router.get("/expanded-surrogate-shadow/promotion-readiness")
+def expanded_surrogate_shadow_promotion_readiness(
+    limit: int = Query(default=100_000, ge=1, le=100_000),
+):
+    try:
+        return {
+            "status": "success",
+            "readiness": get_expanded_shadow_readiness(limit=limit),
+        }
+    except ExpandedShadowMonitoringError:
+        return JSONResponse(
+            {"status": "error", "message": "expanded shadow readiness unavailable"},
+            status_code=503,
+        )
+
+
+@router.post("/expanded-surrogate-shadow/replay/{product_key}")
+def replay_expanded_surrogate_shadow(
+    product_key: Literal["phoenix_v3", "barrier_reverse_convertible"],
+    limit: int = Query(default=100, ge=1, le=1_000),
+):
+    try:
+        return {
+            "status": "success",
+            "replay": replay_expanded_shadow_observations(product_key, limit=limit),
+        }
+    except ExpandedShadowMonitoringError:
+        return JSONResponse(
+            {"status": "error", "message": "expanded shadow replay unavailable"},
             status_code=503,
         )
