@@ -143,6 +143,19 @@ python -m src.final.expanded_surrogate_experiment
 The latest machine-readable decisions live under
 `final/research_candidates/`.
 
+The next training study fixes the Monte Carlo teacher before changing the
+learner: it uses the production time grid, piecewise markets, independently
+scrambled Sobol labels, and measured label uncertainty. It retrains the same
+LightGBM baseline with and without uncertainty weights, without touching
+runtime artifacts:
+
+```powershell
+python -m src.final.expanded_surrogate_phase1
+```
+
+The design and the ML and pricing ideas behind it are in
+[Expanded surrogate training Phase 1](docs/expanded-surrogate-phase1-v1.md).
+
 Package the pinned winners after reproducing the experiment with:
 
 ```powershell
@@ -215,6 +228,7 @@ Key specifications:
 - [Phoenix v3](docs/phoenix-single-v3.md)
 - [Barrier reverse convertible](docs/barrier-reverse-convertible-v1.md)
 - [Expanded surrogate experiment](docs/expanded-surrogate-experiment-v2.md)
+- [Expanded surrogate training Phase 1](docs/expanded-surrogate-phase1-v1.md)
 - [Expanded shadow rollout](docs/expanded-shadow-rollout-v1.md)
 - [Quant and Guided workspace](docs/quant-workspace-v1.md)
 

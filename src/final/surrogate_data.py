@@ -325,13 +325,14 @@ def _sample_market(
     return market, reference_spot
 
 
-def _standard_normal_shocks(
+def standard_normal_shocks(
     *,
     method: str,
     n_paths: int,
     n_steps: int,
     seed: int,
 ) -> np.ndarray:
+    """Generate reproducible normal shocks for a supported sampling method."""
     if method == "antithetic":
         rng = np.random.RandomState(seed)
         half = rng.standard_normal((n_paths // 2, n_steps))
@@ -343,6 +344,10 @@ def _standard_normal_shocks(
     uniforms = sampler.random_base2(m=int(math.log2(n_paths)))
     epsilon = np.finfo(np.float64).eps
     return norm.ppf(np.clip(uniforms, epsilon, 1.0 - epsilon))
+
+
+# Retained for the existing training modules that used the old private name.
+_standard_normal_shocks = standard_normal_shocks
 
 
 def _label_case(

@@ -51,6 +51,8 @@ data/*.sqlite3
 data/*.sqlite3-*
 data/surrogates/
 data/expanded_shadow_campaigns/
+data/expanded_surrogate_phase1/
+.tmp/
 
 # Generated model artifacts
 final/results/
