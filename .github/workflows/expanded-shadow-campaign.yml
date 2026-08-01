@@ -47,7 +47,7 @@ jobs:
             --output-dir data/expanded_shadow_campaigns
       - name: Upload the campaign report and portable evidence stores
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: expanded-shadow-evidence-${{ github.run_id }}
           path: |
