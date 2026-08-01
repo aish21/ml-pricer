@@ -27,7 +27,7 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
       - name: Restore accumulated campaign state
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             data/expanded_shadow_campaigns
